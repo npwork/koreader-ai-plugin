@@ -78,6 +78,13 @@ jobs:
 
       - name: The plugin must have loaded, and KOReader must have survived it
         run: |
+          # xvfb-run returns as soon as it has forwarded the signal, so give
+          # KOReader the moment it needs to finish writing its teardown.
+          for _ in $(seq 1 20); do
+            grep -q "Tearing down UIManager" koreader.log && break
+            sleep 1
+          done
+
           tail -c 20000 koreader.log || true
 
           grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \

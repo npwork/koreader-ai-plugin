@@ -144,6 +144,13 @@ jobs:
           set -e
 
           cd "${GITHUB_WORKSPACE}"
+          # xvfb-run returns as soon as it has forwarded the signal, so give
+          # KOReader the moment it needs to finish writing its teardown.
+          for _ in $(seq 1 20); do
+            grep -q "Tearing down UIManager" koreader.log && break
+            sleep 1
+          done
+
           tail -c 4000 koreader.log
           grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \
             || { echo "::error::the published package does not load in KOReader"; exit 1; }
