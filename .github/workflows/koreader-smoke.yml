@@ -1,0 +1,85 @@
+name: koreader smoke
+
+# Loads the plugin into a real KOReader and checks that KOReader accepts it.
+#
+# The specs stub KOReader's API; this is the only thing that proves the stubs
+# still match it. It runs on a GitHub runner rather than in a cloud session
+# because that is where a KOReader build can actually be downloaded — see
+# docs/emulator.md.
+
+on:
+  push:
+    paths:
+      - "plugin/**"
+      - ".github/workflows/koreader-smoke.yml"
+  workflow_dispatch:
+    inputs:
+      koreader_tag:
+        description: "KOReader release to test against (default: latest)"
+        required: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the runtime KOReader needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libsdl2-2.0-0 fonts-dejavu-core
+
+      - name: Download a KOReader build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.koreader_tag }}
+        run: |
+          set -x
+          if [ -z "${TAG}" ]; then
+            TAG="$(gh release list --repo koreader/koreader --limit 1 --json tagName --jq '.[0].tagName')"
+          fi
+          echo "Testing against KOReader ${TAG}"
+          gh release download "${TAG}" --repo koreader/koreader --pattern '*x86_64*.AppImage' --dir .
+          chmod +x ./*.AppImage
+          ./*.AppImage --appimage-extract >/dev/null
+          find squashfs-root -name reader.lua
+
+      - name: Install the plugin into it
+        run: |
+          KOREADER_DIR="$(dirname "$(find squashfs-root -name reader.lua | head -1)")"
+          echo "KOREADER_DIR=${KOREADER_DIR}" >> "${GITHUB_ENV}"
+          mkdir -p "${KOREADER_DIR}/plugins"
+          cp -r plugin/aidict.koplugin "${KOREADER_DIR}/plugins/"
+          ls "${KOREADER_DIR}/plugins"
+
+      - name: Start KOReader with the plugin, headlessly
+        run: |
+          mkdir -p books
+          # A minimal document to open, so KOReader starts the reader rather
+          # than sitting in the file manager.
+          printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
+
+          set +e
+          cd "${KOREADER_DIR}"
+          timeout --signal=TERM 45 xvfb-run -a --server-args="-screen 0 600x800x24" \
+            ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" > "${GITHUB_WORKSPACE}/koreader.log" 2>&1
+          echo "reader exited with $?"
+          set -e
+
+      - name: The plugin must have loaded, and nothing may have blown up
+        run: |
+          tail -c 20000 koreader.log || true
+          grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \
+            || { echo "::error::KOReader did not load the plugin"; exit 1; }
+          if grep -qE "Error when loading.*aidict|aidict.*attempt to (call|index)" koreader.log; then
+            echo "::error::the plugin raised an error inside KOReader"
+            exit 1
+          fi
+          echo "KOReader loaded aidict cleanly"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: koreader-log
+          path: koreader.log
