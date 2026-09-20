@@ -113,20 +113,21 @@ static files:
   per package, its absolute URL and its sha256.
 * `SHA256SUMS` — checksums for every artifact in the channel.
 
-Cutting a release takes no terminal at all: **Actions → release → Run
-workflow**, pick `patch`, `minor` or `major`. The workflow raises the version,
-runs the checks, tags, publishes, and then installs what it published with the
-real KPM and loads it in a real KOReader before the run goes green. Its summary
-ends with the two lines to type on the Kindle.
+There are no release tags and no version to pick: **a push is a release**.
 
-From a machine with a checkout, the same thing is:
+| Branch | Channel | Version |
+| --- | --- | --- |
+| `main` | `stable` | `<major>.<minor>.<commits on main>` |
+| `dev` | `dev` | `<major>.<minor>.<commits on dev>` |
 
-```bash
-make release VERSION=0.2.0
-```
+`major` and `minor` come from `version.lua` and are yours to raise when a
+change deserves it; the patch number is the branch's commit count, so every
+push is automatically a higher version than the last — which is what
+`kpm upgrade` compares.
 
-Either way the **tag** is what the `stable` channel follows; a plain push to
-`main` moves the `dev` channel only.
+Both channels are rebuilt on every run, because a Pages deployment replaces
+the whole site. The publish then installs what it published with the real KPM
+and loads it in a real KOReader before the run goes green.
 
 `scripts/build-site.sh` assembles both channels into `site/`, which
 `.github/workflows/pages.yml` publishes to GitHub Pages on every push to

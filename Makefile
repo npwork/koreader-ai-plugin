@@ -4,7 +4,7 @@ DIST ?= dist
 CHANNEL ?= stable
 BASE_URL ?= https://npwork.github.io/koreader-ai-plugin
 
-.PHONY: help test lint check check-all package repo verify kpm test-distribution release clean
+.PHONY: help test lint check check-all package repo verify kpm test-distribution clean
 
 help:
 	@echo "make test              busted: units, the KOReader layer, and live HTTP"
@@ -18,8 +18,6 @@ help:
 	@echo ""
 	@echo "make package           build $(DIST)/<id>_<version>_kindleany.kpkg"
 	@echo "make repo              fold built packages into $(DIST)/repo/$(CHANNEL)/"
-	@echo ""
-	@echo "make release VERSION=x.y.z   bump, check, tag and push a release"
 	@echo "make clean             remove $(DIST)"
 
 test:
@@ -49,9 +47,6 @@ package:
 
 repo: package
 	python3 scripts/kpmrepo.py repo --channel $(CHANNEL) --base-url $(BASE_URL)
-
-release:
-	./scripts/release.sh $(VERSION)
 
 clean:
 	rm -rf $(DIST)

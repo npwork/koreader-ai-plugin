@@ -1,22 +1,19 @@
 name: pages
 
 # Publishes the KPM repository to GitHub Pages, then proves it works by
-# installing from the live URL with the real package manager.
+# installing from the live URL with the real package manager and loading the
+# result in a real KOReader.
+#
+# There are no release tags: the stable channel is the main branch and the dev
+# channel is the dev branch, so a push is a release. Both channels are rebuilt
+# on every run, because a deployment replaces the whole site.
 #
 # The repository must be public for Pages to be available on a free plan.
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
+    branches: [main, dev]
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      ref:
-        description: "Ref to publish (default: whatever triggered the run)"
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -33,9 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The stable channel is built from the newest v* tag.
+          # Both branches, and every commit, so the build can see the other
+          # channel and count commits for the version.
           fetch-depth: 0
-          ref: ${{ inputs.ref }}
 
       - name: Build the site
         # The gateway address is not in the repository; it is baked into the
@@ -71,8 +68,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
 
       - name: Install what KPM needs to build, Lua to check what it installs, and a display for KOReader
         run: |

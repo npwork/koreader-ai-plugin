@@ -66,11 +66,13 @@ https://npwork.github.io/koreader-ai-plugin/
   <channel>/packages/…/*.kpkg
 ```
 
-`scripts/build-site.sh` builds both channels into `site/`: **dev** from the
-working tree, **stable** from the newest `v*` tag — rebuilt with that tag's own
-packaging script, so a release is always reproduced the way it was released.
-Until the first tag exists, stable carries the current build so the channel is
-never empty.
+`scripts/build-site.sh` builds both channels into `site/` — stable from
+`main`, dev from `dev` — each with that branch's own packaging script, so what
+ships is what that commit would have shipped. Until a `dev` branch exists, the
+dev channel mirrors stable so it is never empty.
+
+Both are rebuilt every run: a Pages deployment replaces the whole site, so
+building only the branch that changed would delete the other channel.
 
 This needs the repository to be **public**: Pages is a paid feature on private
 repositories. The plugin's source being public is not the same as the gateway
@@ -94,13 +96,17 @@ gateway's bearer token, which never enters the package, is what guards it.
 
 ### Releasing
 
-`.github/workflows/release.yml` is the whole release: dispatched by hand with
-`patch`, `minor` or `major`, it raises the version in `version.lua`, runs
-`make check`, commits, tags, and then calls the publish workflow with that tag.
+A push is a release. `main` feeds the `stable` channel, `dev` feeds `dev`, and
+`.github/workflows/pages.yml` runs on both.
 
-The publish is called rather than triggered, because a push made with
-`GITHUB_TOKEN` does not start other workflows — a tag pushed by CI would
-otherwise sit there unpublished.
+Versions need no decision: `major.minor` come from that branch's `version.lua`,
+and the patch is the branch's commit count. Every push therefore produces a
+version strictly higher than the last, which is the only thing `kpm upgrade`
+looks at. Raise `major` or `minor` in `version.lua` when a change earns it.
+
+There are no tags, no version bump commits and no second workflow — which also
+sidesteps the fact that a push made with `GITHUB_TOKEN` does not start other
+workflows.
 
 ### Proving it actually works
 

@@ -7,8 +7,12 @@ plugin that ships to one Kindle.
 ## Git
 
 Commit and push to `main`; no feature branches and no PRs unless the session
-is told otherwise. Push when a chunk of work is finished: CI runs on the push,
-and a `v*` tag is what publishes a release artifact.
+is told otherwise. **A push to `main` is a stable release**: CI publishes it
+and the Kindle picks it up on the next `;kpm upgrade`. The `dev` branch feeds
+the dev channel the same way.
+
+Versions are not chosen by hand: `major.minor` live in `version.lua`, the patch
+is the branch's commit count.
 
 ## The layering rule
 
@@ -35,7 +39,7 @@ can answer.
 
 * No backward compatibility. Change the settings shape, the API contract or the
   package layout outright; there is no old client to keep working.
-* `plugin/aidict.koplugin/aidict/version.lua` is the single source of the
-  version. The package name, the KPM manifest and `version.json` all follow
-  from it — never edit a version anywhere else.
+* `plugin/aidict.koplugin/aidict/version.lua` holds `major.minor`; the patch is
+  the branch's commit count, filled in at build time. Never write a version
+  anywhere else.
 * Delete dead code and dead settings rather than keeping them "just in case".

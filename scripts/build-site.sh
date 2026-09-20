@@ -4,17 +4,26 @@
 #
 #   site/
 #     index.html                 what to type on the Kindle
-#     stable/manifest.json       built from the newest v* tag
-#     dev/manifest.json          built from whatever is checked out now
+#     kpm.json                   short URL for the stable channel
+#     stable/manifest.json       built from the main branch
+#     dev/manifest.json          built from the dev branch
 #     <channel>/packages/…       the .kpkg files themselves
 #
-# Artifact URLs inside each manifest stay relative, so the whole tree can move
-# to another host without being regenerated.
+# Both channels are rebuilt every time, because Pages replaces the whole site
+# on each deployment — building only the branch that changed would delete the
+# other channel.
+#
+# Versions: major.minor come from that branch's version.lua, and the patch is
+# the number of commits on the branch. So every push produces a version higher
+# than the last, which is what `kpm upgrade` compares. Raise major or minor by
+# editing version.lua; nothing else needs a decision.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="${SITE:-${ROOT}/site}"
 BASE_URL="${BASE_URL:-https://npwork.github.io/koreader-ai-plugin}"
+STABLE_BRANCH="${STABLE_BRANCH:-main}"
+DEV_BRANCH="${DEV_BRANCH:-dev}"
 
 rm -rf "${SITE}"
 mkdir -p "${SITE}"
@@ -22,31 +31,61 @@ mkdir -p "${SITE}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
-# --- dev: the working tree as it stands -----------------------------------
-python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dev" >/dev/null
-python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}"/dev/*.kpkg \
-    --channel dev --output "${SITE}" --base-url "${BASE_URL}" >/dev/null
-echo "dev:    $(basename "$(ls "${WORK}"/dev/*.kpkg)")"
+# Which ref holds this branch? Prefer the remote, so a CI checkout of one
+# branch can still build the other.
+resolve_ref() {
+    for candidate in "origin/$1" "$1"; do
+        if git -C "${ROOT}" rev-parse --verify --quiet "${candidate}" >/dev/null 2>&1; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
 
-# --- stable: the newest release tag ----------------------------------------
-TAG="$(git -C "${ROOT}" tag --list 'v*' --sort=-v:refname | head -1)"
+version_for() {
+    # major.minor from the tree's version.lua, patch from the commit count.
+    base="$(sed -n 's/.*string = "\([0-9]*\)\.\([0-9]*\)\.[0-9]*".*/\1.\2/p' \
+        "$1/plugin/aidict.koplugin/aidict/version.lua")"
+    echo "${base}.$2"
+}
 
-if [ -n "${TAG}" ]; then
-    mkdir -p "${WORK}/tag"
-    git -C "${ROOT}" archive "${TAG}" | tar -x -C "${WORK}/tag"
-    # Build with that tag's own packaging script, so a release is always
-    # rebuilt the way it was released.
-    python3 "${WORK}/tag/scripts/kpmrepo.py" package --output "${WORK}/stable" >/dev/null
-    echo "stable: ${TAG}"
+build_channel() {
+    channel="$1"
+    ref="$2"
+    tree="${WORK}/tree-${channel}"
+
+    mkdir -p "${tree}"
+    git -C "${ROOT}" archive "${ref}" | tar -x -C "${tree}"
+
+    count="$(git -C "${ROOT}" rev-list --count "${ref}")"
+    version="$(version_for "${tree}" "${count}")"
+
+    # Build with that branch's own packaging script, so what ships is what
+    # that commit would have shipped.
+    python3 "${tree}/scripts/kpmrepo.py" package \
+        --output "${WORK}/pkg-${channel}" --version "${version}" >/dev/null
+    python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}/pkg-${channel}"/*.kpkg \
+        --channel "${channel}" --output "${SITE}" --base-url "${BASE_URL}" >/dev/null
+
+    echo "${channel}: ${version} (${ref}, ${count} commits)"
+}
+
+STABLE_REF="$(resolve_ref "${STABLE_BRANCH}")" || {
+    echo "no ${STABLE_BRANCH} branch to build the stable channel from"
+    exit 1
+}
+build_channel stable "${STABLE_REF}"
+
+if DEV_REF="$(resolve_ref "${DEV_BRANCH}")"; then
+    build_channel dev "${DEV_REF}"
 else
-    # No release yet: give the stable channel the current build, so the
-    # channel exists and can be added on the device.
-    cp -r "${WORK}/dev" "${WORK}/stable"
-    echo "stable: no v* tag yet, using the current build"
+    # No dev branch yet: give the channel the stable build, so it exists and
+    # can already be added on a device.
+    echo "dev: no ${DEV_BRANCH} branch, mirroring stable"
+    python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}/pkg-stable"/*.kpkg \
+        --channel dev --output "${SITE}" --base-url "${BASE_URL}" >/dev/null
 fi
-
-python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}"/stable/*.kpkg \
-    --channel stable --output "${SITE}" --base-url "${BASE_URL}" >/dev/null
 
 # --- a short entry point, for typing on a Kindle ---------------------------
 # The same repository as stable/manifest.json, but at the site root so the URL
@@ -70,9 +109,13 @@ with open(f"{site}/kpm.json", "w") as out:
 SHORTCUT
 
 # --- the page a human lands on ---------------------------------------------
-VERSION="$(python3 -c "
-import json, sys
+STABLE_VERSION="$(python3 -c "
+import json
 print(json.load(open('${SITE}/stable/version.json'))['packages']['koreader-aidict']['version_string'])
+")"
+DEV_VERSION="$(python3 -c "
+import json
+print(json.load(open('${SITE}/dev/version.json'))['packages']['koreader-aidict']['version_string'])
 ")"
 
 cat > "${SITE}/index.html" <<HTML
@@ -112,19 +155,18 @@ cat > "${SITE}/index.html" <<HTML
   <p>Type this into the Kindle search bar, one line at a time:</p>
 <pre><code>;kpm add-repo ${BASE_URL}/kpm.json
 ;kpm install koreader-aidict</code></pre>
-  <p>That short URL is the stable channel. <code>${BASE_URL}/stable/manifest.json</code>
-  is the same repository; either one works.</p>
-  <p>Then restart KOReader.</p>
+  <p>Then restart KOReader. That short URL is the stable channel;
+  <code>${BASE_URL}/stable/manifest.json</code> is the same repository.</p>
 
   <h2>Update</h2>
 <pre><code>;kpm update
-;kpm upgrade koreader-aidict</code></pre>
+;kpm upgrade</code></pre>
 
   <h2>Channels</h2>
   <table>
-    <tr><th>Channel</th><th>Manifest</th><th>What it carries</th></tr>
-    <tr><td>stable</td><td><a href="stable/manifest.json">stable/manifest.json</a></td><td>the newest tagged release (${VERSION})</td></tr>
-    <tr><td>dev</td><td><a href="dev/manifest.json">dev/manifest.json</a></td><td>the current main branch</td></tr>
+    <tr><th>Channel</th><th>Manifest</th><th>Follows</th><th>Now</th></tr>
+    <tr><td>stable</td><td><a href="stable/manifest.json">stable/manifest.json</a></td><td>the <code>main</code> branch</td><td>${STABLE_VERSION}</td></tr>
+    <tr><td>dev</td><td><a href="dev/manifest.json">dev/manifest.json</a></td><td>the <code>dev</code> branch</td><td>${DEV_VERSION}</td></tr>
   </table>
   <p>Add one, not both: KPM would otherwise pick whichever version is higher.</p>
 
