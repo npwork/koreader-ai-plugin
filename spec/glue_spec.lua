@@ -40,8 +40,15 @@ describe("the KOReader layer", function()
         local sentence = opts.sentence or "The quick brown fox jumps over the lazy dog."
         if opts.no_sentence then sentence = nil end
 
+        local paragraph_html = opts.paragraph_html
+        if paragraph_html == nil and not opts.no_paragraph then
+            paragraph_html = "<p>The quick brown fox jumps over the lazy dog. " ..
+                "It had been doing so all afternoon, to nobody's surprise.</p>"
+        end
+
         reader = koreader.reader({
             sentence = sentence,
+            paragraph_html = paragraph_html,
             selected_text = selected_text,
             doc_props = opts.doc_props,
         })
@@ -129,14 +136,33 @@ describe("the KOReader layer", function()
             assert.is_truthy(shown.text:find("лиса", 1, true))
         end)
 
-        it("sends the sentence around the word as context", function()
-            build({ sentence = "The quick brown fox jumps over the lazy dog." })
+        it("sends the whole paragraph as context, stripped of its markup", function()
+            build()
             tap_dict_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("fox", sent.word)
             assert.is_truthy(sent.context:find("fox", 1, true))
-            assert.is_truthy(sent.context:find("quick brown", 1, true))
+            -- The second sentence is only in the paragraph, not in the sentence.
+            assert.is_truthy(sent.context:find("all afternoon", 1, true))
+            assert.is_nil(sent.context:find("<p>", 1, true))
+        end)
+
+        it("sends the sentence too, so the right occurrence is known", function()
+            build()
+            tap_dict_button()
+
+            local sent = helpers.json.decode(kor.transport.requests[1].body)
+            assert.are.equal("The quick brown fox jumps over the lazy dog.", sent.sentence)
+        end)
+
+        it("falls back to the sentence when there is no paragraph", function()
+            build({ no_paragraph = true })
+            tap_dict_button()
+
+            local sent = helpers.json.decode(kor.transport.requests[1].body)
+            assert.is_truthy(sent.context:find("fox", 1, true))
+            assert.is_nil(sent.context:find("all afternoon", 1, true))
         end)
 
         it("sends the book it was reading", function()
@@ -213,14 +239,26 @@ describe("the KOReader layer", function()
             assert.are.equal(0, #kor.shown)
         end)
 
-        it("falls back to the selection when the document has no sentence", function()
-            build({ no_sentence = true, selected_text = { text = "fox jumps", pos0 = "p1", pos1 = "p2" } })
+        it("still sends the paragraph when the document gives no sentence", function()
+            build({ no_sentence = true, selected_text = { text = "fox", pos0 = "p1", pos1 = "p2" } })
+            tap_highlight_button()
+
+            local sent = helpers.json.decode(kor.transport.requests[1].body)
+            assert.is_truthy(sent.context:find("all afternoon", 1, true))
+        end)
+
+        it("sends no context when the document gives neither", function()
+            build({
+                no_sentence = true,
+                no_paragraph = true,
+                selected_text = { text = "fox jumps", pos0 = "p1", pos1 = "p2" },
+            })
             tap_highlight_button()
 
             assert.are.equal(1, kor.transport.calls)
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("fox jumps", sent.word)
-            -- The selection is all the context there is, so none is sent.
+            -- The selection is all there is, so it is not sent back as its own context.
             assert.is_nil(sent.context)
         end)
     end)

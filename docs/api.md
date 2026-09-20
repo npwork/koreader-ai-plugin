@@ -15,20 +15,28 @@ the device from the plugin's menu.
 
 ```json
 {
-  "word": "fox",
-  "context": "The quick brown fox jumps over the lazy dog",
+  "word": "founder",
+  "context": "The main danger, according to many of these founders, was that the wrong people might \"have\" ASI. They talked of the need to win an \"AI arms race.\"",
+  "sentence": "The main danger, according to many of these founders, was that the wrong people might \"have\" ASI.",
   "target_lang": "ru",
   "source_lang": "en",
-  "title": "Aesop's Fables",
-  "author": "Aesop",
+  "title": "If Anyone Builds It, Everyone Dies",
+  "author": "Yudkowsky, Soares",
   "client": "koreader-aidict",
-  "client_version": "0.1.0"
+  "client_version": "0.1.18"
 }
 ```
 
 * `word` is always present and never empty.
-* `context` is the sentence around the word, trimmed to the reader's
-  `context_chars` budget. It is **omitted** when there is no surrounding text.
+* `context` is the **paragraph** the word sits in, taken from the document's
+  markup and stripped to plain text, trimmed to the reader's `context_chars`
+  budget (1000 by default). A paragraph, rather than a sentence, is what lets
+  the other side tell which sense is meant.
+* `sentence` is the sentence inside that paragraph — which occurrence of the
+  word is being asked about, when it appears more than once.
+* Both are **omitted** when the document cannot produce them: a paged PDF has
+  no paragraph markup, and a selection with nothing around it is not sent back
+  as its own context.
 * `source_lang` is the book's language as KOReader knows it, which is often
   absent.
 * `title` and `author` are there for disambiguation, not for logging.
@@ -38,18 +46,24 @@ the device from the plugin's menu.
 
 ```json
 {
-  "word": "fox",
-  "definition": "A small wild animal of the dog family, known for cunning.",
-  "translation": "лиса",
+  "word": "founder",
+  "definition": "A person who starts a company — here, the people who started the AI labs.",
+  "examples": [
+    "The founders met in a garage.",
+    "She is a founder of two companies.",
+    "The founders didn't talk about that."
+  ],
+  "translation": "основатель",
   "part_of_speech": "noun",
-  "examples": ["The fox ran across the field."],
   "model": "claude-haiku-4-5"
 }
 ```
 
 Only `definition` is required — a 200 without a non-empty `definition` is
-treated as a broken answer. Everything else is optional and simply not shown
-when missing. `examples` entries that are not non-empty strings are dropped.
+treated as a broken answer. `examples` is the field the device is designed
+around: three short ones render well on a 600×800 screen. Everything else is
+optional and simply not shown when missing; `examples` entries that are not
+non-empty strings are dropped.
 
 ### Response, errors
 

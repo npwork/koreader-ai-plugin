@@ -133,6 +133,15 @@ function koreader.install(opts)
             text = text:gsub("%s*\n%s*", "\n"):gsub("%s%s+", " ")
             return text
         end,
+        -- Enough of KOReader's converter for the paragraph HTML crengine hands back.
+        htmlToPlainText = function(text)
+            text = text:gsub("%s*<%s*br%s*/?>%s*", "\n")
+            text = text:gsub("%s*</%s*p%s*>%s*", "\n")
+            text = text:gsub("%s*<%s*p%s*>%s*", "\n")
+            text = text:gsub("<[^>]*>", "")
+            text = text:gsub("&amp;", "&"):gsub("&lt;", "<"):gsub("&gt;", ">")
+            return (text:gsub("^[\n%s]*", ""):gsub("[\n%s]*$", ""))
+        end,
     }
 
     -- The plugin's own transport and codec, swapped for the test doubles.
@@ -199,6 +208,11 @@ function koreader.reader(opts)
     reader.document = {
         extendXPointersToSentenceSegment = function(_, _, _)
             return { text = opts.sentence }
+        end,
+        -- crengine returns the HTML of the block element around a position,
+        -- which is the paragraph.
+        getHTMLFromXPointer = function(_, _, _, _)
+            return opts.paragraph_html
         end,
     }
 

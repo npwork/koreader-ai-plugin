@@ -22,8 +22,9 @@ Config.DEFAULTS = {
     -- Seconds. Block timeout and total timeout for the HTTP call.
     block_timeout = 10,
     total_timeout = 30,
-    -- How many characters of surrounding text to send with the word.
-    context_chars = 320,
+    -- How many characters of the surrounding paragraph to send with the word.
+    -- A paragraph is what lets the other side tell which sense is meant.
+    context_chars = 1000,
     -- Answers kept on the device. 0 disables the cache.
     cache_size = 200,
     -- Seconds an answer stays fresh. 0 means "never expires".

@@ -88,6 +88,7 @@ function Lookup:define(request, opts)
     local result, err = self.client:define({
         word = word,
         context = context,
+        sentence = Context.cleanup(request.sentence),
         target_lang = target_lang,
         source_lang = request.source_lang,
         title = request.title,
@@ -129,6 +130,7 @@ function Lookup:fetch(request)
     local result, err = self.client:define({
         word = word,
         context = Context.cleanup(request.context),
+        sentence = Context.cleanup(request.sentence),
         target_lang = self.settings:get("target_lang"),
         source_lang = request.source_lang,
         title = request.title,

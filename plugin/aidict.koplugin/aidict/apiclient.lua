@@ -101,7 +101,8 @@ Ask the gateway to explain a word.
 
 @param request table
   word         string required
-  context      string optional surrounding sentence
+  context      string optional surrounding paragraph
+  sentence     string optional sentence containing the word
   target_lang  string optional
   source_lang  string optional
   title        string optional book title, for disambiguation
@@ -121,6 +122,7 @@ function ApiClient:define(request)
     local payload = {
         word = request.word,
         context = request.context ~= "" and request.context or nil,
+        sentence = request.sentence ~= "" and request.sentence or nil,
         target_lang = request.target_lang,
         source_lang = request.source_lang,
         title = request.title,

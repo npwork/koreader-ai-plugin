@@ -86,9 +86,9 @@ function AiDict:registerDictButton()
         text = _("AI"),
         callback = function(dict_popup)
             local word = dict_popup.word
-            local context = self:contextFromHighlight(dict_popup.highlight, word)
+            local context, sentence = self:contextFor(dict_popup.highlight, word)
             dict_popup:onClose()
-            self:explain(word, context)
+            self:explain(word, context, sentence)
         end,
     })
 end
@@ -102,9 +102,9 @@ function AiDict:registerHighlightButton()
                 this:highlightFromHoldPos()
                 if not (this.selected_text and this.selected_text.text) then return end
                 local word = util.cleanupSelectedText(this.selected_text.text)
-                local context = self:contextFromHighlight(this, word)
+                local context, sentence = self:contextFor(this, word)
                 this:onClose(true)
-                self:explain(word, context)
+                self:explain(word, context, sentence)
             end,
         }
     end)
@@ -114,11 +114,8 @@ end
 -- Context
 ----------------------------------------------------------------------------
 
---- The sentence around a selection, when the document can produce one.
-function AiDict:contextFromHighlight(highlight, word)
-    local budget = self.settings:get("context_chars")
-    if budget <= 0 then return "" end
-
+--- The sentence a selection sits in, when the document can produce one.
+function AiDict:sentenceFor(highlight)
     local selected = highlight and highlight.selected_text
     if not (selected and selected.pos0 and selected.pos1) then return "" end
 
@@ -129,10 +126,46 @@ function AiDict:contextFromHighlight(highlight, word)
         end)
         if ok and extended then sentence = extended.text end
     end
-    sentence = sentence or selected.text
-    if not sentence then return "" end
+    return Context.cleanup(sentence or selected.text)
+end
 
-    return Context.snippet(sentence, word, budget)
+--[[--
+The paragraph a selection sits in.
+
+crengine can hand back the HTML of the block element containing a position —
+which is the paragraph — so this is the real passage the reader is looking at,
+not just the sentence. That is what lets the other side tell which sense of a
+word is meant. Falls back to the sentence when the document cannot produce it
+(a paged PDF, an older build).
+--]]--
+function AiDict:paragraphFor(highlight)
+    local selected = highlight and highlight.selected_text
+    if not (selected and selected.pos0) then return "" end
+    if not (self.document and self.document.getHTMLFromXPointer) then return "" end
+
+    local ok, html = pcall(function()
+        -- 0 = no debug decoration; true = start from the final block parent.
+        return self.document:getHTMLFromXPointer(selected.pos0, 0, true)
+    end)
+    if not (ok and type(html) == "string" and html ~= "") then return "" end
+
+    return Context.cleanup(util.htmlToPlainText(html))
+end
+
+--- What gets sent with the word: the paragraph, and the sentence inside it.
+function AiDict:contextFor(highlight, word)
+    local budget = self.settings:get("context_chars")
+    if budget <= 0 then return "", "" end
+
+    local sentence = self:sentenceFor(highlight)
+    local paragraph = self:paragraphFor(highlight)
+
+    if paragraph == "" then
+        -- No paragraph: the sentence is all the context there is.
+        return Context.snippet(sentence, word, budget), sentence
+    end
+
+    return Context.snippet(paragraph, word, budget), sentence
 end
 
 function AiDict:bookProps()
@@ -149,7 +182,7 @@ end
 -- The lookup itself
 ----------------------------------------------------------------------------
 
-function AiDict:explain(word, context)
+function AiDict:explain(word, context, sentence)
     word = Context.cleanup(word)
     if word == "" then
         UIManager:show(InfoMessage:new{ text = _("Nothing to look up.") })
@@ -167,6 +200,7 @@ function AiDict:explain(word, context)
     local request = {
         word = word,
         context = context or "",
+        sentence = sentence or "",
         title = props.title,
         author = props.author,
         source_lang = props.source_lang,
@@ -178,7 +212,7 @@ function AiDict:explain(word, context)
         return
     end
 
-    if NetworkMgr:willRerunWhenOnline(function() self:explain(word, context) end) then
+    if NetworkMgr:willRerunWhenOnline(function() self:explain(word, context, sentence) end) then
         return
     end
 
