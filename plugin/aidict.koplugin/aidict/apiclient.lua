@@ -111,7 +111,7 @@ Ask the gateway to explain a word.
   author       string optional
   request_id   string optional, sent as X-Request-Id so both logs agree
 @treturn table result { word, definition, translation, examples, part_of_speech, model }
-@treturn table err    { code, message, status, elapsed_ms, request_id }
+@treturn table err    { code, message, status, elapsed_ms, request_id, cf_ray }
 --]]--
 function ApiClient:define(request)
     request = request or {}
@@ -167,18 +167,28 @@ function ApiClient:define(request)
     -- that is read.
     local elapsed_ms = started and self.monotonic and (self.monotonic() - started) or nil
 
+    local function header(name, alt)
+        if not (response and type(response.headers) == "table") then return nil end
+        local value = response.headers[name] or response.headers[alt]
+        if type(value) == "string" and value ~= "" then return value end
+        return nil
+    end
+
     -- The gateway echoes the id back; if it never answered, ours is all there
     -- is — and it is still the id the gateway logged under, if it got that far.
-    local request_id = request.request_id
-    if response and type(response.headers) == "table" then
-        local echoed = response.headers["x-request-id"] or response.headers["X-Request-Id"]
-        if type(echoed) == "string" and echoed ~= "" then request_id = echoed end
-    end
+    local request_id = header("x-request-id", "X-Request-Id") or request.request_id
+
+    -- Cloudflare sits in front of the gateway and stamps its own id on the
+    -- request. It exists only once the request arrived, so it can never
+    -- replace ours — but when it is there it is the key into Cloudflare's
+    -- own logs, which nothing else gives us.
+    local cf_ray = header("cf-ray", "CF-Ray")
 
     local function fail(code, message, extra)
         extra = extra or {}
         extra.elapsed_ms = elapsed_ms
         extra.request_id = request_id
+        extra.cf_ray = cf_ray
         return err(code, message, extra)
     end
 
@@ -233,6 +243,7 @@ function ApiClient:define(request)
         server_ms = server_ms,
         model_ms = model_ms,
         request_id = request_id,
+        cf_ray = cf_ray,
     }
 end
 

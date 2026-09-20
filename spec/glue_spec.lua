@@ -281,6 +281,23 @@ describe("the KOReader layer", function()
             assert.is_truthy(kor.info_lines[#kor.info_lines]:find(sent, 1, true))
         end)
 
+        it("names Cloudflare's ray alongside it, when there was one", function()
+            build({ responses = { {
+                status = 200, body = ANSWER,
+                headers = { ["cf-ray"] = "a3e2705c8ddcdda5-IAD" },
+            } } })
+            tap_dict_button()
+
+            local line = kor.info_lines[#kor.info_lines]
+            assert.is_truthy(line:find("cf=a3e2705c8ddcdda5-IAD", 1, true))
+        end)
+
+        it("says nothing about a ray when there was none", function()
+            build()
+            tap_dict_button()
+            assert.is_nil(kor.info_lines[#kor.info_lines]:find("cf=", 1, true))
+        end)
+
         it("names it on a failure too", function()
             build({ responses = { { err = "timeout" } } })
             tap_dict_button()

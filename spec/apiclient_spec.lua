@@ -139,6 +139,38 @@ describe("api client", function()
             assert.are.equal("ours", e.request_id)
         end)
 
+        it("picks up Cloudflare's ray when there is one", function()
+            local tr = helpers.transport({
+                { status = 200, body = GOOD_BODY,
+                  headers = { ["cf-ray"] = "a3e2705c8ddcdda5-IAD" } },
+            })
+            local result = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.are.equal("a3e2705c8ddcdda5-IAD", result.cf_ray)
+            -- The ray never displaces ours: it only exists once the request
+            -- arrived, and the one worth correlating is the one that did not.
+            assert.are.equal("ours", result.request_id)
+        end)
+
+        it("has no ray when nothing was in front of the gateway", function()
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            assert.is_nil(client(tr):define({ word = "fox" }).cf_ray)
+        end)
+
+        it("keeps the ray on an error the gateway did answer", function()
+            local tr = helpers.transport({
+                { status = 503, body = "", headers = { ["cf-ray"] = "ray-503-IAD" } },
+            })
+            local _, e = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.are.equal("ray-503-IAD", e.cf_ray)
+        end)
+
+        it("has no ray on a request that never arrived", function()
+            local tr = helpers.transport({ { err = "timeout" } })
+            local _, e = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.is_nil(e.cf_ray)
+            assert.are.equal("ours", e.request_id)
+        end)
+
         it("is the gateway's own on an http error it did answer", function()
             local tr = helpers.transport({
                 { status = 500, body = "", headers = { ["x-request-id"] = "gw-500" } },

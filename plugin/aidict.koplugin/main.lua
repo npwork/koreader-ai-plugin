@@ -36,6 +36,15 @@ local json = require("aidict.json")
 
 local CACHE_KEY = "cache_entries"
 
+--- The ids a finished lookup is known by, for the log line.
+-- The request id is always there; the ray only once Cloudflare saw it.
+local function marks(source, request)
+    source = source or {}
+    local id = tostring(source.request_id or (request and request.request_id) or "?")
+    if source.cf_ray then return id .. " cf=" .. tostring(source.cf_ray) end
+    return id
+end
+
 local showResult
 
 --- Whether asking is possible at all right now.
@@ -262,8 +271,7 @@ function AiDict:explain(word, context, sentence)
             local err = outcome.err or {}
             logger.warn(string.format("aidict: %s failed after %sms (%s: %s) [%s]",
                 word, tostring(err.elapsed_ms or "?"),
-                tostring(err.code), tostring(err.message),
-                tostring(err.request_id or request.request_id or "?")))
+                tostring(err.code), tostring(err.message), marks(err, request)))
             UIManager:show(InfoMessage:new{ text = Format.error(outcome.err) })
             return
         end
@@ -276,7 +284,7 @@ function AiDict:explain(word, context, sentence)
             "aidict: %s ok in %sms (gateway %sms, model %sms, %s) [%s]",
             word, tostring(result.elapsed_ms or "?"), tostring(result.server_ms or "?"),
             tostring(result.model_ms or "?"), tostring(result.model or "?"),
-            tostring(result.request_id or request.request_id or "?")))
+            marks(result, request)))
 
         showResult(word, result, false)
     end)

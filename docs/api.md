@@ -51,6 +51,13 @@ the device from the plugin's menu.
   arrives is the one worth correlating: the gateway may have answered after
   the Kindle gave up, and only the device's id ties the two halves together.
 
+  Cloudflare sits in front of the gateway and stamps `CF-Ray` on both the
+  request and the response. The device reads it off the answer and logs it
+  next to its own id, and the gateway logs it as a field of its own — it is
+  the key into Cloudflare's logs, which nothing else gives. It never replaces
+  the device's id, because it exists only once the request arrived. When the
+  device sends no id, the gateway adopts the ray rather than minting a uuid.
+
 ### Response, 2xx
 
 ```json
