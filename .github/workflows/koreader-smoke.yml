@@ -63,17 +63,17 @@ jobs:
           # KOReader treats the TERM as a close request and shuts down the way
           # it would on the device, which also runs the plugin's
           # onCloseDocument and onFlushSettings handlers.
+          # Do not sweep for orphans here: xvfb-run returns as soon as it has
+          # forwarded the signal, and killing what is left cuts the teardown
+          # short — which is the part this test wants to see. --kill-after is
+          # the backstop instead.
           set +e
           cd "${KOREADER_DIR}"
-          timeout --signal=TERM 45 \
+          timeout --signal=TERM --kill-after=15 45 \
             xvfb-run -a --server-args="-screen 0 600x800x24" \
             ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" \
-            > "${GITHUB_WORKSPACE}/koreader.log" 2>&1
+            > "${GITHUB_WORKSPACE}/koreader.log" 2>&1 < /dev/null
           echo "reader exited with $?"
-          # Nothing should be left, but an orphan X server would hold the step
-          # open until the job timeout.
-          pkill -KILL -f reader.lua 2>/dev/null
-          pkill -KILL Xvfb 2>/dev/null
           set -e
 
       - name: The plugin must have loaded, and KOReader must have survived it
