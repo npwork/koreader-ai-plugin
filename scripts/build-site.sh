@@ -48,6 +48,27 @@ fi
 python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}"/stable/*.kpkg \
     --channel stable --output "${SITE}" --base-url "${BASE_URL}" >/dev/null
 
+# --- a short entry point, for typing on a Kindle ---------------------------
+# The same repository as stable/manifest.json, but at the site root so the URL
+# typed on the device is shorter. Its artifact URLs have to be absolute, since
+# they no longer sit next to it.
+python3 - "${SITE}" "${BASE_URL}" <<'SHORTCUT'
+import json
+import sys
+
+site, base_url = sys.argv[1], sys.argv[2].rstrip("/")
+manifest = json.load(open(f"{site}/stable/manifest.json"))
+
+for package in manifest["packages"].values():
+    for artifact in package["artifacts"]:
+        if "://" not in artifact["url"]:
+            artifact["url"] = f"{base_url}/stable/{artifact['url']}"
+
+with open(f"{site}/kpm.json", "w") as out:
+    json.dump(manifest, out, indent=2)
+    out.write("\n")
+SHORTCUT
+
 # --- the page a human lands on ---------------------------------------------
 VERSION="$(python3 -c "
 import json, sys
@@ -89,8 +110,10 @@ cat > "${SITE}/index.html" <<HTML
 
   <h2>Install</h2>
   <p>Type this into the Kindle search bar, one line at a time:</p>
-<pre><code>;kpm add-repo ${BASE_URL}/stable/manifest.json
+<pre><code>;kpm add-repo ${BASE_URL}/kpm.json
 ;kpm install koreader-aidict</code></pre>
+  <p>That short URL is the stable channel. <code>${BASE_URL}/stable/manifest.json</code>
+  is the same repository; either one works.</p>
   <p>Then restart KOReader.</p>
 
   <h2>Update</h2>

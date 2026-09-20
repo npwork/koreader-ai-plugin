@@ -113,6 +113,14 @@ jobs:
           # would otherwise slip through to the device.
           find "${PLUGIN}" -name '*.lua' -exec luac5.1 -p {} +
 
+          # The short URL at the site root is the same repository with absolute
+          # artifact URLs, for typing on a Kindle keyboard. It has to install too.
+          "${KPM}" -y uninstall koreader-aidict
+          "${KPM}" -y remove-repo npwork
+          "${KPM}" -y add-repo "${BASE}/kpm.json"
+          "${KPM}" -y install koreader-aidict
+          test -f "${PLUGIN}/main.lua"
+
           echo "PLUGIN=${PLUGIN}" >> "${GITHUB_ENV}"
           echo "installed koreader-aidict ${EXPECTED} from ${BASE}, and it parses"
 
