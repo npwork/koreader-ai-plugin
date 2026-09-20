@@ -55,7 +55,8 @@ the device from the plugin's menu.
   ],
   "translation": "основатель",
   "part_of_speech": "noun",
-  "model": "claude-haiku-4-5"
+  "model": "claude-haiku-4-5",
+  "timing": { "total_ms": 900, "upstream_ms": 850 }
 }
 ```
 
@@ -67,6 +68,15 @@ screen; entries that are not non-empty strings are dropped.
 `translation` is the Russian rendering. The plugin parses and caches it but
 **does not show it yet** — how it should sit next to an English explanation is
 still open. Everything else is optional and simply not shown when missing.
+
+`timing` is the gateway's own account of where the time went: `upstream_ms` is
+the model call, `total_ms` the whole handler. The device times its round trip
+separately, so the difference between the two is the network and the Kindle's
+radio. It ends up in the log, not on screen:
+
+```
+aidict: founder ok in 1840ms (gateway 900ms, model 850ms, claude-haiku-4-5)
+```
 
 ### Response, errors
 
@@ -101,7 +111,7 @@ subprocess doing the request.
   so repeat traffic for the same passage does not reach the gateway at all.
   The same word in another paragraph is a different key, and asks again.
 * **Size.** Keep the answer short. It is rendered in a text viewer on a
-  600×800 e-ink screen; a paragraph plus two examples is the right shape.
+  600×800 e-ink screen; a paragraph plus three examples is the right shape.
 * **Auth.** A single shared bearer token is enough — this serves one reader.
   `GET /health` stays open even when a token is set, so an uptime check does
   not need the device's key.
