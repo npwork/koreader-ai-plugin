@@ -68,6 +68,14 @@ def config_lua(endpoint: str) -> bytes:
     which anyone can download — this keeps it out of the repository, not out
     of the world. The gateway's bearer token is what actually guards it.
     """
+    # A secret pasted into CI usually carries a trailing newline, and that
+    # newline inside a Lua string literal is a syntax error that would only
+    # show up on the device. Anything that cannot sit inside "..." is refused
+    # outright rather than escaped, because none of it belongs in a URL.
+    endpoint = endpoint.strip()
+    if not re.match(r"^https?://[^\s\"\\\\]+\Z", endpoint):
+        raise SystemExit(f"--endpoint wants a plain http(s) URL, got {endpoint!r}")
+
     path = PLUGIN_DIR / "aidict" / "config.lua"
     text = path.read_text()
     patched, count = re.subn(r'endpoint\s*=\s*"[^"]*",', f'endpoint = "{endpoint}",', text, count=1)
@@ -117,8 +125,10 @@ def build_package(
     """
     override = version is not None
     version = version or read_version()
-    if endpoint is not None and not re.match(r"^https?://\S+$", endpoint):
-        raise SystemExit(f"--endpoint wants an http(s) URL, got {endpoint!r}")
+    if endpoint is not None:
+        endpoint = endpoint.strip()
+        if not endpoint:
+            endpoint = None
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "id": PACKAGE_ID,

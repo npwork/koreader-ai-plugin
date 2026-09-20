@@ -46,5 +46,10 @@ grep -q 'endpoint = "https://gateway.test/koreader-ai"' \
 grep -q 'endpoint = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "an endpoint leaked into the committed config.lua"; exit 1; }
 
+# Every Lua file in the package must parse. Injection rewrites source, and a
+# value with a newline in it once produced a config.lua that only failed on
+# the device.
+find "${WORK}/pkg-ep" -name '*.lua' -exec luac5.1 -p {} +
+
 echo "package verified: install, upgrade and uninstall all behave,"
 echo "and the endpoint is injected at build time rather than committed"

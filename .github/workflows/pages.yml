@@ -64,12 +64,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install what KPM needs to build here
+      - name: Install what KPM needs to build here, and Lua to check what it installs
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential meson ninja-build pkg-config \
-            libcurl4-openssl-dev libsqlite3-dev libcjson-dev libarchive-dev libssl-dev
+            libcurl4-openssl-dev libsqlite3-dev libcjson-dev libarchive-dev libssl-dev \
+            lua5.1
 
       - name: Build KPM from source
         run: ./scripts/kpm-host-build.sh
@@ -107,4 +108,9 @@ jobs:
           grep -q "\"${EXPECTED}\"" "${PLUGIN}/aidict/version.lua" \
             || { echo "::error::installed version does not match the channel's ${EXPECTED}"; exit 1; }
 
-          echo "installed koreader-aidict ${EXPECTED} from ${BASE}"
+          # What was published has to be loadable Lua. The endpoint is
+          # injected into source at build time, so this is where a bad secret
+          # would otherwise slip through to the device.
+          find "${PLUGIN}" -name '*.lua' -exec luac5.1 -p {} +
+
+          echo "installed koreader-aidict ${EXPECTED} from ${BASE}, and it parses"
