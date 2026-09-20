@@ -110,7 +110,7 @@ Ask the gateway to explain a word.
   title        string optional book title, for disambiguation
   author       string optional
 @treturn table result { word, definition, translation, examples, part_of_speech, model }
-@treturn table err    { code, message, status }
+@treturn table err    { code, message, status, elapsed_ms }
 --]]--
 function ApiClient:define(request)
     request = request or {}
@@ -157,29 +157,35 @@ function ApiClient:define(request)
         total_timeout = self.total_timeout,
     })
 
+    -- Every failure past this point carries how long it took to fail. A
+    -- 30-second timeout and an instant "no route to host" are the same error
+    -- code with very different causes, and the log is where that is read.
     local elapsed_ms = started and self.monotonic and (self.monotonic() - started) or nil
 
     if not response then
         local reason = tostring(transport_err or "network unreachable")
         if reason:lower():find("timeout") then
-            return err(ApiClient.ERRORS.TIMEOUT, "the gateway did not answer in time")
+            return err(ApiClient.ERRORS.TIMEOUT, "the gateway did not answer in time",
+                { elapsed_ms = elapsed_ms })
         end
-        return err(ApiClient.ERRORS.NETWORK, reason)
+        return err(ApiClient.ERRORS.NETWORK, reason, { elapsed_ms = elapsed_ms })
     end
 
     local status = tonumber(response.status) or 0
     if status < 200 or status >= 300 then
         local code, message = status_to_error(status, self:_error_message(response.body))
-        return err(code, message, { status = status })
+        return err(code, message, { status = status, elapsed_ms = elapsed_ms })
     end
 
     local decode_ok, decoded = pcall(self.json.decode, response.body or "")
     if not decode_ok or type(decoded) ~= "table" then
-        return err(ApiClient.ERRORS.BAD_RESPONSE, "the gateway sent something that is not JSON")
+        return err(ApiClient.ERRORS.BAD_RESPONSE, "the gateway sent something that is not JSON",
+            { elapsed_ms = elapsed_ms })
     end
     if type(decoded.definition) ~= "string" or decoded.definition == "" then
         local message = self:_error_message(response.body)
-        return err(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition")
+        return err(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition",
+            { elapsed_ms = elapsed_ms })
     end
 
     local examples = {}

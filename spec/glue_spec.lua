@@ -280,13 +280,48 @@ describe("the KOReader layer", function()
             assert.is_truthy(line:find("rate_limited", 1, true))
         end)
 
-        it("says nothing about a lookup the reader dismissed", function()
+        it("records a lookup the reader dismissed, without calling it a failure", function()
             build()
             kor.dismiss_next = true
             tap_dict_button()
 
-            assert.are.equal(0, #kor.info_lines)
+            assert.is_truthy(kor.info_lines[#kor.info_lines]:find("dismissed", 1, true))
             assert.are.equal(0, #kor.warn_lines)
+        end)
+
+        it("says how long a failure took, so a timeout is not just an error", function()
+            build({ responses = { { err = "timeout" } } })
+            kor.request_ms = 30000
+            tap_dict_button()
+
+            local line = kor.warn_lines[#kor.warn_lines]
+            assert.is_truthy(line:find("30000ms", 1, true))
+            assert.is_truthy(line:find("timeout", 1, true))
+        end)
+
+        it("records an answer served from the cache, so the log accounts for every tap", function()
+            build()
+            tap_dict_button()
+            tap_dict_button()
+
+            assert.are.equal(1, kor.transport.calls)
+            assert.is_truthy(kor.info_lines[#kor.info_lines]:find("from cache", 1, true))
+        end)
+
+        it("says why it refused to ask when there is no Wi-Fi", function()
+            build({ online = false })
+            plugin:explain("fox", "a sentence with fox in it", "a sentence with fox in it")
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("offline", 1, true))
+        end)
+
+        it("says why it refused to ask with no endpoint", function()
+            build({ no_endpoint = true })
+            tap_dict_button()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("no endpoint", 1, true))
         end)
     end)
 

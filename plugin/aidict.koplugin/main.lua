@@ -203,6 +203,7 @@ function AiDict:explain(word, context, sentence)
     end
 
     if not self.settings:is_configured() then
+        logger.warn("aidict: " .. word .. " not asked: no endpoint configured")
         UIManager:show(InfoMessage:new{
             text = _("Set the AI endpoint first, in the AI dictionary menu."),
         })
@@ -221,6 +222,7 @@ function AiDict:explain(word, context, sentence)
 
     local cached = self.lookup:peek(request)
     if cached then
+        logger.info(string.format("aidict: %s from cache (no request)", word))
         showResult(word, cached, true)
         return
     end
@@ -228,6 +230,7 @@ function AiDict:explain(word, context, sentence)
     if not canAsk() then
         -- Deliberately not offering to turn Wi-Fi on: the reader asked for a
         -- word, not for a connection.
+        logger.warn(string.format("aidict: %s not asked: offline", word))
         UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so there is nothing to ask.") })
         return
     end
@@ -239,7 +242,8 @@ function AiDict:explain(word, context, sentence)
         end, T(_("Asking AI about “%1”…"), word))
 
         if not completed then
-            return -- dismissed by the reader
+            logger.info(string.format("aidict: %s dismissed by the reader", word))
+            return
         end
         if type(outcome) ~= "table" then
             logger.warn("aidict: unusable answer from subprocess", outcome)
@@ -248,8 +252,9 @@ function AiDict:explain(word, context, sentence)
         end
         if not outcome.ok then
             local err = outcome.err or {}
-            logger.warn(string.format("aidict: %s failed (%s: %s)",
-                word, tostring(err.code), tostring(err.message)))
+            logger.warn(string.format("aidict: %s failed after %sms (%s: %s)",
+                word, tostring(err.elapsed_ms or "?"),
+                tostring(err.code), tostring(err.message)))
             UIManager:show(InfoMessage:new{ text = Format.error(outcome.err) })
             return
         end

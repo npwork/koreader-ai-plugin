@@ -277,6 +277,44 @@ describe("api client", function()
             end
         end)
 
+        it("says how long a failure took, not just that it failed", function()
+            -- A 30-second timeout and an instant "no route to host" are
+            -- different problems wearing the same error code.
+            local watch = stopwatch(30000)
+            local tr = helpers.transport({ { err = "timeout" } })
+            local unwrapped = tr.fn
+            tr.fn = function(request) watch.tick() return unwrapped(request) end
+
+            local _, e = client(tr, { monotonic = watch.read }):define({ word = "fox" })
+            assert.are.equal(30000, e.elapsed_ms)
+        end)
+
+        it("times every failure past the request, whatever went wrong", function()
+            local cases = {
+                { { err = "host not found" } },
+                { { status = 500, body = "" } },
+                { { status = 200, body = "<html>" } },
+                { { status = 200, body = helpers.body({ word = "fox" }) } },
+            }
+            for _, responses in ipairs(cases) do
+                local watch = stopwatch(70)
+                local tr = helpers.transport(responses)
+                local unwrapped = tr.fn
+                tr.fn = function(request) watch.tick() return unwrapped(request) end
+
+                local _, e = client(tr, { monotonic = watch.read }):define({ word = "fox" })
+                assert.are.equal(70, e.elapsed_ms)
+            end
+        end)
+
+        it("reports no time for a failure that never reached the network", function()
+            local watch = stopwatch(100)
+            local tr = helpers.transport({})
+            local _, e = client(tr, { monotonic = watch.read }):define({ word = "  " })
+            assert.is_nil(e.elapsed_ms)
+            assert.are.equal(0, tr.calls)
+        end)
+
         it("keeps our round trip and the gateway's number apart", function()
             -- The difference between the two is the network and the Kindle's
             -- radio, which is the number actually worth watching.
