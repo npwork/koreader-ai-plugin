@@ -113,16 +113,20 @@ static files:
   per package, its absolute URL and its sha256.
 * `SHA256SUMS` — checksums for every artifact in the channel.
 
-Cutting a release is one command:
+Cutting a release takes no terminal at all: **Actions → release → Run
+workflow**, pick `patch`, `minor` or `major`. The workflow raises the version,
+runs the checks, tags, publishes, and then installs what it published with the
+real KPM and loads it in a real KOReader before the run goes green. Its summary
+ends with the two lines to type on the Kindle.
+
+From a machine with a checkout, the same thing is:
 
 ```bash
 make release VERSION=0.2.0
 ```
 
-It bumps `version.lua`, runs `make check`, commits, tags `v0.2.0` and pushes.
-The tag is what the **stable** channel follows; a plain push to `main` moves
-the **dev** channel only. CI then publishes the site and proves the result
-installs from the live URL and loads in a real KOReader.
+Either way the **tag** is what the `stable` channel follows; a plain push to
+`main` moves the `dev` channel only.
 
 `scripts/build-site.sh` assembles both channels into `site/`, which
 `.github/workflows/pages.yml` publishes to GitHub Pages on every push to

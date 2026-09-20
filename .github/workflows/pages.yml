@@ -10,6 +10,13 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Ref to publish (default: whatever triggered the run)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -28,6 +35,7 @@ jobs:
         with:
           # The stable channel is built from the newest v* tag.
           fetch-depth: 0
+          ref: ${{ inputs.ref }}
 
       - name: Build the site
         # The gateway address is not in the repository; it is baked into the
@@ -63,6 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Install what KPM needs to build, Lua to check what it installs, and a display for KOReader
         run: |

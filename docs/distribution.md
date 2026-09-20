@@ -92,6 +92,16 @@ The address is not protected by this — the package is public and can be
 unpacked. It is kept out of the repository so it is not searchable, and the
 gateway's bearer token, which never enters the package, is what guards it.
 
+### Releasing
+
+`.github/workflows/release.yml` is the whole release: dispatched by hand with
+`patch`, `minor` or `major`, it raises the version in `version.lua`, runs
+`make check`, commits, tags, and then calls the publish workflow with that tag.
+
+The publish is called rather than triggered, because a push made with
+`GITHUB_TOKEN` does not start other workflows — a tag pushed by CI would
+otherwise sit there unpublished.
+
 ### Proving it actually works
 
 The `verify` job in the same workflow runs after the deployment: it builds the
