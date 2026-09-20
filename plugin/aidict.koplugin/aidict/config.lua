@@ -27,7 +27,7 @@ Config.DEFAULTS = {
     -- Update channel used by the update check and by `kpm`.
     channel = "stable",
     -- Root of the KPM repository, without the channel.
-    repo_url = "https://repo.example/kpm",
+    repo_url = "https://npwork.github.io/koreader-ai-plugin",
 }
 
 Config.CHANNELS = { stable = true, dev = true }

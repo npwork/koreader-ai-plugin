@@ -53,26 +53,57 @@ them, so add one:
 The plugin's own update check reads `<repo_url>/<channel>/version.json` and
 only reports; installing stays `kpm`'s job.
 
-## Hosting it on the droplet — the remaining piece
+## Where it is hosted
 
-The gateway on the DigitalOcean box already serves all of `gateway.example` through
-the Cloudflare tunnel, path-routed per lib. Serving the repository is therefore
-a static-file mount at `/kpm`, and deployment is the push to `main` that
-already deploys the gateway.
+GitHub Pages, built and published by `.github/workflows/pages.yml` on every
+push to `main` and every `v*` tag:
 
-What that needs, in order:
+```
+https://npwork.github.io/koreader-ai-plugin/
+  index.html          what to type on the Kindle
+  stable/manifest.json
+  dev/manifest.json
+  <channel>/packages/…/*.kpkg
+```
 
-1. A `libs/kpm-repo` lib in `ai-small-projects` that serves a directory of
-   static files under `/kpm`, with the right content types
-   (`application/json` for the manifests, `application/octet-stream` for
-   `.kpkg`) and no caching on `manifest.json` / `version.json`.
-2. The channel trees themselves, committed under that lib — the plugin is
-   about 12 KB packaged, so the repository is small enough to live in git.
-3. `make repo` output copied in, then pushed: CI deploys the gateway and the
-   Kindle sees the new version on its next `;kpm update`.
+`scripts/build-site.sh` builds both channels into `site/`: **dev** from the
+working tree, **stable** from the newest `v*` tag — rebuilt with that tag's own
+packaging script, so a release is always reproduced the way it was released.
+Until the first tag exists, stable carries the current build so the channel is
+never empty.
 
-Until that exists, the built tree in `dist/repo/` is complete and can be served
-from anywhere — the manifest does not hard-code a host.
+This needs the repository to be **public**: Pages is a paid feature on private
+repositories. The plugin's source being public is not the same as the gateway
+being open — the endpoint still takes a bearer token, and nothing secret lives
+in this repository.
+
+The artifacts have to be anonymously downloadable whatever the host: KPM speaks
+plain libcurl and has no way to send credentials.
+
+### Proving it actually works
+
+The `verify` job in the same workflow runs after the deployment: it builds the
+real KPM from source, points it at the **live** `stable/manifest.json`,
+installs the plugin, and fails unless what landed is the version the channel
+advertises. So a broken publish is caught by the publish itself, on the real
+URL, not on the Kindle.
+
+### Other hosts
+
+The manifests use relative artifact URLs, so the whole tree can be served from
+anywhere without regenerating it:
+
+* **DigitalOcean**, the original plan: a `libs/kpm-repo` lib in
+  `ai-small-projects` serving `site/` as static files under `/kpm`, deployed by
+  the push to `main` that already deploys the gateway. Keeps the URL on
+  `gateway.example`; needs the artifacts committed to that repository.
+* **Cloudflare**: a Worker with static assets, or Pages, on `kpm.gateway.example`.
+  The account's API token already covers Workers, Pages and the `gateway.example`
+  DNS, so this can be deployed and re-pointed without touching the droplet.
+  (R2 would also fit, but is not enabled on the account.)
+
+Moving means changing `BASE_URL` in `scripts/build-site.sh`, the `repo_url`
+default in `aidict/config.lua`, and re-adding the repository on the device.
 
 ## Checksums
 

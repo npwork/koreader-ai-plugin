@@ -1,0 +1,105 @@
+name: pages
+
+# Publishes the KPM repository to GitHub Pages, then proves it works by
+# installing from the live URL with the real package manager.
+#
+# The repository must be public for Pages to be available on a free plan.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The stable channel is built from the newest v* tag.
+          fetch-depth: 0
+
+      - name: Build the site
+        run: ./scripts/build-site.sh
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify:
+    name: install from the live repository
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install what KPM needs to build here
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential meson ninja-build pkg-config \
+            libcurl4-openssl-dev libsqlite3-dev libcjson-dev libarchive-dev libssl-dev
+
+      - name: Build KPM from source
+        run: ./scripts/kpm-host-build.sh
+
+      - name: Install the plugin from the published repository
+        env:
+          PAGE_URL: ${{ needs.deploy.outputs.page_url || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
+        run: |
+          set -x
+          BASE="${PAGE_URL%/}"
+          MANIFEST="${BASE}/stable/manifest.json"
+
+          # Pages can take a moment to serve a fresh deployment.
+          for _ in $(seq 1 30); do
+            curl -fsS "${MANIFEST}" -o /tmp/manifest.json && break
+            sleep 5
+          done
+          test -s /tmp/manifest.json || { echo "::error::${MANIFEST} never became available"; exit 1; }
+
+          SANDBOX="${GITHUB_WORKSPACE}/.kpm/sandbox"
+          mkdir -p "${SANDBOX}/packages" "${SANDBOX}/koreader/plugins"
+          export KOREADER_DIR="${SANDBOX}/koreader"
+          KPM="${GITHUB_WORKSPACE}/.kpm/build/cli/kpm"
+
+          "${KPM}" -y add-repo "${MANIFEST}"
+          "${KPM}" -y install koreader-aidict
+
+          PLUGIN="${SANDBOX}/koreader/plugins/aidict.koplugin"
+          test -f "${PLUGIN}/main.lua"
+          test -f "${PLUGIN}/aidict/lookup.lua"
+
+          # What landed must be the version the channel advertises.
+          EXPECTED="$(curl -fsS "${BASE}/stable/version.json" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"]["koreader-aidict"]["version_string"])')"
+          grep -q "\"${EXPECTED}\"" "${PLUGIN}/aidict/version.lua" \
+            || { echo "::error::installed version does not match the channel's ${EXPECTED}"; exit 1; }
+
+          echo "installed koreader-aidict ${EXPECTED} from ${BASE}"

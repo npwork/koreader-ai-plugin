@@ -46,6 +46,7 @@ scripts/kpmrepo.py           builds the .kpkg and the KPM repository
 scripts/verify-package.sh    installs, upgrades and uninstalls into a temp tree
 scripts/kpm-host-build.sh    builds the real KPM against system libraries
 scripts/test-distribution.sh drives that KPM through the whole lifecycle over HTTP
+scripts/build-site.sh        assembles the published stable and dev channels
 scripts/emulator.sh          runs a real KOReader with the plugin, headlessly
 ```
 
@@ -115,17 +116,18 @@ static files:
 Bumping the version means editing `plugin/aidict.koplugin/aidict/version.lua`;
 the package name, the KPM manifest and `version.json` all follow from it.
 
-Publishing it on the DigitalOcean box is the next piece of work — see
-[docs/distribution.md](docs/distribution.md) for the plan and the URLs it
-assumes.
+`scripts/build-site.sh` assembles both channels into `site/`, which
+`.github/workflows/pages.yml` publishes to GitHub Pages on every push to
+`main` and every `v*` tag — and then installs from the live URL with the real
+KPM to prove the publish worked. See
+[docs/distribution.md](docs/distribution.md).
 
 ## Installing on the Kindle
 
-Once the repository is served (the URLs below are the intended ones), from the
-Kindle search bar:
+From the Kindle search bar:
 
 ```
-;kpm repo add https://repo.example/kpm/stable/manifest.json
+;kpm add-repo https://npwork.github.io/koreader-ai-plugin/stable/manifest.json
 ;kpm install koreader-aidict
 ```
 
@@ -153,7 +155,7 @@ KOReader menu → **AI dictionary**:
 | Answer language | `ru` | Language the explanation is written in. |
 | Context sent | 320 characters | How much of the surrounding sentence goes with the word. 0 sends the word alone. |
 | Cache | 200 answers, 30 days | Cleared from the same menu. |
-| Update channel | `stable` | `stable` or `dev`. |
+| Update channel | `stable` | `stable` or `dev`, matching the published channels. |
 
 They live in `koreader/settings/aidict.lua` on the device.
 

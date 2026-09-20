@@ -1,4 +1,5 @@
 dist/
+site/
 .kpm/
 .emulator/
 *.kpkg
