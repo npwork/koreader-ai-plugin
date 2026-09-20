@@ -4,6 +4,14 @@ Turns an API result into the text KOReader puts in a TextViewer.
 
 local Format = {}
 
+--- Milliseconds as something worth reading on a small screen.
+function Format.duration(ms)
+    ms = tonumber(ms)
+    if not ms then return "" end
+    if ms < 1000 then return string.format("%dms", math.floor(ms + 0.5)) end
+    return string.format("%.1fs", ms / 1000)
+end
+
 --- Human-readable one-liner for an `ApiClient` error.
 function Format.error(err)
     if type(err) ~= "table" then return "Lookup failed." end
@@ -47,7 +55,11 @@ function Format.result(result, opts)
 
     local footer = {}
     if result.model and result.model ~= "" then footer[#footer + 1] = result.model end
-    if opts.cached then footer[#footer + 1] = "cached" end
+    if opts.cached then
+        footer[#footer + 1] = "cached"
+    elseif result.elapsed_ms then
+        footer[#footer + 1] = Format.duration(result.elapsed_ms)
+    end
     if #footer > 0 then
         lines[#lines + 1] = ""
         lines[#lines + 1] = "— " .. table.concat(footer, " · ")

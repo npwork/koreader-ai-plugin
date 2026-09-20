@@ -50,6 +50,8 @@ end
   json          table  encode/decode pair, required
   block_timeout int    seconds
   total_timeout int    seconds
+  monotonic     func   optional, returns milliseconds from a monotonic clock;
+                       used to time the round trip
 --]]--
 function ApiClient.new(opts)
     opts = opts or {}
@@ -63,6 +65,7 @@ function ApiClient.new(opts)
         block_timeout = opts.block_timeout or 10,
         total_timeout = opts.total_timeout or 30,
         user_agent = opts.user_agent or ("koreader-aidict/" .. Version.string),
+        monotonic = opts.monotonic,
     }, ApiClient)
 end
 
@@ -146,6 +149,7 @@ function ApiClient:define(request)
         headers["Authorization"] = "Bearer " .. self.api_key
     end
 
+    local started = self.monotonic and self.monotonic() or nil
     local response, transport_err = self.transport({
         url = self:url_for("define"),
         method = "POST",
@@ -154,6 +158,8 @@ function ApiClient:define(request)
         block_timeout = self.block_timeout,
         total_timeout = self.total_timeout,
     })
+
+    local elapsed_ms = started and self.monotonic and (self.monotonic() - started) or nil
 
     if not response then
         local reason = tostring(transport_err or "network unreachable")
@@ -187,6 +193,14 @@ function ApiClient:define(request)
         end
     end
 
+    -- The gateway reports its own split (handler vs. model); the difference
+    -- between that and our round trip is the network and the radio.
+    local server_ms, model_ms
+    if type(decoded.timing) == "table" then
+        server_ms = tonumber(decoded.timing.total_ms)
+        model_ms = tonumber(decoded.timing.upstream_ms)
+    end
+
     return {
         word = type(decoded.word) == "string" and decoded.word or request.word,
         definition = decoded.definition,
@@ -194,6 +208,9 @@ function ApiClient:define(request)
         part_of_speech = type(decoded.part_of_speech) == "string" and decoded.part_of_speech or nil,
         examples = examples,
         model = type(decoded.model) == "string" and decoded.model or nil,
+        elapsed_ms = elapsed_ms,
+        server_ms = server_ms,
+        model_ms = model_ms,
     }
 end
 

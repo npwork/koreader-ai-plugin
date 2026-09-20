@@ -215,6 +215,22 @@ describe("the KOReader layer", function()
             assert.is_truthy(last_shown().text:find("endpoint", 1, true))
         end)
 
+        it("shows how long the round trip took", function()
+            build()
+            kor.request_ms = 1500
+            tap_dict_button()
+
+            assert.is_truthy(last_shown().text:find("1.5s", 1, true))
+        end)
+
+        it("shows milliseconds when it was quick", function()
+            build()
+            kor.request_ms = 120
+            tap_dict_button()
+
+            assert.is_truthy(last_shown().text:find("120ms", 1, true))
+        end)
+
         it("names the word in the progress message", function()
             build()
             tap_dict_button()
@@ -264,24 +280,45 @@ describe("the KOReader layer", function()
     end)
 
     describe("being offline", function()
-        it("defers the lookup instead of failing", function()
+        it("does not offer the button at all", function()
+            build({ online = false })
+
+            local spec = reader.dict_buttons["aidict_explain"]
+            assert.is_false(spec.show_func())
+
+            local button = reader.highlight_buttons["13_aidict_explain"](reader.ui.highlight)
+            assert.is_false(button.show_in_highlight_dialog_func())
+        end)
+
+        it("offers it once Wi-Fi is up", function()
+            build()
+
+            assert.is_true(reader.dict_buttons["aidict_explain"].show_func())
+            local button = reader.highlight_buttons["13_aidict_explain"](reader.ui.highlight)
+            assert.is_true(button.show_in_highlight_dialog_func())
+        end)
+
+        it("asks nothing and says why, if it is reached anyway", function()
             build({ online = false })
             tap_dict_button()
 
             assert.are.equal(0, kor.transport.calls)
-            assert.are.equal(0, #kor.shown)
-            assert.is_function(kor.deferred)
+            assert.are.equal("InfoMessage", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("Wi%-Fi"))
         end)
 
-        it("runs the same lookup once the network is up", function()
-            build({ online = false })
+        it("still shows an answer it already has", function()
+            build()
+            tap_dict_button()
+            local saved = kor.store.data["cache_entries"]
+            koreader.uninstall()
+
+            build({ online = false, settings = { cache_entries = saved } })
             tap_dict_button()
 
-            kor.online = true
-            kor.deferred()
-
-            assert.are.equal(1, kor.transport.calls)
+            assert.are.equal(0, kor.transport.calls)
             assert.are.equal("TextViewer", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("cached", 1, true))
         end)
     end)
 

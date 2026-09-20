@@ -47,6 +47,8 @@ function koreader.install(opts)
         deferred = nil,      -- the callback NetworkMgr kept for later
         online = opts.online ~= false,
         dismiss_next = false,
+        clock_ms = 0,
+        request_ms = 0,
     }
 
     local Widget = widget_class()
@@ -90,6 +92,8 @@ function koreader.install(opts)
     }
 
     package.loaded["ui/network/manager"] = {
+        isConnected = function() return recorder.online end,
+        isOnline = function() return recorder.online end,
         willRerunWhenOnline = function(_, callback)
             if recorder.online then return false end
             recorder.deferred = callback
@@ -106,6 +110,11 @@ function koreader.install(opts)
     }
 
     package.loaded["device"] = { model = "SpecDevice" }
+
+    package.loaded["ui/time"] = {
+        now = function() return recorder.clock_ms end,
+        to_ms = function(value) return value end,
+    }
 
     package.loaded["logger"] = {
         dbg = function() end,
@@ -145,7 +154,12 @@ function koreader.install(opts)
     }
 
     -- The plugin's own transport and codec, swapped for the test doubles.
-    package.loaded["aidict.http_transport"] = recorder.transport.fn
+    -- The wrapper moves the fake clock by `request_ms`, so a spec can say how
+    -- long a request "took".
+    package.loaded["aidict.http_transport"] = function(request)
+        recorder.clock_ms = recorder.clock_ms + (recorder.request_ms or 0)
+        return recorder.transport.fn(request)
+    end
     package.loaded["aidict.json"] = helpers.json
 
     for _, module in ipairs({
@@ -164,7 +178,7 @@ function koreader.uninstall()
     for _, module in ipairs({
         "ui/widget/container/widgetcontainer", "ui/widget/infomessage", "ui/widget/textviewer",
         "ui/widget/inputdialog", "ui/uimanager", "ui/trapper", "ui/network/manager",
-        "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util",
+        "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
         "aidict.http_transport", "aidict.json", "main",
     }) do
         package.loaded[module] = nil

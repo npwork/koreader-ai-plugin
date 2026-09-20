@@ -18,6 +18,7 @@ Lookup.__index = Lookup
   transport func      required, see apiclient.lua
   json      table     required, encode/decode pair
   now       func      optional clock, defaults to os.time
+  monotonic func      optional millisecond clock, for timing the round trip
 --]]--
 function Lookup.new(opts)
     opts = opts or {}
@@ -27,6 +28,7 @@ function Lookup.new(opts)
         transport = opts.transport,
         json = opts.json,
         now = opts.now or os.time,
+        monotonic = opts.monotonic,
     }, Lookup)
     self:reload()
     return self
@@ -42,6 +44,7 @@ function Lookup:reload()
         total_timeout = s:get("total_timeout"),
         transport = self.transport,
         json = self.json,
+        monotonic = self.monotonic,
     })
 
     local max_entries = s:get("cache_size")

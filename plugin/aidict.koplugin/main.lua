@@ -19,6 +19,7 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
+local time = require("ui/time")
 local util = require("util")
 local T = require("ffi/util").template
 local _ = require("gettext")
@@ -36,6 +37,13 @@ local CACHE_KEY = "cache_entries"
 
 local showResult
 
+--- Whether asking is possible at all right now.
+-- Cheap on purpose: NetworkMgr:isOnline() resolves a hostname, which is far
+-- too slow to decide whether to draw a button.
+local function canAsk()
+    return NetworkMgr:isConnected()
+end
+
 local AiDict = WidgetContainer:extend{
     name = "aidict",
 }
@@ -47,6 +55,7 @@ function AiDict:init()
         settings = self.settings,
         transport = http_transport,
         json = json,
+        monotonic = function() return time.to_ms(time.now()) end,
     })
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
 
@@ -84,6 +93,9 @@ function AiDict:registerDictButton()
         id = "aidict_explain",
         menu_text = _("Explain with AI"),
         text = _("AI"),
+        -- Without Wi-Fi the button is not there at all, rather than there and
+        -- failing.
+        show_func = function() return canAsk() end,
         callback = function(dict_popup)
             local word = dict_popup.word
             local context, sentence = self:contextFor(dict_popup.highlight, word)
@@ -98,6 +110,7 @@ function AiDict:registerHighlightButton()
     self.ui.highlight:addToHighlightDialog("13_aidict_explain", function(this)
         return {
             text = _("Explain with AI"),
+            show_in_highlight_dialog_func = function() return canAsk() end,
             callback = function()
                 this:highlightFromHoldPos()
                 if not (this.selected_text and this.selected_text.text) then return end
@@ -212,7 +225,10 @@ function AiDict:explain(word, context, sentence)
         return
     end
 
-    if NetworkMgr:willRerunWhenOnline(function() self:explain(word, context, sentence) end) then
+    if not canAsk() then
+        -- Deliberately not offering to turn Wi-Fi on: the reader asked for a
+        -- word, not for a connection.
+        UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so there is nothing to ask.") })
         return
     end
 
@@ -231,13 +247,23 @@ function AiDict:explain(word, context, sentence)
             return
         end
         if not outcome.ok then
+            local err = outcome.err or {}
+            logger.warn(string.format("aidict: %s failed (%s: %s)",
+                word, tostring(err.code), tostring(err.message)))
             UIManager:show(InfoMessage:new{ text = Format.error(outcome.err) })
             return
         end
 
         self.lookup:remember(request, outcome.result)
         self:saveCache()
-        showResult(word, outcome.result, false)
+
+        local result = outcome.result
+        logger.info(string.format(
+            "aidict: %s ok in %sms (gateway %sms, model %sms, %s)",
+            word, tostring(result.elapsed_ms or "?"), tostring(result.server_ms or "?"),
+            tostring(result.model_ms or "?"), tostring(result.model or "?")))
+
+        showResult(word, result, false)
     end)
 end
 
@@ -248,7 +274,8 @@ function AiDict:checkForUpdates()
     local channel = self.settings:get("channel")
     local updater = Updater.new({ transport = http_transport, json = json })
 
-    if NetworkMgr:willRerunWhenOnline(function() self:checkForUpdates() end) then
+    if not canAsk() then
+        UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so updates cannot be checked.") })
         return
     end
 
