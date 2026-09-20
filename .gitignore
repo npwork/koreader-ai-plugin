@@ -1,0 +1,3 @@
+dist/
+*.kpkg
+luacov.*

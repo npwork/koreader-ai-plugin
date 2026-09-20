@@ -1,0 +1,10 @@
+return {
+    _all = {
+        ["lpath"] = "./plugin/aidict.koplugin/?.lua;./spec/?.lua;",
+    },
+    default = {
+        ROOT = { "spec" },
+        pattern = "_spec%.lua$",
+        verbose = true,
+    },
+}
