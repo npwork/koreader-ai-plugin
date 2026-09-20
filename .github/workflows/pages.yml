@@ -30,6 +30,11 @@ jobs:
           fetch-depth: 0
 
       - name: Build the site
+        # The gateway address is not in the repository; it is baked into the
+        # package here. Without the secret the package ships with no endpoint
+        # and the reader is asked to set one on the device.
+        env:
+          AIDICT_ENDPOINT: ${{ secrets.AIDICT_ENDPOINT }}
         run: ./scripts/build-site.sh
 
       - uses: actions/configure-pages@v5

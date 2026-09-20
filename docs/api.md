@@ -7,7 +7,9 @@ and `/message-watcher` the same way, so `/koreader-ai` is one more mount).
 
 ## POST `<endpoint>/define`
 
-Default endpoint: `https://gateway.example/koreader-ai`.
+The address is not written down in this repository: it is injected into the
+package at build time from the `AIDICT_ENDPOINT` secret, and can be changed on
+the device from the plugin's menu.
 
 ### Request
 

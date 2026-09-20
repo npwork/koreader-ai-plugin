@@ -7,6 +7,10 @@ local Settings = require("aidict.settings")
 
 local helpers = {}
 
+--- The endpoint the source deliberately leaves empty — it is baked into the
+--- package at build time, so the specs supply their own.
+helpers.ENDPOINT = "https://gw.test/koreader-ai"
+
 --- A LuaSettings-shaped store backed by a table.
 function helpers.store(initial)
     local data = {}

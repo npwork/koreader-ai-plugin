@@ -13,7 +13,7 @@ No USB, no laptop, at any step.
 KPM (the Kindle package manager) is pointed at one URL:
 
 ```
-;kpm repo add https://repo.example/kpm/stable/manifest.json
+;kpm add-repo https://npwork.github.io/koreader-ai-plugin/stable/manifest.json
 ```
 
 It fetches that JSON, indexes every package and artifact in it, and on
@@ -47,7 +47,7 @@ manifest. Adding both to KPM would make it choose the highest version across
 them, so add one:
 
 ```
-;kpm repo add https://repo.example/kpm/dev/manifest.json
+;kpm add-repo https://npwork.github.io/koreader-ai-plugin/dev/manifest.json
 ```
 
 The plugin's own update check reads `<repo_url>/<channel>/version.json` and
@@ -80,6 +80,18 @@ in this repository.
 The artifacts have to be anonymously downloadable whatever the host: KPM speaks
 plain libcurl and has no way to send credentials.
 
+### The one secret in the pipeline
+
+`AIDICT_ENDPOINT` (a repository secret) is the gateway address, injected into
+`config.lua` inside the package at build time. The source tree leaves it empty,
+so nothing commits it. `scripts/verify-package.sh` fails if an address ever
+leaks into the committed `config.lua`, or if the injected one does not reach
+the built package.
+
+The address is not protected by this — the package is public and can be
+unpacked. It is kept out of the repository so it is not searchable, and the
+gateway's bearer token, which never enters the package, is what guards it.
+
 ### Proving it actually works
 
 The `verify` job in the same workflow runs after the deployment: it builds the
@@ -93,14 +105,13 @@ URL, not on the Kindle.
 The manifests use relative artifact URLs, so the whole tree can be served from
 anywhere without regenerating it:
 
-* **DigitalOcean**, the original plan: a `libs/kpm-repo` lib in
-  `ai-small-projects` serving `site/` as static files under `/kpm`, deployed by
-  the push to `main` that already deploys the gateway. Keeps the URL on
-  `gateway.example`; needs the artifacts committed to that repository.
-* **Cloudflare**: a Worker with static assets, or Pages, on `kpm.gateway.example`.
-  The account's API token already covers Workers, Pages and the `gateway.example`
-  DNS, so this can be deployed and re-pointed without touching the droplet.
-  (R2 would also fit, but is not enabled on the account.)
+* **The gateway's own host**: a small lib serving `site/` as static files
+  under `/kpm`, deployed by the push that already deploys the gateway. Keeps
+  the repository on a domain you own; needs the artifacts committed to that
+  repository.
+* **Cloudflare**: a Worker with static assets, or Pages, on a subdomain of a
+  zone you control. Deployed and re-pointed without touching the server.
+  (R2 would also fit, once enabled on the account.)
 
 Moving means changing `BASE_URL` in `scripts/build-site.sh`, the `repo_url`
 default in `aidict/config.lua`, and re-adding the repository on the device.

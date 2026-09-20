@@ -35,4 +35,16 @@ test ! -f "${WORK}/koreader/plugins/aidict.koplugin/stale.lua"
 KOREADER_DIR="${WORK}/koreader" sh uninstall.sh >/dev/null
 test ! -d "${WORK}/koreader/plugins/aidict.koplugin"
 
-echo "package verified: install, upgrade and uninstall all behave"
+# The gateway address is injected at build time, never committed.
+AIDICT_ENDPOINT="https://gateway.test/koreader-ai" \
+    python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-ep" >/dev/null
+mkdir -p "${WORK}/pkg-ep"
+tar xzf "${WORK}"/dist-ep/*.kpkg -C "${WORK}/pkg-ep"
+grep -q 'endpoint = "https://gateway.test/koreader-ai"' \
+    "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
+    || { echo "the endpoint was not baked into the package"; exit 1; }
+grep -q 'endpoint = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
+    || { echo "an endpoint leaked into the committed config.lua"; exit 1; }
+
+echo "package verified: install, upgrade and uninstall all behave,"
+echo "and the endpoint is injected at build time rather than committed"

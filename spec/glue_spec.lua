@@ -23,10 +23,16 @@ describe("the KOReader layer", function()
 
     local function build(opts)
         opts = opts or {}
+        -- The shipped package carries no endpoint; it is baked in at build
+        -- time. Give the reader one unless the spec is about not having it.
+        local settings = {}
+        if not opts.no_endpoint then settings.endpoint = helpers.ENDPOINT end
+        for key, value in pairs(opts.settings or {}) do settings[key] = value end
+
         kor = koreader.install({
             responses = opts.responses or { { status = 200, body = ANSWER } },
             online = opts.online,
-            settings = opts.settings,
+            settings = settings,
         })
         local selected_text = opts.selected_text or { text = "fox", pos0 = "p1", pos1 = "p2" }
         if opts.no_selection then selected_text = nil end
@@ -172,6 +178,15 @@ describe("the KOReader layer", function()
             kor.dismiss_next = true
             tap_dict_button()
             assert.are.equal(0, #kor.shown)
+        end)
+
+        it("asks to be configured when no endpoint was baked in or set", function()
+            build({ no_endpoint = true })
+            tap_dict_button()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.are.equal("InfoMessage", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("endpoint", 1, true))
         end)
 
         it("names the word in the progress message", function()
@@ -321,7 +336,7 @@ describe("the KOReader layer", function()
             dialog.input = "not-a-url"
             dialog.buttons[1][2].callback()
 
-            assert.is_nil(kor.store.data.endpoint)
+            assert.are.equal(helpers.ENDPOINT, kor.store.data.endpoint)
             assert.are.equal("InfoMessage", last_shown().widget_kind)
             assert.is_truthy(last_shown().text:find("URL", 1, true))
         end)
@@ -340,11 +355,11 @@ describe("the KOReader layer", function()
                     channel = "stable",
                     packages = { ["koreader-aidict"] = { version = { 9, 9, 9 }, version_string = "9.9.9" } },
                 }) } },
-                settings = { repo_url = "https://repo.example/kpm" },
+                settings = { repo_url = "https://repo.test/kpm" },
             })
             plugin:checkForUpdates()
 
-            assert.are.equal("https://repo.example/kpm/stable/version.json", kor.transport.requests[1].url)
+            assert.are.equal("https://repo.test/kpm/stable/version.json", kor.transport.requests[1].url)
             assert.is_truthy(last_shown().text:find("9.9.9", 1, true))
             assert.is_truthy(last_shown().text:find("kpm upgrade koreader%-aidict"))
         end)

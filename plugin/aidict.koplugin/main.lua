@@ -156,6 +156,13 @@ function AiDict:explain(word, context)
         return
     end
 
+    if not self.settings:is_configured() then
+        UIManager:show(InfoMessage:new{
+            text = _("Set the AI endpoint first, in the AI dictionary menu."),
+        })
+        return
+    end
+
     local props = self:bookProps()
     local request = {
         word = word,

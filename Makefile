@@ -2,7 +2,7 @@
 
 DIST ?= dist
 CHANNEL ?= stable
-BASE_URL ?= https://repo.example/kpm
+BASE_URL ?= https://npwork.github.io/koreader-ai-plugin
 
 .PHONY: help test lint check check-all package repo verify kpm test-distribution clean
 

@@ -6,7 +6,7 @@ local function manifest(version, extra)
         ["koreader-aidict"] = {
             version = version,
             version_string = table.concat(version, "."),
-            url = "https://repo.example/kpm/stable/packages/koreader-aidict/artifacts/x.kpkg",
+            url = "https://repo.test/kpm/stable/packages/koreader-aidict/artifacts/x.kpkg",
             sha256 = "deadbeef",
         },
     }
@@ -52,15 +52,15 @@ describe("updater", function()
 
     describe("url", function()
         it("points at the channel's version manifest", function()
-            assert.are.equal("https://repo.example/kpm/dev/version.json",
-                Updater.url_for("https://repo.example/kpm/", "dev"))
+            assert.are.equal("https://repo.test/kpm/dev/version.json",
+                Updater.url_for("https://repo.test/kpm/", "dev"))
         end)
     end)
 
     describe("check", function()
         it("reports an update when the channel is ahead", function()
             local tr = helpers.transport({ { status = 200, body = manifest({ 0, 2, 0 }) } })
-            local info, err = updater(tr, { 0, 1, 0 }):check("https://repo.example/kpm", "stable")
+            local info, err = updater(tr, { 0, 1, 0 }):check("https://repo.test/kpm", "stable")
 
             assert.is_nil(err)
             assert.is_true(info.available)
@@ -71,39 +71,39 @@ describe("updater", function()
 
         it("reports nothing to do when versions match", function()
             local tr = helpers.transport({ { status = 200, body = manifest({ 0, 1, 0 }) } })
-            local info = updater(tr, { 0, 1, 0 }):check("https://repo.example/kpm", "stable")
+            local info = updater(tr, { 0, 1, 0 }):check("https://repo.test/kpm", "stable")
             assert.is_false(info.available)
         end)
 
         it("does not offer a downgrade", function()
             local tr = helpers.transport({ { status = 200, body = manifest({ 0, 1, 0 }) } })
-            local info = updater(tr, { 0, 3, 0 }):check("https://repo.example/kpm", "stable")
+            local info = updater(tr, { 0, 3, 0 }):check("https://repo.test/kpm", "stable")
             assert.is_false(info.available)
         end)
 
         it("asks the channel it was given", function()
             local tr = helpers.transport({ { status = 200, body = manifest({ 0, 2, 0 }) } })
-            updater(tr):check("https://repo.example/kpm", "dev")
-            assert.are.equal("https://repo.example/kpm/dev/version.json", tr.requests[1].url)
+            updater(tr):check("https://repo.test/kpm", "dev")
+            assert.are.equal("https://repo.test/kpm/dev/version.json", tr.requests[1].url)
             assert.are.equal("GET", tr.requests[1].method)
         end)
 
         it("passes the network failure back", function()
             local tr = helpers.transport({ { err = "host not found" } })
-            local _, err = updater(tr):check("https://repo.example/kpm", "stable")
+            local _, err = updater(tr):check("https://repo.test/kpm", "stable")
             assert.are.equal("network", err.code)
         end)
 
         it("reports an http failure", function()
             local tr = helpers.transport({ { status = 404, body = "" } })
-            local _, err = updater(tr):check("https://repo.example/kpm", "stable")
+            local _, err = updater(tr):check("https://repo.test/kpm", "stable")
             assert.are.equal("http_error", err.code)
             assert.are.equal(404, err.status)
         end)
 
         it("rejects a manifest that is not JSON", function()
             local tr = helpers.transport({ { status = 200, body = "not json" } })
-            local _, err = updater(tr):check("https://repo.example/kpm", "stable")
+            local _, err = updater(tr):check("https://repo.test/kpm", "stable")
             assert.are.equal("bad_response", err.code)
         end)
 
@@ -111,7 +111,7 @@ describe("updater", function()
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({ channel = "dev", packages = {} }) },
             })
-            local _, err = updater(tr):check("https://repo.example/kpm", "dev")
+            local _, err = updater(tr):check("https://repo.test/kpm", "dev")
             assert.are.equal("not_published", err.code)
         end)
     end)

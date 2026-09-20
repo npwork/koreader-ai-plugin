@@ -150,7 +150,7 @@ KOReader menu → **AI dictionary**:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Endpoint | `https://gateway.example/koreader-ai` | The gateway. The plugin POSTs to `<endpoint>/define`. |
+| Endpoint | baked into the package at build time | The gateway. The plugin POSTs to `<endpoint>/define`. Empty in the source; see below. |
 | API key | empty | Sent as `Authorization: Bearer …` when set. |
 | Answer language | `ru` | Language the explanation is written in. |
 | Context sent | 320 characters | How much of the surrounding sentence goes with the word. 0 sends the word alone. |
@@ -158,6 +158,25 @@ KOReader menu → **AI dictionary**:
 | Update channel | `stable` | `stable` or `dev`, matching the published channels. |
 
 They live in `koreader/settings/aidict.lua` on the device.
+
+### The gateway address is not in this repository
+
+`config.lua` ships an empty `endpoint`. The real address is injected into the
+package when it is built, from the `AIDICT_ENDPOINT` secret:
+
+```bash
+AIDICT_ENDPOINT=https://your-gateway/koreader-ai make package
+# or: python3 scripts/kpmrepo.py package --endpoint https://your-gateway/koreader-ai
+```
+
+Build without it and the package simply ships unconfigured — the plugin asks
+the reader to set an endpoint from its menu, which is also how you point one
+device somewhere else.
+
+This keeps the address out of the source, the README and the git history. It
+is **not** a secret: the published `.kpkg` is world-readable and anyone can
+unpack it. What actually guards the gateway is the bearer token, which is
+never built into the package — it is typed on the device.
 
 ## The API it expects
 

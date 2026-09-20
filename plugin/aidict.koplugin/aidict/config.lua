@@ -9,7 +9,11 @@ local Config = {}
 
 Config.DEFAULTS = {
     -- Gateway endpoint. The plugin POSTs to <endpoint>/define.
-    endpoint = "https://gateway.example/koreader-ai",
+    -- Empty on purpose: the real address is baked into the package at build
+    -- time (`kpmrepo.py package --endpoint …`, from a CI secret), and can be
+    -- set or changed on the device from the plugin's menu. Nothing here
+    -- commits the address to a public repository.
+    endpoint = "",
     -- Optional bearer token; empty means the gateway is open to this device.
     api_key = "",
     -- Language the explanation should be written in. "auto" keeps the

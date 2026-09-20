@@ -60,6 +60,22 @@ def parse_version(text: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
+def config_lua(endpoint: str) -> bytes:
+    """config.lua with the gateway address baked in.
+
+    The address is deliberately absent from the source tree, so it lives in a
+    CI secret and is injected here. It ends up inside the published .kpkg,
+    which anyone can download — this keeps it out of the repository, not out
+    of the world. The gateway's bearer token is what actually guards it.
+    """
+    path = PLUGIN_DIR / "aidict" / "config.lua"
+    text = path.read_text()
+    patched, count = re.subn(r'endpoint\s*=\s*"[^"]*",', f'endpoint = "{endpoint}",', text, count=1)
+    if count != 1:
+        raise SystemExit("could not find the endpoint default in config.lua")
+    return patched.encode()
+
+
 def version_lua(version: tuple[int, int, int]) -> bytes:
     """version.lua with `version` in it, for builds that override it."""
     text = (PLUGIN_DIR / "aidict" / "version.lua").read_text()
@@ -89,10 +105,20 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_package(output_dir: Path, version: tuple[int, int, int] | None = None) -> Path:
-    """Build the .kpkg. `version` overrides version.lua, for testing upgrades."""
+def build_package(
+    output_dir: Path,
+    version: tuple[int, int, int] | None = None,
+    endpoint: str | None = None,
+) -> Path:
+    """Build the .kpkg.
+
+    `version` overrides version.lua, for testing upgrades. `endpoint` bakes
+    the gateway address into config.lua, which the source tree leaves empty.
+    """
     override = version is not None
     version = version or read_version()
+    if endpoint is not None and not re.match(r"^https?://\S+$", endpoint):
+        raise SystemExit(f"--endpoint wants an http(s) URL, got {endpoint!r}")
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "id": PACKAGE_ID,
@@ -143,11 +169,16 @@ def build_package(output_dir: Path, version: tuple[int, int, int] | None = None)
                 patched = version_lua(version)
                 info.size = len(patched)
                 archive.addfile(entry(info), __import__("io").BytesIO(patched))
+            elif endpoint and relative == Path("aidict/config.lua"):
+                patched = config_lua(endpoint)
+                info.size = len(patched)
+                archive.addfile(entry(info), __import__("io").BytesIO(patched))
             else:
                 with path.open("rb") as handle:
                     archive.addfile(entry(info), handle)
 
     print(f"built {display(package_path)} ({package_path.stat().st_size} bytes)")
+    print(f"endpoint {endpoint if endpoint else 'not set — configure it on the device'}")
     print(f"sha256 {sha256(package_path)}")
     return package_path
 
@@ -255,17 +286,26 @@ def main(argv: list[str]) -> int:
         "--version",
         help="override version.lua, e.g. 0.1.1 — for testing upgrades, not for releases",
     )
+    package_parser.add_argument(
+        "--endpoint",
+        default=os.environ.get("AIDICT_ENDPOINT") or None,
+        help="bake the gateway address into the package (default: $AIDICT_ENDPOINT)",
+    )
 
     repo_parser = sub.add_parser("repo", help="build the KPM repository around built packages")
     repo_parser.add_argument("packages", nargs="*", help=".kpkg files (default: everything in dist/)")
     repo_parser.add_argument("--channel", default="stable", choices=CHANNELS)
     repo_parser.add_argument("--output", default=str(DIST_DIR / "repo"))
-    repo_parser.add_argument("--base-url", default="https://repo.example/kpm")
+    repo_parser.add_argument("--base-url", default="https://npwork.github.io/koreader-ai-plugin")
 
     args = parser.parse_args(argv)
 
     if args.command == "package":
-        build_package(Path(args.output), parse_version(args.version) if args.version else None)
+        build_package(
+            Path(args.output),
+            parse_version(args.version) if args.version else None,
+            args.endpoint,
+        )
         return 0
 
     packages = [Path(p) for p in args.packages]

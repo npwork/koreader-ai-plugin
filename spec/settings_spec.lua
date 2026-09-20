@@ -4,9 +4,20 @@ local helpers = require("support.helpers")
 describe("settings", function()
     it("falls back to the defaults when nothing was saved", function()
         local settings = helpers.settings()
-        assert.are.equal(Config.DEFAULTS.endpoint, settings:get("endpoint"))
         assert.are.equal(Config.DEFAULTS.target_lang, settings:get("target_lang"))
         assert.are.equal(Config.DEFAULTS.cache_size, settings:get("cache_size"))
+    end)
+
+    it("ships no endpoint — it is baked into the package or set on the device", function()
+        assert.are.equal("", Config.DEFAULTS.endpoint)
+        local settings = helpers.settings()
+        assert.are.equal("", settings:get("endpoint"))
+        assert.is_false(settings:is_configured())
+    end)
+
+    it("is configured once an endpoint is set", function()
+        local settings = helpers.settings({ endpoint = "https://gw.test/ai" })
+        assert.is_true(settings:is_configured())
     end)
 
     it("returns what was saved", function()
@@ -16,11 +27,11 @@ describe("settings", function()
     end)
 
     it("refuses an endpoint that is not an http url", function()
-        local settings = helpers.settings()
+        local settings = helpers.settings({ endpoint = "https://gw.test/ai" })
         local ok, reason = settings:set("endpoint", "example.test")
         assert.is_false(ok)
         assert.is_truthy(reason:find("URL"))
-        assert.are.equal(Config.DEFAULTS.endpoint, settings:get("endpoint"))
+        assert.are.equal("https://gw.test/ai", settings:get("endpoint"))
     end)
 
     it("refuses unknown settings", function()
@@ -78,10 +89,6 @@ describe("settings", function()
         for key in pairs(Config.DEFAULTS) do
             assert.is_not_nil(all[key])
         end
-    end)
-
-    it("is configured out of the box", function()
-        assert.is_true(helpers.settings():is_configured())
     end)
 
     it("passes flush through to the store", function()

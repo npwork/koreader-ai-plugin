@@ -43,7 +43,8 @@ end
 
 --[[--
 @param opts table
-  endpoint      string base URL, e.g. "https://gateway.example/koreader-ai"
+  endpoint      string base URL of the gateway, baked into the package
+                       at build time
   api_key       string optional bearer token
   transport     func   see above, required
   json          table  encode/decode pair, required

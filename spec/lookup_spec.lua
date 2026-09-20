@@ -6,7 +6,7 @@ local GOOD_BODY = helpers.body({ word = "fox", definition = "A wild animal.", mo
 
 local function lookup(transport, settings, clock)
     return Lookup.new({
-        settings = settings or helpers.settings(),
+        settings = settings or helpers.settings({ endpoint = helpers.ENDPOINT }),
         transport = transport.fn,
         json = helpers.json,
         now = clock and clock.now or nil,
@@ -47,7 +47,7 @@ describe("lookup", function()
     it("re-asks after the answer goes stale", function()
         local clock = helpers.clock(1000)
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        local settings = helpers.settings({ cache_ttl = 60 })
+        local settings = helpers.settings({ endpoint = helpers.ENDPOINT, cache_ttl = 60 })
         local l = lookup(tr, settings, clock)
 
         l:define({ word = "fox" })
@@ -69,7 +69,7 @@ describe("lookup", function()
 
     it("never asks when the cache is disabled, but never caches either", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        local l = lookup(tr, helpers.settings({ cache_size = 0 }))
+        local l = lookup(tr, helpers.settings({ endpoint = helpers.ENDPOINT, cache_size = 0 }))
         l:define({ word = "fox" })
         l:define({ word = "fox" })
         assert.are.equal(2, tr.calls)
@@ -108,13 +108,13 @@ describe("lookup", function()
 
     it("sends the language from settings", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        lookup(tr, helpers.settings({ target_lang = "de" })):define({ word = "fox" })
+        lookup(tr, helpers.settings({ endpoint = helpers.ENDPOINT, target_lang = "de" })):define({ word = "fox" })
         assert.are.equal("de", helpers.json.decode(tr.requests[1].body).target_lang)
     end)
 
     it("picks up a changed endpoint after reload", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        local settings = helpers.settings()
+        local settings = helpers.settings({ endpoint = helpers.ENDPOINT })
         local l = lookup(tr, settings)
 
         settings:set("endpoint", "https://other.test/ai")
@@ -126,7 +126,7 @@ describe("lookup", function()
 
     it("keeps cached answers across a reload", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        local settings = helpers.settings()
+        local settings = helpers.settings({ endpoint = helpers.ENDPOINT })
         local l = lookup(tr, settings)
 
         l:define({ word = "fox" })
@@ -139,7 +139,8 @@ describe("lookup", function()
     end)
 
     it("builds the context window from the context_chars setting", function()
-        local l = lookup(helpers.transport({}), helpers.settings({ context_chars = 12 }))
+        local l = lookup(helpers.transport({}),
+            helpers.settings({ endpoint = helpers.ENDPOINT, context_chars = 12 }))
         local context = l:build_context("before text here", "fox", "after text here")
         assert.is_truthy(context:find("fox", 1, true))
         assert.is_true(require("aidict.context").len(context) <= 12)
