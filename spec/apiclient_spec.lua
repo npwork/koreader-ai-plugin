@@ -47,7 +47,7 @@ describe("api client", function()
             client(tr):define({
                 word = "fox",
                 context = "the quick brown fox jumps",
-                target_lang = "ru",
+                sentence = "the quick brown fox jumps",
                 title = "Aesop",
                 author = "Aesop",
             })
@@ -55,7 +55,8 @@ describe("api client", function()
             local sent = helpers.json.decode(tr.requests[1].body)
             assert.are.equal("fox", sent.word)
             assert.are.equal("the quick brown fox jumps", sent.context)
-            assert.are.equal("ru", sent.target_lang)
+            assert.are.equal("the quick brown fox jumps", sent.sentence)
+            assert.is_nil(sent.target_lang)
             assert.are.equal("Aesop", sent.title)
             assert.are.equal("koreader-aidict", sent.client)
             assert.are.equal(Version.string, sent.client_version)

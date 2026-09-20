@@ -54,7 +54,7 @@ describe("http transport, end to end", function()
         client(nil, { api_key = "s3cret" }):define({
             word = "fox",
             context = "the quick brown fox",
-            target_lang = "ru",
+            sentence = "the quick brown fox",
             title = "Aesop",
         })
 
@@ -74,7 +74,7 @@ describe("http transport, end to end", function()
         assert.are.equal("Bearer s3cret", seen.headers["authorization"])
         assert.are.equal("fox", seen.body.word)
         assert.are.equal("the quick brown fox", seen.body.context)
-        assert.are.equal("ru", seen.body.target_lang)
+        assert.are.equal("the quick brown fox", seen.body.sentence)
         assert.are.equal("koreader-aidict", seen.body.client)
     end)
 

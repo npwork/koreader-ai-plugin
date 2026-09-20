@@ -4,7 +4,6 @@ local helpers = require("support.helpers")
 describe("settings", function()
     it("falls back to the defaults when nothing was saved", function()
         local settings = helpers.settings()
-        assert.are.equal(Config.DEFAULTS.target_lang, settings:get("target_lang"))
         assert.are.equal(Config.DEFAULTS.cache_size, settings:get("cache_size"))
     end)
 
@@ -77,15 +76,15 @@ describe("settings", function()
 
     it("resets a key back to its default", function()
         local settings = helpers.settings()
-        settings:set("target_lang", "de")
-        assert.is_true(settings:reset("target_lang"))
-        assert.are.equal(Config.DEFAULTS.target_lang, settings:get("target_lang"))
+        settings:set("cache_size", 7)
+        assert.is_true(settings:reset("cache_size"))
+        assert.are.equal(Config.DEFAULTS.cache_size, settings:get("cache_size"))
     end)
 
     it("reports every setting from all()", function()
-        local settings = helpers.settings({ target_lang = "fr" })
+        local settings = helpers.settings({ cache_size = 42 })
         local all = settings:all()
-        assert.are.equal("fr", all.target_lang)
+        assert.are.equal(42, all.cache_size)
         for key in pairs(Config.DEFAULTS) do
             assert.is_not_nil(all[key])
         end

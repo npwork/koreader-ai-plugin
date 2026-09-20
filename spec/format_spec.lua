@@ -9,17 +9,24 @@ describe("format", function()
             assert.are.equal("fox  (noun)", text:match("^[^\n]+"))
         end)
 
-        it("includes the definition, translation and examples", function()
+        it("includes the definition and the examples", function()
+            local text = Format.result({
+                word = "fox",
+                definition = "A wild animal.",
+                examples = { "The fox ran.", "Sly as a fox." },
+            })
+            assert.is_truthy(text:find("A wild animal.", 1, true))
+            assert.is_truthy(text:find("• The fox ran.", 1, true))
+            assert.is_truthy(text:find("• Sly as a fox.", 1, true))
+        end)
+
+        it("does not show the translation yet, though it is fetched", function()
             local text = Format.result({
                 word = "fox",
                 definition = "A wild animal.",
                 translation = "лиса",
-                examples = { "The fox ran.", "Sly as a fox." },
             })
-            assert.is_truthy(text:find("A wild animal.", 1, true))
-            assert.is_truthy(text:find("лиса", 1, true))
-            assert.is_truthy(text:find("• The fox ran.", 1, true))
-            assert.is_truthy(text:find("• Sly as a fox.", 1, true))
+            assert.is_nil(text:find("лиса", 1, true))
         end)
 
         it("leaves out what the gateway did not send", function()

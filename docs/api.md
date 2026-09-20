@@ -18,7 +18,6 @@ the device from the plugin's menu.
   "word": "founder",
   "context": "The main danger, according to many of these founders, was that the wrong people might \"have\" ASI. They talked of the need to win an \"AI arms race.\"",
   "sentence": "The main danger, according to many of these founders, was that the wrong people might \"have\" ASI.",
-  "target_lang": "ru",
   "source_lang": "en",
   "title": "If Anyone Builds It, Everyone Dies",
   "author": "Yudkowsky, Soares",
@@ -37,8 +36,9 @@ the device from the plugin's menu.
 * Both are **omitted** when the document cannot produce them: a paged PDF has
   no paragraph markup, and a selection with nothing around it is not sent back
   as its own context.
-* `source_lang` is the book's language as KOReader knows it, which is often
-  absent.
+* There is no language to choose. The reader reads in English and wants the
+  word explained, not replaced, so the answer is English; `source_lang` is the
+  book's language as KOReader knows it, which is often absent.
 * `title` and `author` are there for disambiguation, not for logging.
 * `Authorization: Bearer <key>` is present only when the reader set a key.
 
@@ -59,11 +59,14 @@ the device from the plugin's menu.
 }
 ```
 
-Only `definition` is required — a 200 without a non-empty `definition` is
-treated as a broken answer. `examples` is the field the device is designed
-around: three short ones render well on a 600×800 screen. Everything else is
-optional and simply not shown when missing; `examples` entries that are not
-non-empty strings are dropped.
+`definition` and `examples` are **English**. Only `definition` is required — a
+200 without a non-empty one is treated as a broken answer. `examples` is the
+field the device is designed around: three short ones render well on a 600×800
+screen; entries that are not non-empty strings are dropped.
+
+`translation` is the Russian rendering. The plugin parses and caches it but
+**does not show it yet** — how it should sit next to an English explanation is
+still open. Everything else is optional and simply not shown when missing.
 
 ### Response, errors
 

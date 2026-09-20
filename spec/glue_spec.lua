@@ -133,7 +133,6 @@ describe("the KOReader layer", function()
             assert.are.equal("TextViewer", shown.widget_kind)
             assert.are.equal("fox", shown.title)
             assert.is_truthy(shown.text:find("A wild animal of the dog family.", 1, true))
-            assert.is_truthy(shown.text:find("лиса", 1, true))
         end)
 
         it("sends the whole paragraph as context, stripped of its markup", function()

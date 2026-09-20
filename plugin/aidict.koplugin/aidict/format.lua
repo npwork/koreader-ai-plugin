@@ -41,10 +41,9 @@ function Format.result(result, opts)
 
     lines[#lines + 1] = result.definition or ""
 
-    if result.translation and result.translation ~= "" then
-        lines[#lines + 1] = ""
-        lines[#lines + 1] = result.translation
-    end
+    -- `result.translation` is fetched and cached but deliberately not shown:
+    -- how a translation should sit next to an English explanation is still an
+    -- open question.
 
     if type(result.examples) == "table" and #result.examples > 0 then
         lines[#lines + 1] = ""

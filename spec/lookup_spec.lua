@@ -106,10 +106,13 @@ describe("lookup", function()
         assert.are.equal(1, tr.calls)
     end)
 
-    it("sends the language from settings", function()
+    it("sends the sentence alongside the paragraph", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        lookup(tr, helpers.settings({ endpoint = helpers.ENDPOINT, target_lang = "de" })):define({ word = "fox" })
-        assert.are.equal("de", helpers.json.decode(tr.requests[1].body).target_lang)
+        lookup(tr):define({ word = "fox", context = "a paragraph", sentence = "a sentence" })
+
+        local sent = helpers.json.decode(tr.requests[1].body)
+        assert.are.equal("a paragraph", sent.context)
+        assert.are.equal("a sentence", sent.sentence)
     end)
 
     it("picks up a changed endpoint after reload", function()

@@ -380,13 +380,6 @@ function AiDict:addToMainMenu(menu_items)
             },
             {
                 text_func = function()
-                    return T(_("Answer language: %1"), self.settings:get("target_lang"))
-                end,
-                keep_menu_open = true,
-                callback = function() self:editSetting("target_lang", _("Answer language")) end,
-            },
-            {
-                text_func = function()
                     return T(_("Context sent: %1 characters"), self.settings:get("context_chars"))
                 end,
                 keep_menu_open = true,

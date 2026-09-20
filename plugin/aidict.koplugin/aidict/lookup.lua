@@ -79,9 +79,8 @@ function Lookup:define(request, opts)
         return nil, { code = ApiClient.ERRORS.INVALID_REQUEST, message = "no word to look up" }, false
     end
 
-    local target_lang = self.settings:get("target_lang")
     local context = Context.cleanup(request.context)
-    local key = Cache.key(word, context, target_lang)
+    local key = Cache.key(word, context)
 
     if not opts.skip_cache then
         local hit = self.cache:get(key)
@@ -92,7 +91,6 @@ function Lookup:define(request, opts)
         word = word,
         context = context,
         sentence = Context.cleanup(request.sentence),
-        target_lang = target_lang,
         source_lang = request.source_lang,
         title = request.title,
         author = request.author,
@@ -106,18 +104,16 @@ function Lookup:define(request, opts)
 end
 
 --- Cache key for a request, so the callers below agree on one.
-function Lookup:key_for(request)
+local function key_for(request)
     request = request or {}
-    return Cache.key(Context.cleanup(request.word),
-                     Context.cleanup(request.context),
-                     self.settings:get("target_lang"))
+    return Cache.key(Context.cleanup(request.word), Context.cleanup(request.context))
 end
 
 --- Cached answer for a request, without touching the network.
 function Lookup:peek(request)
     local word = Context.cleanup(request and request.word)
     if word == "" then return nil end
-    return self.cache:get(self:key_for(request))
+    return self.cache:get(key_for(request))
 end
 
 --[[--
@@ -134,7 +130,6 @@ function Lookup:fetch(request)
         word = word,
         context = Context.cleanup(request.context),
         sentence = Context.cleanup(request.sentence),
-        target_lang = self.settings:get("target_lang"),
         source_lang = request.source_lang,
         title = request.title,
         author = request.author,
@@ -150,7 +145,7 @@ function Lookup:remember(request, result)
     if type(result) ~= "table" then return end
     local word = Context.cleanup(request and request.word)
     if word == "" then return end
-    self.cache:set(self:key_for(request), result)
+    self.cache:set(key_for(request), result)
 end
 
 function Lookup:clear_cache()

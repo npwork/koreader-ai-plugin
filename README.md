@@ -169,7 +169,6 @@ KOReader menu → **AI dictionary**:
 | --- | --- | --- |
 | Endpoint | baked into the package at build time | The gateway. The plugin POSTs to `<endpoint>/define`. Empty in the source; see below. |
 | API key | empty | Sent as `Authorization: Bearer …` when set. |
-| Answer language | `ru` | Language the explanation is written in. |
 | Context sent | 320 characters | How much of the surrounding sentence goes with the word. 0 sends the word alone. |
 | Cache | 200 answers, 30 days | Cleared from the same menu. |
 | Update channel | `stable` | `stable` or `dev`, matching the published channels. |
@@ -198,8 +197,8 @@ never built into the package — it is typed on the device.
 ## The API it expects
 
 See [docs/api.md](docs/api.md). In one line: `POST <endpoint>/define` with
-`{"word": …, "context": …, "target_lang": …}`, answered with
-`{"definition": …, "translation": …, "examples": [...]}`.
+`{"word": …, "context": …, "sentence": …}`, answered with
+`{"definition": …, "examples": [...]}` in English.
 
 The gateway side of that contract lives in `ai-small-projects` and is not built
 yet.

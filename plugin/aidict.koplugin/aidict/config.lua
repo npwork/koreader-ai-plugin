@@ -16,9 +16,6 @@ Config.DEFAULTS = {
     endpoint = "",
     -- Optional bearer token; empty means the gateway is open to this device.
     api_key = "",
-    -- Language the explanation should be written in. "auto" keeps the
-    -- book's language.
-    target_lang = "ru",
     -- Seconds. Block timeout and total timeout for the HTTP call.
     block_timeout = 10,
     total_timeout = 30,
@@ -52,12 +49,6 @@ Config.VALIDATORS = {
     api_key = function(value)
         if type(value) ~= "string" then
             return false, "api_key must be a string"
-        end
-        return true
-    end,
-    target_lang = function(value)
-        if type(value) ~= "string" or not value:match("^[%a][%a%-_]*$") then
-            return false, "target_lang must be a language code"
         end
         return true
     end,
