@@ -64,13 +64,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install what KPM needs to build here, and Lua to check what it installs
+      - name: Install what KPM needs to build, Lua to check what it installs, and a display for KOReader
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential meson ninja-build pkg-config \
             libcurl4-openssl-dev libsqlite3-dev libcjson-dev libarchive-dev libssl-dev \
-            lua5.1
+            lua5.1 xvfb libsdl2-2.0-0 fonts-dejavu-core
 
       - name: Build KPM from source
         run: ./scripts/kpm-host-build.sh
@@ -113,4 +113,51 @@ jobs:
           # would otherwise slip through to the device.
           find "${PLUGIN}" -name '*.lua' -exec luac5.1 -p {} +
 
+          echo "PLUGIN=${PLUGIN}" >> "${GITHUB_ENV}"
           echo "installed koreader-aidict ${EXPECTED} from ${BASE}, and it parses"
+
+      - name: Load what was installed into a real KOReader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          TAG="$(gh release list --repo koreader/koreader --limit 1 --json tagName --jq '.[0].tagName')"
+          gh release download "${TAG}" --repo koreader/koreader --pattern '*x86_64*.AppImage' --dir .
+          chmod +x ./*.AppImage
+          ./*.AppImage --appimage-extract >/dev/null
+
+          KOREADER_DIR="$(dirname "$(find squashfs-root -name reader.lua | head -1)")"
+          mkdir -p "${KOREADER_DIR}/plugins"
+          # The plugin as KPM installed it, not as it sits in the repository.
+          cp -r "${PLUGIN}" "${KOREADER_DIR}/plugins/"
+
+          mkdir -p books
+          printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
+
+          set +e
+          cd "${KOREADER_DIR}"
+          timeout --signal=TERM --kill-after=15 45 \
+            xvfb-run -a --server-args="-screen 0 600x800x24" \
+            ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" \
+            > "${GITHUB_WORKSPACE}/koreader.log" 2>&1 < /dev/null
+          echo "reader exited with $?"
+          set -e
+
+          cd "${GITHUB_WORKSPACE}"
+          tail -c 4000 koreader.log
+          grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \
+            || { echo "::error::the published package does not load in KOReader"; exit 1; }
+          if grep -qE "Error when loading.*aidict|aidict.*attempt to (call|index)" koreader.log; then
+            echo "::error::the published package errored inside KOReader"
+            exit 1
+          fi
+          grep -q "Tearing down UIManager with exit code: 0" koreader.log \
+            || { echo "::error::KOReader did not shut down cleanly"; exit 1; }
+
+          echo "the published package loads in KOReader"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: koreader-log-published
+          path: koreader.log
