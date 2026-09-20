@@ -60,45 +60,36 @@ jobs:
           # than sitting in the file manager.
           printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
 
+          # KOReader treats the TERM as a close request and shuts down the way
+          # it would on the device, which also runs the plugin's
+          # onCloseDocument and onFlushSettings handlers.
+          set +e
           cd "${KOREADER_DIR}"
-          LOG="${GITHUB_WORKSPACE}/koreader.log"
-          : > "${LOG}"
+          timeout --signal=TERM --kill-after=15 45 \
+            xvfb-run -a --server-args="-screen 0 600x800x24" \
+            ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" \
+            > "${GITHUB_WORKSPACE}/koreader.log" 2>&1 < /dev/null
+          echo "reader exited with $?"
+          set -e
 
-          # KOReader is a GUI application with no "load and quit" mode, and it
-          # does not shut down on a TERM from `timeout`. So: start it, watch
-          # its log until it has loaded the plugins, then kill it outright.
-          xvfb-run -a --server-args="-screen 0 600x800x24" \
-            ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" > "${LOG}" 2>&1 < /dev/null &
-          READER_PID=$!
-
-          for _ in $(seq 1 60); do
-            if grep -q "Plugin loaded" "${LOG}" 2>/dev/null; then
-              # Give the rest of the plugins a moment to finish loading.
-              sleep 3
-              break
-            fi
-            if ! kill -0 "${READER_PID}" 2>/dev/null; then
-              echo "KOReader exited on its own"
-              break
-            fi
-            sleep 1
-          done
-
-          kill -KILL "${READER_PID}" 2>/dev/null || true
-          pkill -KILL -f reader.lua 2>/dev/null || true
-          pkill -KILL Xvfb 2>/dev/null || true
-          echo "done"
-
-      - name: The plugin must have loaded, and nothing may have blown up
+      - name: The plugin must have loaded, and KOReader must have survived it
         run: |
           tail -c 20000 koreader.log || true
+
           grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \
             || { echo "::error::KOReader did not load the plugin"; exit 1; }
+
           if grep -qE "Error when loading.*aidict|aidict.*attempt to (call|index)" koreader.log; then
             echo "::error::the plugin raised an error inside KOReader"
             exit 1
           fi
-          echo "KOReader loaded aidict cleanly"
+
+          # A clean teardown means the plugin's close handlers ran without
+          # taking KOReader down with them.
+          grep -q "Tearing down UIManager with exit code: 0" koreader.log \
+            || { echo "::error::KOReader did not shut down cleanly"; exit 1; }
+
+          echo "KOReader loaded aidict and shut down cleanly"
 
       - uses: actions/upload-artifact@v4
         if: always()
