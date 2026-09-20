@@ -60,12 +60,34 @@ jobs:
           # than sitting in the file manager.
           printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
 
-          set +e
           cd "${KOREADER_DIR}"
-          timeout --signal=TERM 45 xvfb-run -a --server-args="-screen 0 600x800x24" \
-            ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" > "${GITHUB_WORKSPACE}/koreader.log" 2>&1
-          echo "reader exited with $?"
-          set -e
+          LOG="${GITHUB_WORKSPACE}/koreader.log"
+          : > "${LOG}"
+
+          # KOReader is a GUI application with no "load and quit" mode, and it
+          # does not shut down on a TERM from `timeout`. So: start it, watch
+          # its log until it has loaded the plugins, then kill it outright.
+          xvfb-run -a --server-args="-screen 0 600x800x24" \
+            ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" > "${LOG}" 2>&1 < /dev/null &
+          READER_PID=$!
+
+          for _ in $(seq 1 60); do
+            if grep -q "Plugin loaded" "${LOG}" 2>/dev/null; then
+              # Give the rest of the plugins a moment to finish loading.
+              sleep 3
+              break
+            fi
+            if ! kill -0 "${READER_PID}" 2>/dev/null; then
+              echo "KOReader exited on its own"
+              break
+            fi
+            sleep 1
+          done
+
+          kill -KILL "${READER_PID}" 2>/dev/null || true
+          pkill -KILL -f reader.lua 2>/dev/null || true
+          pkill -KILL Xvfb 2>/dev/null || true
+          echo "done"
 
       - name: The plugin must have loaded, and nothing may have blown up
         run: |

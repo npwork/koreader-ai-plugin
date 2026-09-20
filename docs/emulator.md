@@ -83,14 +83,19 @@ KOREADER_SRC=~/koreader-src /path/to/scripts/emulator.sh
 
 Budget 40–60 minutes for the first build on four cores, and a few GB of disk.
 
-## The third option: build it in CI
+## What already runs: the CI smoke test
 
-GitHub Actions runners have unrestricted network access, so the emulator build
-works there without changing anything about the cloud environment. A workflow
-that builds KOReader once, caches it, drops the plugin in and runs it under
-`Xvfb` would give every push a real-KOReader smoke test — at the cost of a
-long first run. Worth doing if the emulator is needed regularly; not written
-yet.
+GitHub runners have unrestricted network access, so that is where the plugin
+meets a real KOReader today. `.github/workflows/koreader-smoke.yml` downloads
+the latest KOReader release, extracts the AppImage, copies
+`plugin/aidict.koplugin` into its `plugins/` directory, starts it under `Xvfb`
+on a sample document, and fails unless the log says the plugin loaded and says
+nothing about it erroring. It runs on every push that touches `plugin/`, takes
+a couple of minutes, and needs no KOReader build.
+
+That covers "does real KOReader accept this plugin". It does not cover tapping
+a word and looking at the answer, which is what a local emulator — or the
+Kindle — is for.
 
 ## What still needs the physical Kindle
 

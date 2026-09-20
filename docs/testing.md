@@ -1,6 +1,7 @@
 # How this gets tested without a Kindle
 
-Four layers, all runnable in a container, in the order of how much they cost.
+Five layers, in the order of how much they cost. The first four run in any
+Linux container; the fifth runs on a GitHub runner.
 
 ## 1. Units — `make test`
 
@@ -72,6 +73,20 @@ plus a check that every `sha256` in `manifest.json` matches its artifact, that
 `SHA256SUMS` verifies, and that `version.json` points at the newest build.
 
 It runs entirely in `.kpm/sandbox`; nothing goes near `/mnt/us`.
+
+## 5. A real KOReader — `.github/workflows/koreader-smoke.yml`
+
+On every push that touches `plugin/`, a GitHub runner downloads the latest
+KOReader release, drops the plugin into it, and starts it headlessly under
+`Xvfb`. The run fails unless KOReader's own log says `Plugin loaded aidict`
+and says nothing about it erroring.
+
+This is the check that keeps the stubs in layer 2 honest: if KOReader renames
+`addToDictButtons` or changes how plugins are loaded, this goes red even
+though every stub-based test still passes.
+
+It lives in CI rather than in a cloud session because a session cannot
+download a KOReader build — see [emulator.md](emulator.md).
 
 ## What is left for the real device
 

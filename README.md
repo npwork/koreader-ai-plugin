@@ -83,7 +83,12 @@ serves a generated repository on localhost, and makes that KPM add the
 repository, install the plugin, upgrade it to a newer published version and
 uninstall it again — into a sandbox, never `/mnt/us`.
 
-[docs/testing.md](docs/testing.md) describes all four layers and says plainly
+On top of that, every push that touches `plugin/` sends it through a real
+KOReader on a GitHub runner: the AppImage is extracted, the plugin dropped in,
+and KOReader started headlessly under Xvfb — the run fails unless KOReader's
+own log says it loaded the plugin without erroring.
+
+[docs/testing.md](docs/testing.md) describes all five layers and says plainly
 what is left for the physical Kindle.
 
 For running the plugin inside the KOReader emulator, see
