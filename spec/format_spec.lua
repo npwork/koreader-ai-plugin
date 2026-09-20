@@ -40,6 +40,29 @@ describe("format", function()
             assert.is_truthy(text:find("gpt%-test · cached"))
         end)
 
+        it("shows the round trip in the footer when it was not cached", function()
+            local text = Format.result({ definition = "d", model = "gpt-test", elapsed_ms = 1500 })
+            assert.is_truthy(text:find("gpt%-test · 1%.5s"))
+        end)
+
+        it("says cached rather than how long the original ask took", function()
+            -- A cached answer took no time now; showing the old number would lie.
+            local text = Format.result(
+                { definition = "d", model = "gpt-test", elapsed_ms = 1500 }, { cached = true })
+            assert.is_truthy(text:find("cached", 1, true))
+            assert.is_nil(text:find("1.5s", 1, true))
+        end)
+
+        it("keeps the footer to the time when the model is unknown", function()
+            local text = Format.result({ definition = "d", elapsed_ms = 120 })
+            assert.is_truthy(text:find("— 120ms", 1, true))
+        end)
+
+        it("has no footer at all when there is nothing to put in it", function()
+            local text = Format.result({ definition = "d" })
+            assert.is_nil(text:find("—", 1, true))
+        end)
+
         it("falls back to the requested word", function()
             local text = Format.result({ definition = "d" }, { word = "fox" })
             assert.are.equal("fox", text:match("^[^\n]+"))
@@ -47,6 +70,33 @@ describe("format", function()
 
         it("returns nothing for a non-result", function()
             assert.are.equal("", Format.result(nil))
+        end)
+    end)
+
+    describe("duration", function()
+        it("stays in milliseconds below a second", function()
+            assert.are.equal("120ms", Format.duration(120))
+            assert.are.equal("0ms", Format.duration(0))
+            assert.are.equal("999ms", Format.duration(999))
+        end)
+
+        it("rounds to the nearest millisecond", function()
+            assert.are.equal("121ms", Format.duration(120.6))
+        end)
+
+        it("switches to seconds at one second", function()
+            assert.are.equal("1.0s", Format.duration(1000))
+            assert.are.equal("12.3s", Format.duration(12345))
+        end)
+
+        it("says nothing about a time it was not given", function()
+            assert.are.equal("", Format.duration(nil))
+            assert.are.equal("", Format.duration("a while"))
+        end)
+
+        it("reads a number that arrived as a string", function()
+            -- Timings survive a trip through the subprocess, so be forgiving.
+            assert.are.equal("250ms", Format.duration("250"))
         end)
     end)
 

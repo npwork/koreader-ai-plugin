@@ -97,9 +97,11 @@ subprocess doing the request.
 * **Timeouts.** The device gives up after 10s per block and 30s in total, both
   configurable. An answer that takes longer is simply lost, so the gateway
   should cap its own upstream call below that.
-* **Caching.** The device caches answers for 30 days keyed on
-  (word, context, target language), so repeat traffic for the same passage does
-  not reach the gateway at all.
+* **Caching.** The device caches answers for 30 days keyed on (word, context),
+  so repeat traffic for the same passage does not reach the gateway at all.
+  The same word in another paragraph is a different key, and asks again.
 * **Size.** Keep the answer short. It is rendered in a text viewer on a
   600×800 e-ink screen; a paragraph plus two examples is the right shape.
 * **Auth.** A single shared bearer token is enough — this serves one reader.
+  `GET /health` stays open even when a token is set, so an uptime check does
+  not need the device's key.

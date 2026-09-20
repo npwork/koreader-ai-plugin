@@ -237,6 +237,59 @@ describe("the KOReader layer", function()
         end)
     end)
 
+    -- The reader sees one number; the log is where a slow lookup gets taken
+    -- apart into radio, gateway and model.
+    describe("what it writes to the log", function()
+        local TIMED_ANSWER = helpers.body({
+            word = "fox",
+            definition = "A wild animal of the dog family.",
+            examples = { "The fox ran." },
+            model = "spec-model",
+            timing = { total_ms = 900, upstream_ms = 850 },
+        })
+
+        it("records where the time went, not just how much", function()
+            build({ responses = { { status = 200, body = TIMED_ANSWER } } })
+            kor.request_ms = 1500
+            tap_dict_button()
+
+            local line = kor.info_lines[#kor.info_lines]
+            assert.is_truthy(line:find("fox", 1, true))
+            assert.is_truthy(line:find("1500ms", 1, true))
+            assert.is_truthy(line:find("gateway 900ms", 1, true))
+            assert.is_truthy(line:find("model 850ms", 1, true))
+            assert.is_truthy(line:find("spec-model", 1, true))
+        end)
+
+        it("logs a question mark rather than crashing on a gateway that sends no timing", function()
+            build()
+            kor.request_ms = 1500
+            tap_dict_button()
+
+            local line = kor.info_lines[#kor.info_lines]
+            assert.is_truthy(line:find("1500ms", 1, true))
+            assert.is_truthy(line:find("gateway ?ms", 1, true))
+        end)
+
+        it("records the error code when the gateway refuses", function()
+            build({ responses = { { status = 429, body = "" } } })
+            tap_dict_button()
+
+            local line = kor.warn_lines[#kor.warn_lines]
+            assert.is_truthy(line:find("fox", 1, true))
+            assert.is_truthy(line:find("rate_limited", 1, true))
+        end)
+
+        it("says nothing about a lookup the reader dismissed", function()
+            build()
+            kor.dismiss_next = true
+            tap_dict_button()
+
+            assert.are.equal(0, #kor.info_lines)
+            assert.are.equal(0, #kor.warn_lines)
+        end)
+    end)
+
     describe("pressing the highlight button", function()
         it("looks up the selected text", function()
             build({ selected_text = { text = " fox\n", pos0 = "p1", pos1 = "p2" } })

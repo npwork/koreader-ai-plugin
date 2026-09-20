@@ -87,18 +87,29 @@ describe("cache", function()
         assert.are.equal(2, cache:get("new"))
     end)
 
+    -- The key is the word plus the passage it was read in: the same word in
+    -- another paragraph is a different question and deserves its own answer.
     describe("key", function()
         it("ignores case and surrounding whitespace", function()
-            assert.are.equal(Cache.key("Fox", " a sentence ", "ru"),
-                             Cache.key("fox", "a sentence", "ru"))
+            assert.are.equal(Cache.key("Fox", " a sentence "), Cache.key("fox", "a sentence"))
+        end)
+
+        it("ignores how the passage was wrapped", function()
+            assert.are.equal(Cache.key("fox", "a  sentence"), Cache.key("fox", "a sentence"))
         end)
 
         it("separates different words", function()
-            assert.are_not.equal(Cache.key("fox", "", "ru"), Cache.key("dog", "", "ru"))
+            assert.are_not.equal(Cache.key("fox", ""), Cache.key("dog", ""))
         end)
 
-        it("separates the same word in a different language", function()
-            assert.are_not.equal(Cache.key("fox", "", "ru"), Cache.key("fox", "", "en"))
+        it("separates the same word in a different passage", function()
+            assert.are_not.equal(
+                Cache.key("bank", "he sat on the river bank"),
+                Cache.key("bank", "she went to the bank for a loan"))
+        end)
+
+        it("separates a word looked up with and without a passage", function()
+            assert.are_not.equal(Cache.key("fox", ""), Cache.key("fox", "the quick brown fox"))
         end)
 
         it("does not let one field bleed into the next", function()
@@ -106,7 +117,7 @@ describe("cache", function()
         end)
 
         it("tolerates nils", function()
-            assert.are.equal(Cache.key("fox", nil, "ru"), Cache.key("fox", "", "ru"))
+            assert.are.equal(Cache.key("fox", nil), Cache.key("fox", ""))
         end)
     end)
 

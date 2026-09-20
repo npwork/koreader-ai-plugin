@@ -11,7 +11,17 @@ local function client(transport, opts)
         json = helpers.json,
         block_timeout = opts.block_timeout,
         total_timeout = opts.total_timeout,
+        monotonic = opts.monotonic,
     })
+end
+
+--- A millisecond clock that only moves when a request is made.
+local function stopwatch(per_request_ms)
+    local ms = 0
+    return {
+        read = function() return ms end,
+        tick = function() ms = ms + per_request_ms end,
+    }
 end
 
 local GOOD_BODY = helpers.body({
@@ -216,6 +226,72 @@ describe("api client", function()
             })
             local _, err = client(tr):define({ word = "fox" })
             assert.are.equal(ApiClient.ERRORS.BAD_RESPONSE, err.code)
+        end)
+    end)
+
+    describe("timing", function()
+        it("measures the round trip with the clock it was given", function()
+            local watch = stopwatch(250)
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            local unwrapped = tr.fn
+            tr.fn = function(request) watch.tick() return unwrapped(request) end
+
+            local result = client(tr, { monotonic = watch.read }):define({ word = "fox" })
+            assert.are.equal(250, result.elapsed_ms)
+        end)
+
+        it("works without a clock, and then reports no time", function()
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            local result = client(tr):define({ word = "fox" })
+            assert.is_nil(result.elapsed_ms)
+        end)
+
+        it("reads the gateway's own split out of the answer", function()
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({
+                    definition = "d", timing = { total_ms = 900, upstream_ms = 850 },
+                }) },
+            })
+            local result = client(tr):define({ word = "fox" })
+            assert.are.equal(900, result.server_ms)
+            assert.are.equal(850, result.model_ms)
+        end)
+
+        it("reports no split when the gateway sends none", function()
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({ definition = "d" }) },
+            })
+            local result = client(tr):define({ word = "fox" })
+            assert.is_nil(result.server_ms)
+            assert.is_nil(result.model_ms)
+        end)
+
+        it("shrugs off a timing field that is not a pair of numbers", function()
+            for _, timing in ipairs({ "soon", 42, { total_ms = "fast" } }) do
+                local tr = helpers.transport({
+                    { status = 200, body = helpers.body({ definition = "d", timing = timing }) },
+                })
+                local result, e = client(tr):define({ word = "fox" })
+                assert.is_nil(e)
+                assert.is_nil(result.server_ms)
+            end
+        end)
+
+        it("keeps our round trip and the gateway's number apart", function()
+            -- The difference between the two is the network and the Kindle's
+            -- radio, which is the number actually worth watching.
+            local watch = stopwatch(1200)
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({
+                    definition = "d", timing = { total_ms = 300, upstream_ms = 290 },
+                }) },
+            })
+            local unwrapped = tr.fn
+            tr.fn = function(request) watch.tick() return unwrapped(request) end
+
+            local result = client(tr, { monotonic = watch.read }):define({ word = "fox" })
+            assert.are.equal(1200, result.elapsed_ms)
+            assert.are.equal(300, result.server_ms)
         end)
     end)
 end)

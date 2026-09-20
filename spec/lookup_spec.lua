@@ -4,12 +4,13 @@ local helpers = require("support.helpers")
 
 local GOOD_BODY = helpers.body({ word = "fox", definition = "A wild animal.", model = "m" })
 
-local function lookup(transport, settings, clock)
+local function lookup(transport, settings, clock, monotonic)
     return Lookup.new({
         settings = settings or helpers.settings({ endpoint = helpers.ENDPOINT }),
         transport = transport.fn,
         json = helpers.json,
         now = clock and clock.now or nil,
+        monotonic = monotonic,
     })
 end
 
@@ -125,6 +126,30 @@ describe("lookup", function()
         l:define({ word = "fox" })
 
         assert.are.equal("https://other.test/ai/define", tr.requests[1].url)
+    end)
+
+    it("hands the millisecond clock down to the client, so answers carry a time", function()
+        local ms = 0
+        local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+        local unwrapped = tr.fn
+        tr.fn = function(request) ms = ms + 400 return unwrapped(request) end
+
+        local result = lookup(tr, nil, nil, function() return ms end):define({ word = "fox" })
+        assert.are.equal(400, result.elapsed_ms)
+    end)
+
+    it("still times the round trip after a settings change", function()
+        local ms = 0
+        local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+        local unwrapped = tr.fn
+        tr.fn = function(request) ms = ms + 400 return unwrapped(request) end
+
+        local settings = helpers.settings({ endpoint = helpers.ENDPOINT })
+        local l = lookup(tr, settings, nil, function() return ms end)
+        settings:set("block_timeout", 12)
+        l:reload()
+
+        assert.are.equal(400, l:define({ word = "fox" }).elapsed_ms)
     end)
 
     it("keeps cached answers across a reload", function()

@@ -49,6 +49,8 @@ function koreader.install(opts)
         dismiss_next = false,
         clock_ms = 0,
         request_ms = 0,
+        info_lines = {},
+        warn_lines = {},
     }
 
     local Widget = widget_class()
@@ -116,10 +118,18 @@ function koreader.install(opts)
         to_ms = function(value) return value end,
     }
 
+    -- The timing line the plugin logs is the only way to see, from a device
+    -- in the field, where a slow lookup spent its time — so the specs read it.
     package.loaded["logger"] = {
         dbg = function() end,
-        info = function() end,
-        warn = function(...) recorder.last_warning = { ... } end,
+        info = function(...)
+            recorder.last_info = { ... }
+            recorder.info_lines[#recorder.info_lines + 1] = table.concat({ ... }, " ")
+        end,
+        warn = function(...)
+            recorder.last_warning = { ... }
+            recorder.warn_lines[#recorder.warn_lines + 1] = table.concat({ ... }, " ")
+        end,
         err = function() end,
     }
 
