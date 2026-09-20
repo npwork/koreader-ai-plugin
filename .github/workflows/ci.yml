@@ -20,6 +20,7 @@ jobs:
           sudo luarocks install busted
           sudo luarocks install dkjson
           sudo luarocks install luacheck
+          sudo luarocks install luasocket
 
       - name: Lint
         run: luacheck plugin spec scripts
@@ -40,8 +41,27 @@ jobs:
           name: kpm-repo
           path: dist/
 
+  distribution:
+    name: real kpm, real http
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install what KPM needs to build here
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential meson ninja-build pkg-config \
+            libcurl4-openssl-dev libsqlite3-dev libcjson-dev libarchive-dev libssl-dev
+
+      - name: Build KPM from source
+        run: ./scripts/kpm-host-build.sh
+
+      - name: Install, upgrade and uninstall through KPM over HTTP
+        run: ./scripts/test-distribution.sh
+
   release:
-    needs: test
+    needs: [test, distribution]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

@@ -132,6 +132,10 @@ function Context.snippet(text, word, max_chars)
     max_chars = max_chars or 0
 
     if max_chars <= 0 or text == "" then return "" end
+    -- A "context" that is only the word itself carries nothing: it happens
+    -- when the document cannot produce a sentence and the selection is all
+    -- there is. Send no context rather than the word twice.
+    if text:lower() == word:lower() then return "" end
     if Context.len(text) <= max_chars then return text end
 
     local at = word ~= "" and text:lower():find(word:lower(), 1, true) or nil

@@ -36,10 +36,17 @@ plugin/aidict.koplugin/      the plugin, exactly as it lands on the device
     settings.lua             typed access over any LuaSettings-shaped store
     updater.lua              "is there a newer build on my channel?"
     version.lua              the single source of the version number
-spec/                        busted suite (119 tests, no KOReader needed)
+spec/                        busted suite — 157 tests, no KOReader needed
+  *_spec.lua                 the units
+  glue_spec.lua              main.lua itself, against KOReader stubs
+  integration/http_spec.lua  real sockets against a fake gateway
+  support/                   the stubs, the fake gateway, the test doubles
 packaging/                   install.sh / uninstall.sh, the KPM hooks
 scripts/kpmrepo.py           builds the .kpkg and the KPM repository
 scripts/verify-package.sh    installs, upgrades and uninstalls into a temp tree
+scripts/kpm-host-build.sh    builds the real KPM against system libraries
+scripts/test-distribution.sh drives that KPM through the whole lifecycle over HTTP
+scripts/emulator.sh          runs a real KOReader with the plugin, headlessly
 ```
 
 The split is deliberate: `main.lua` holds every KOReader-specific line, and
@@ -51,16 +58,33 @@ run under plain `lua5.1` with no emulator.
 
 ```bash
 sudo apt-get install -y lua5.1 liblua5.1-0-dev luarocks
-sudo luarocks install busted dkjson luacheck
+sudo luarocks install busted dkjson luacheck luasocket
 
-make test      # busted
+make test      # busted: units, the KOReader layer, and live HTTP
 make lint      # luacheck
 make verify    # build the .kpkg, install/upgrade/uninstall it in a temp tree
 make check     # all three
 ```
 
-`make check` is what CI runs. It needs no network, no display and no KOReader
-checkout.
+`make check` needs no display and no KOReader checkout, and finishes in
+seconds.
+
+One step further, with the real package manager:
+
+```bash
+sudo apt-get install -y meson ninja-build pkg-config \
+  libcurl4-openssl-dev libsqlite3-dev libcjson-dev libarchive-dev libssl-dev
+
+make check-all   # the above, plus KPM built from source and driven end to end
+```
+
+`make test-distribution` builds `KindleModding/kpm` against system libraries,
+serves a generated repository on localhost, and makes that KPM add the
+repository, install the plugin, upgrade it to a newer published version and
+uninstall it again — into a sandbox, never `/mnt/us`.
+
+[docs/testing.md](docs/testing.md) describes all four layers and says plainly
+what is left for the physical Kindle.
 
 For running the plugin inside the KOReader emulator, see
 [docs/emulator.md](docs/emulator.md) — it works, but the cloud environment

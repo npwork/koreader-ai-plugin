@@ -1,7 +1,7 @@
 --[[--
 Single source of truth for the plugin version.
 
-`scripts/package.py` reads this file to name the .kpkg and to fill the KPM
+`scripts/kpmrepo.py` reads this file to name the .kpkg and to fill the KPM
 manifest, so the number here is the number that ships.
 --]]--
 

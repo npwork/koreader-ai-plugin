@@ -53,6 +53,22 @@ def read_version() -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
+def parse_version(text: str) -> tuple[int, int, int]:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", text.strip())
+    if not match:
+        raise SystemExit(f"--version wants major.minor.patch, got {text!r}")
+    return tuple(int(part) for part in match.groups())
+
+
+def version_lua(version: tuple[int, int, int]) -> bytes:
+    """version.lua with `version` in it, for builds that override it."""
+    text = (PLUGIN_DIR / "aidict" / "version.lua").read_text()
+    text = re.sub(r'string\s*=\s*"\d+\.\d+\.\d+"', f'string = "{version_string(version)}"', text)
+    for index, field in enumerate(("major", "minor", "patch")):
+        text = re.sub(rf"{field}\s*=\s*\d+", f"{field} = {version[index]}", text)
+    return text.encode()
+
+
 def version_string(version: tuple[int, int, int]) -> str:
     return ".".join(str(part) for part in version)
 
@@ -73,8 +89,10 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_package(output_dir: Path) -> Path:
-    version = read_version()
+def build_package(output_dir: Path, version: tuple[int, int, int] | None = None) -> Path:
+    """Build the .kpkg. `version` overrides version.lua, for testing upgrades."""
+    override = version is not None
+    version = version or read_version()
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "id": PACKAGE_ID,
@@ -114,11 +132,17 @@ def build_package(output_dir: Path) -> Path:
         for path in sorted(PLUGIN_DIR.rglob("*")):
             if path.name.endswith(".swp") or "__pycache__" in path.parts:
                 continue
-            arcname = str(Path("aidict.koplugin") / path.relative_to(PLUGIN_DIR))
+            relative = path.relative_to(PLUGIN_DIR)
+            arcname = str(Path("aidict.koplugin") / relative)
             info = archive.gettarinfo(str(path), arcname=arcname)
             info.mode = 0o755 if path.is_dir() else 0o644
             if path.is_dir():
                 archive.addfile(entry(info))
+            elif override and relative == Path("aidict/version.lua"):
+                # Keep the shipped version.lua in step with the manifest.
+                patched = version_lua(version)
+                info.size = len(patched)
+                archive.addfile(entry(info), __import__("io").BytesIO(patched))
             else:
                 with path.open("rb") as handle:
                     archive.addfile(entry(info), handle)
@@ -227,6 +251,10 @@ def main(argv: list[str]) -> int:
 
     package_parser = sub.add_parser("package", help="build the .kpkg")
     package_parser.add_argument("--output", default=str(DIST_DIR), help="where to write the package")
+    package_parser.add_argument(
+        "--version",
+        help="override version.lua, e.g. 0.1.1 — for testing upgrades, not for releases",
+    )
 
     repo_parser = sub.add_parser("repo", help="build the KPM repository around built packages")
     repo_parser.add_argument("packages", nargs="*", help=".kpkg files (default: everything in dist/)")
@@ -237,7 +265,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "package":
-        build_package(Path(args.output))
+        build_package(Path(args.output), parse_version(args.version) if args.version else None)
         return 0
 
     packages = [Path(p) for p in args.packages]

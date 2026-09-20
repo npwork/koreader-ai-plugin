@@ -109,6 +109,16 @@ describe("context", function()
             assert.are.equal("The quick ", snippet)
         end)
 
+        it("returns nothing when the text is only the word", function()
+            assert.are.equal("", Context.snippet("fox", "fox", 200))
+            assert.are.equal("", Context.snippet(" Fox ", "fox", 200))
+        end)
+
+        it("keeps a sentence that merely starts with the word", function()
+            assert.are.equal("Fox hunting is banned.",
+                Context.snippet("Fox hunting is banned.", "fox", 200))
+        end)
+
         it("returns nothing without text", function()
             assert.are.equal("", Context.snippet("", "fox", 50))
         end)
