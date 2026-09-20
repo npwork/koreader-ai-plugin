@@ -65,11 +65,15 @@ jobs:
           # onCloseDocument and onFlushSettings handlers.
           set +e
           cd "${KOREADER_DIR}"
-          timeout --signal=TERM --kill-after=15 45 \
+          timeout --signal=TERM 45 \
             xvfb-run -a --server-args="-screen 0 600x800x24" \
             ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" \
-            > "${GITHUB_WORKSPACE}/koreader.log" 2>&1 < /dev/null
+            > "${GITHUB_WORKSPACE}/koreader.log" 2>&1
           echo "reader exited with $?"
+          # Nothing should be left, but an orphan X server would hold the step
+          # open until the job timeout.
+          pkill -KILL -f reader.lua 2>/dev/null
+          pkill -KILL Xvfb 2>/dev/null
           set -e
 
       - name: The plugin must have loaded, and KOReader must have survived it
