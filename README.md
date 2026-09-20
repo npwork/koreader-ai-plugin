@@ -113,8 +113,16 @@ static files:
   per package, its absolute URL and its sha256.
 * `SHA256SUMS` — checksums for every artifact in the channel.
 
-Bumping the version means editing `plugin/aidict.koplugin/aidict/version.lua`;
-the package name, the KPM manifest and `version.json` all follow from it.
+Cutting a release is one command:
+
+```bash
+make release VERSION=0.2.0
+```
+
+It bumps `version.lua`, runs `make check`, commits, tags `v0.2.0` and pushes.
+The tag is what the **stable** channel follows; a plain push to `main` moves
+the **dev** channel only. CI then publishes the site and proves the result
+installs from the live URL and loads in a real KOReader.
 
 `scripts/build-site.sh` assembles both channels into `site/`, which
 `.github/workflows/pages.yml` publishes to GitHub Pages on every push to
@@ -135,10 +143,14 @@ and to update later:
 
 ```
 ;kpm update
-;kpm upgrade koreader-aidict
+;kpm upgrade
 ```
 
-Restart KOReader after either. No USB, no computer.
+Restart KOReader after either. No USB, no computer — and the repository only
+has to be added once.
+
+The plugin's menu also has **Check for updates**, which asks the repository
+what the newest version on your channel is.
 
 `install.sh` copies the plugin into `/mnt/us/koreader/plugins/aidict.koplugin`,
 replacing whatever was there; `uninstall.sh` removes it and leaves your
