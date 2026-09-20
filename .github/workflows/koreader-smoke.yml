@@ -63,14 +63,19 @@ jobs:
           # KOReader treats the TERM as a close request and shuts down the way
           # it would on the device, which also runs the plugin's
           # onCloseDocument and onFlushSettings handlers.
-          # Do not sweep for orphans here: xvfb-run returns as soon as it has
-          # forwarded the signal, and killing what is left cuts the teardown
-          # short — which is the part this test wants to see. --kill-after is
-          # the backstop instead.
+          #
+          # timeout goes *inside* xvfb-run, not around it. xvfb-run kills its
+          # X server from an EXIT trap, so signalling xvfb-run pulls the
+          # display out from under KOReader mid-teardown and it dies with
+          # "XIO: fatal IO error" instead of shutting down — which is exactly
+          # the thing this job is here to check. This way the signal reaches
+          # reader.lua, and the display outlives it.
+          # Do not sweep for orphans here either: killing what is left cuts
+          # the teardown short. --kill-after is the backstop instead.
           set +e
           cd "${KOREADER_DIR}"
-          timeout --signal=TERM --kill-after=15 45 \
-            xvfb-run -a --server-args="-screen 0 600x800x24" \
+          xvfb-run -a --server-args="-screen 0 600x800x24" \
+            timeout --signal=TERM --kill-after=15 45 \
             ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" \
             > "${GITHUB_WORKSPACE}/koreader.log" 2>&1 < /dev/null
           echo "reader exited with $?"
@@ -78,13 +83,8 @@ jobs:
 
       - name: The plugin must have loaded, and KOReader must have survived it
         run: |
-          # xvfb-run returns as soon as it has forwarded the signal, so give
-          # KOReader the moment it needs to finish writing its teardown.
-          for _ in $(seq 1 20); do
-            grep -q "Tearing down UIManager" koreader.log && break
-            sleep 1
-          done
-
+          # xvfb-run only returns once reader.lua has exited, so the log is
+          # complete by the time this step runs.
           tail -c 20000 koreader.log || true
 
           grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \

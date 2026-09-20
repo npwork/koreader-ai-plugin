@@ -147,23 +147,19 @@ jobs:
           mkdir -p books
           printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
 
+          # timeout goes inside xvfb-run: xvfb-run kills its X server from an
+          # EXIT trap, so signalling xvfb-run would pull the display out from
+          # under KOReader mid-teardown. See koreader-smoke.yml.
           set +e
           cd "${KOREADER_DIR}"
-          timeout --signal=TERM --kill-after=15 45 \
-            xvfb-run -a --server-args="-screen 0 600x800x24" \
+          xvfb-run -a --server-args="-screen 0 600x800x24" \
+            timeout --signal=TERM --kill-after=15 45 \
             ./reader.lua -d "${GITHUB_WORKSPACE}/books/sample.html" \
             > "${GITHUB_WORKSPACE}/koreader.log" 2>&1 < /dev/null
           echo "reader exited with $?"
           set -e
 
           cd "${GITHUB_WORKSPACE}"
-          # xvfb-run returns as soon as it has forwarded the signal, so give
-          # KOReader the moment it needs to finish writing its teardown.
-          for _ in $(seq 1 20); do
-            grep -q "Tearing down UIManager" koreader.log && break
-            sleep 1
-          done
-
           tail -c 4000 koreader.log
           grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \
             || { echo "::error::the published package does not load in KOReader"; exit 1; }
