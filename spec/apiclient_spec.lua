@@ -96,6 +96,59 @@ describe("api client", function()
         end)
     end)
 
+    describe("the request id", function()
+        it("goes out as X-Request-Id", function()
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            client(tr):define({ word = "fox", request_id = "aidict-1-2" })
+            assert.are.equal("aidict-1-2", tr.requests[1].headers["X-Request-Id"])
+        end)
+
+        it("is left out when there is none", function()
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            client(tr):define({ word = "fox" })
+            assert.is_nil(tr.requests[1].headers["X-Request-Id"])
+        end)
+
+        it("comes back on the answer", function()
+            local tr = helpers.transport({
+                { status = 200, body = GOOD_BODY, headers = { ["x-request-id"] = "gw-generated" } },
+            })
+            local result = client(tr):define({ word = "fox" })
+            assert.are.equal("gw-generated", result.request_id)
+        end)
+
+        it("prefers what the gateway echoed over what we sent", function()
+            local tr = helpers.transport({
+                { status = 200, body = GOOD_BODY, headers = { ["x-request-id"] = "echoed" } },
+            })
+            local result = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.are.equal("echoed", result.request_id)
+        end)
+
+        it("falls back to ours when the gateway echoes nothing", function()
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            local result = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.are.equal("ours", result.request_id)
+        end)
+
+        it("survives on an error, which is when it matters most", function()
+            -- The gateway may have answered after the device gave up; ours is
+            -- the only thing that ties the two halves together.
+            local tr = helpers.transport({ { err = "timeout" } })
+            local _, e = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.are.equal("ours", e.request_id)
+        end)
+
+        it("is the gateway's own on an http error it did answer", function()
+            local tr = helpers.transport({
+                { status = 500, body = "", headers = { ["x-request-id"] = "gw-500" } },
+            })
+            local _, e = client(tr):define({ word = "fox", request_id = "ours" })
+            assert.are.equal("gw-500", e.request_id)
+            assert.are.equal(500, e.status)
+        end)
+    end)
+
     describe("a good answer", function()
         it("comes back as a result table", function()
             local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })

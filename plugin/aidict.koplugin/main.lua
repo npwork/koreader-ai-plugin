@@ -26,6 +26,7 @@ local _ = require("gettext")
 
 local Context = require("aidict.context")
 local Format = require("aidict.format")
+local Reqid = require("aidict.reqid")
 local Lookup = require("aidict.lookup")
 local Settings = require("aidict.settings")
 local Updater = require("aidict.updater")
@@ -49,6 +50,10 @@ local AiDict = WidgetContainer:extend{
 }
 
 function AiDict:init()
+    -- LuaJIT hands out the same sequence to every run otherwise, and request
+    -- ids that repeat across sessions are worse than none.
+    math.randomseed(os.time())
+
     self.store = LuaSettings:open(DataStorage:getSettingsDir() .. "/aidict.lua")
     self.settings = Settings.new(self.store)
     self.lookup = Lookup.new({
@@ -218,6 +223,9 @@ function AiDict:explain(word, context, sentence)
         title = props.title,
         author = props.author,
         source_lang = props.source_lang,
+        -- Minted here rather than in the subprocess: a fork inherits the
+        -- random seed, so ids made after the fork would repeat.
+        request_id = Reqid.generate(os.time(), math.random),
     }
 
     local cached = self.lookup:peek(request)
@@ -252,9 +260,10 @@ function AiDict:explain(word, context, sentence)
         end
         if not outcome.ok then
             local err = outcome.err or {}
-            logger.warn(string.format("aidict: %s failed after %sms (%s: %s)",
+            logger.warn(string.format("aidict: %s failed after %sms (%s: %s) [%s]",
                 word, tostring(err.elapsed_ms or "?"),
-                tostring(err.code), tostring(err.message)))
+                tostring(err.code), tostring(err.message),
+                tostring(err.request_id or request.request_id or "?")))
             UIManager:show(InfoMessage:new{ text = Format.error(outcome.err) })
             return
         end
@@ -264,9 +273,10 @@ function AiDict:explain(word, context, sentence)
 
         local result = outcome.result
         logger.info(string.format(
-            "aidict: %s ok in %sms (gateway %sms, model %sms, %s)",
+            "aidict: %s ok in %sms (gateway %sms, model %sms, %s) [%s]",
             word, tostring(result.elapsed_ms or "?"), tostring(result.server_ms or "?"),
-            tostring(result.model_ms or "?"), tostring(result.model or "?")))
+            tostring(result.model_ms or "?"), tostring(result.model or "?"),
+            tostring(result.request_id or request.request_id or "?")))
 
         showResult(word, result, false)
     end)

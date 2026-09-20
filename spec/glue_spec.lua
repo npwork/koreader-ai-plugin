@@ -271,6 +271,36 @@ describe("the KOReader layer", function()
             assert.is_truthy(line:find("gateway ?ms", 1, true))
         end)
 
+        it("names the request id, so the device log and Axiom can be lined up", function()
+            build()
+            tap_dict_button()
+
+            local sent = kor.transport.requests[1].headers["X-Request-Id"]
+            assert.is_truthy(sent)
+            assert.is_truthy(sent:match("^aidict%-%x+%-%x+$"))
+            assert.is_truthy(kor.info_lines[#kor.info_lines]:find(sent, 1, true))
+        end)
+
+        it("names it on a failure too", function()
+            build({ responses = { { err = "timeout" } } })
+            tap_dict_button()
+
+            local sent = kor.transport.requests[1].headers["X-Request-Id"]
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find(sent, 1, true))
+        end)
+
+        it("gives each lookup its own", function()
+            build({ responses = {
+                { status = 200, body = ANSWER },
+                { status = 200, body = ANSWER },
+            } })
+            plugin:explain("fox", "a sentence about a fox", "a sentence about a fox")
+            plugin:explain("dog", "a sentence about a dog", "a sentence about a dog")
+
+            assert.are_not.equal(kor.transport.requests[1].headers["X-Request-Id"],
+                                 kor.transport.requests[2].headers["X-Request-Id"])
+        end)
+
         it("records the error code when the gateway refuses", function()
             build({ responses = { { status = 429, body = "" } } })
             tap_dict_button()

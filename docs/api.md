@@ -41,6 +41,15 @@ the device from the plugin's menu.
   book's language as KOReader knows it, which is often absent.
 * `title` and `author` are there for disambiguation, not for logging.
 * `Authorization: Bearer <key>` is present only when the reader set a key.
+* `X-Request-Id` is minted by the device, one per lookup, shaped
+  `aidict-<hex seconds>-<hex random>`. The gateway keeps it if it matches
+  `[A-Za-z0-9._-]{1,64}`, stamps it onto every log line the request produces,
+  and echoes it back in the response header of the same name. The device puts
+  it in its own log line — so one lookup is one id on both sides.
+
+  The device mints it rather than the gateway because a request that never
+  arrives is the one worth correlating: the gateway may have answered after
+  the Kindle gave up, and only the device's id ties the two halves together.
 
 ### Response, 2xx
 

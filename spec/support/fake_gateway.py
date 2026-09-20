@@ -5,6 +5,7 @@ Serves just enough to drive every branch of the plugin's HTTP layer over a
 real socket:
 
     POST /define            a normal answer
+    (every answer echoes X-Request-Id, or mints one when the client sent none)
     GET  /last              the last POST this server saw, to check the wire
     POST /slow/define       sleeps, to trip the client's timeout
     POST /boom/define       500 with an error body
@@ -33,6 +34,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        # The real gateway adopts the client's id and echoes it back; without
+        # that here the client could not be shown reading it off the wire.
+        sent = self.headers.get("X-Request-Id")
+        self.send_header("X-Request-Id", sent or "gateway-minted")
         self.end_headers()
         self.wfile.write(body)
 

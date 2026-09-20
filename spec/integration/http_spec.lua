@@ -78,6 +78,26 @@ describe("http transport, end to end", function()
         assert.are.equal("koreader-aidict", seen.body.client)
     end)
 
+    it("really carries the request id there and back", function()
+        local result = client():define({ word = "fox", request_id = "aidict-1-abc" })
+        assert.are.equal("aidict-1-abc", result.request_id)
+
+        local response = transport({
+            url = server.url("/last"),
+            method = "GET",
+            headers = { ["Accept"] = "application/json" },
+            block_timeout = 5,
+            total_timeout = 10,
+        })
+        local seen = helpers.json.decode(response.body)
+        assert.are.equal("aidict-1-abc", seen.headers["x-request-id"])
+    end)
+
+    it("reads an id the gateway minted on its own", function()
+        local result = client():define({ word = "fox" })
+        assert.are.equal("gateway-minted", result.request_id)
+    end)
+
     it("reports a real 500 with the gateway's message", function()
         local _, err = client("/boom"):define({ word = "fox" })
         assert.are.equal(ApiClient.ERRORS.SERVER_ERROR, err.code)

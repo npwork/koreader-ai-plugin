@@ -64,7 +64,7 @@ function Lookup:build_context(before, word, after)
 end
 
 --[[--
-@param request table { word, context, title, author, source_lang }
+@param request table { word, context, title, author, source_lang, request_id }
 @param opts    table { skip_cache = bool }
 @treturn table  result
 @treturn table  err
@@ -94,6 +94,7 @@ function Lookup:define(request, opts)
         source_lang = request.source_lang,
         title = request.title,
         author = request.author,
+        request_id = request.request_id,
     })
     if not result then
         return nil, err, false
@@ -133,6 +134,7 @@ function Lookup:fetch(request)
         source_lang = request.source_lang,
         title = request.title,
         author = request.author,
+        request_id = request.request_id,
     })
     if not result then
         return { ok = false, err = err }

@@ -109,8 +109,9 @@ Ask the gateway to explain a word.
   source_lang  string optional
   title        string optional book title, for disambiguation
   author       string optional
+  request_id   string optional, sent as X-Request-Id so both logs agree
 @treturn table result { word, definition, translation, examples, part_of_speech, model }
-@treturn table err    { code, message, status, elapsed_ms }
+@treturn table err    { code, message, status, elapsed_ms, request_id }
 --]]--
 function ApiClient:define(request)
     request = request or {}
@@ -146,6 +147,9 @@ function ApiClient:define(request)
     if type(self.api_key) == "string" and self.api_key ~= "" then
         headers["Authorization"] = "Bearer " .. self.api_key
     end
+    if type(request.request_id) == "string" and request.request_id ~= "" then
+        headers["X-Request-Id"] = request.request_id
+    end
 
     local started = self.monotonic and self.monotonic() or nil
     local response, transport_err = self.transport({
@@ -157,35 +161,48 @@ function ApiClient:define(request)
         total_timeout = self.total_timeout,
     })
 
-    -- Every failure past this point carries how long it took to fail. A
-    -- 30-second timeout and an instant "no route to host" are the same error
-    -- code with very different causes, and the log is where that is read.
+    -- Every failure past this point carries how long it took to fail and which
+    -- request it was. A 30-second timeout and an instant "no route to host"
+    -- are the same error code with very different causes, and the log is where
+    -- that is read.
     local elapsed_ms = started and self.monotonic and (self.monotonic() - started) or nil
+
+    -- The gateway echoes the id back; if it never answered, ours is all there
+    -- is — and it is still the id the gateway logged under, if it got that far.
+    local request_id = request.request_id
+    if response and type(response.headers) == "table" then
+        local echoed = response.headers["x-request-id"] or response.headers["X-Request-Id"]
+        if type(echoed) == "string" and echoed ~= "" then request_id = echoed end
+    end
+
+    local function fail(code, message, extra)
+        extra = extra or {}
+        extra.elapsed_ms = elapsed_ms
+        extra.request_id = request_id
+        return err(code, message, extra)
+    end
 
     if not response then
         local reason = tostring(transport_err or "network unreachable")
         if reason:lower():find("timeout") then
-            return err(ApiClient.ERRORS.TIMEOUT, "the gateway did not answer in time",
-                { elapsed_ms = elapsed_ms })
+            return fail(ApiClient.ERRORS.TIMEOUT, "the gateway did not answer in time")
         end
-        return err(ApiClient.ERRORS.NETWORK, reason, { elapsed_ms = elapsed_ms })
+        return fail(ApiClient.ERRORS.NETWORK, reason)
     end
 
     local status = tonumber(response.status) or 0
     if status < 200 or status >= 300 then
         local code, message = status_to_error(status, self:_error_message(response.body))
-        return err(code, message, { status = status, elapsed_ms = elapsed_ms })
+        return fail(code, message, { status = status })
     end
 
     local decode_ok, decoded = pcall(self.json.decode, response.body or "")
     if not decode_ok or type(decoded) ~= "table" then
-        return err(ApiClient.ERRORS.BAD_RESPONSE, "the gateway sent something that is not JSON",
-            { elapsed_ms = elapsed_ms })
+        return fail(ApiClient.ERRORS.BAD_RESPONSE, "the gateway sent something that is not JSON")
     end
     if type(decoded.definition) ~= "string" or decoded.definition == "" then
         local message = self:_error_message(response.body)
-        return err(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition",
-            { elapsed_ms = elapsed_ms })
+        return fail(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition")
     end
 
     local examples = {}
@@ -215,6 +232,7 @@ function ApiClient:define(request)
         elapsed_ms = elapsed_ms,
         server_ms = server_ms,
         model_ms = model_ms,
+        request_id = request_id,
     }
 end
 
