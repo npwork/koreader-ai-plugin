@@ -242,8 +242,9 @@ function showResult(word, result, from_cache)
     UIManager:show(TextViewer:new{
         title = word,
         text = Format.result(result, { word = word, cached = from_cache }),
-        text_type = "book_info",
-        justified = false,
+        -- "lookup" is what KOReader uses for dictionary results: same font
+        -- size as book info, left-aligned rather than justified.
+        text_type = "lookup",
     })
 end
 
