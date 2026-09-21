@@ -15,6 +15,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
 local NetworkMgr = require("ui/network/manager")
+local PathChooser = require("ui/widget/pathchooser")
 local TextViewer = require("ui/widget/textviewer")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
@@ -38,6 +39,35 @@ local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
 
 local CACHE_KEY = "cache_entries"
+
+--- The menu id the sync is registered under, and its place in the menu.
+local SYNC_MENU_ID = "aidict_sync_library"
+
+--[[--
+Put "Sync library" at the top of the Tools tab rather than three taps deep.
+
+A plugin's menu item is *appended* to whatever section its `sorting_hint`
+names (see `MenuSorter:sort`), and Tools is already two pages long — so the
+hint alone would land it on the second page, next to the More tools it was
+meant to escape. The order tables are cached by `require`, though, and
+KOReader's own `ui/plugin/insert_menu` edits them the same way. Inserting at
+index 1 is the difference between one tap and four.
+
+Idempotent on purpose: `init` runs once per FileManager and once per Reader,
+and this must not add the entry twice.
+--]]--
+local function claimMenuPosition()
+    for _, order in ipairs({
+        require("ui/elements/reader_menu_order"),
+        require("ui/elements/filemanager_menu_order"),
+    }) do
+        local placed = false
+        for _, id in ipairs(order.tools) do
+            if id == SYNC_MENU_ID then placed = true break end
+        end
+        if not placed then table.insert(order.tools, 1, SYNC_MENU_ID) end
+    end
+end
 
 -- How often a prefetch in the background is checked on. Nothing is waiting on
 -- it, so this is about not spinning rather than about being quick.
@@ -95,6 +125,7 @@ function AiDict:init()
         general = true,
     })
 
+    claimMenuPosition()
     if self.ui and self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
     end
@@ -689,6 +720,27 @@ function AiDict:syncLibrary()
     end)
 end
 
+--[[--
+Where synced books go, picked rather than typed.
+
+An absolute path on a Kindle keyboard is a typo waiting to happen, and a typo
+here makes a second folder rather than an error.
+--]]--
+function AiDict:chooseLibraryFolder()
+    UIManager:show(PathChooser:new{
+        select_file = false,
+        path = self.settings:get("library_dir"),
+        onConfirm = function(path)
+            local ok, reason = self.settings:set("library_dir", path)
+            if not ok then
+                UIManager:show(InfoMessage:new{ text = reason })
+                return
+            end
+            self.settings:flush()
+        end,
+    })
+end
+
 --- The gesture, if the reader bound one.
 function AiDict:onAiDictSyncLibrary()
     self:syncLibrary()
@@ -750,6 +802,14 @@ function AiDict:editSetting(key, title, opts)
 end
 
 function AiDict:addToMainMenu(menu_items)
+    -- Its own entry at the top of Tools; the settings behind it stay in the
+    -- plugin's submenu, where the rest of them are.
+    menu_items[SYNC_MENU_ID] = {
+        text = _("Sync library"),
+        keep_menu_open = true,
+        callback = function() self:syncLibrary() end,
+    }
+
     menu_items.aidict = {
         text = _("AI dictionary"),
         sorting_hint = "more_tools",
@@ -813,20 +873,12 @@ function AiDict:addToMainMenu(menu_items)
                 end,
             },
             {
-                text = _("Sync library"),
-                keep_menu_open = true,
-                separator = true,
-                callback = function() self:syncLibrary() end,
-            },
-            {
                 text_func = function()
                     return T(_("Books folder: %1"), self.settings:get("library_dir"))
                 end,
                 keep_menu_open = true,
                 separator = true,
-                callback = function()
-                    self:editSetting("library_dir", _("Where synced books go"))
-                end,
+                callback = function() self:chooseLibraryFolder() end,
             },
             {
                 text = _("Check for updates"),

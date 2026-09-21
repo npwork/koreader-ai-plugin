@@ -16,9 +16,10 @@ request per dictionary lookup rather than per AI press.
 
 The same plugin also carries the **book library**: *Sync library* in the menu
 asks the gateway what is in the owner's R2 bucket and downloads whatever this
-Kindle does not have, mirroring the bucket's folders under `/mnt/us/books`.
+Kindle does not have, mirroring the bucket's folders under `/mnt/us/documents`.
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
-if one is bound to it.
+if one is bound to it. The button sits at the top of the **Tools** tab rather
+than inside the plugin's own submenu: a sync is an action, not a setting.
 
 Shipped to a Kindle as a KPM package; the gateway's address and key are baked
 in at build time and are not in this repository.

@@ -945,11 +945,42 @@ describe("the KOReader layer", function()
             end
         end
 
-        it("is a menu entry, next to the folder it syncs into", function()
+        local function items()
+            local registered = {}
+            plugin:addToMainMenu(registered)
+            return registered
+        end
+
+        it("puts itself at the top of Tools, not at the end of it", function()
             build()
-            assert.is_not_nil(menu_item("Sync library"))
+
+            -- Appending is what a sorting_hint alone would do, and Tools is
+            -- already two pages long — so the entry has to claim index 1.
+            assert.are.equal("aidict_sync_library", kor.menu_order.reader.tools[1])
+            assert.are.equal("aidict_sync_library", kor.menu_order.filemanager.tools[1])
+            assert.are.equal("Sync library", items()["aidict_sync_library"].text)
+        end)
+
+        it("claims that place once, however many times it is built", function()
+            -- init runs once for the FileManager and once for the Reader.
+            build()
+            local first = #kor.menu_order.reader.tools
+            kor.plugin_class:new({ ui = reader.ui, document = reader.document })
+
+            assert.are.equal(first, #kor.menu_order.reader.tools)
+        end)
+
+        it("keeps the folder in the plugin's own settings, and picks it", function()
+            build()
             local _, label = menu_item("Books folder")
-            assert.are.equal("Books folder: /mnt/us/books", label)
+            assert.are.equal("Books folder: /mnt/us/documents", label)
+
+            menu_item("Books folder").callback()
+            assert.is_not_nil(kor.path_chooser)
+            assert.is_false(kor.path_chooser.select_file)
+
+            kor.path_chooser.onConfirm("/mnt/us/elsewhere")
+            assert.are.equal("/mnt/us/elsewhere", kor.store.data.library_dir)
         end)
 
         it("downloads what the device does not have", function()

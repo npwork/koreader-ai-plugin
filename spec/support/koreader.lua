@@ -198,6 +198,27 @@ function koreader.install(opts)
 
     package.loaded["device"] = { model = "SpecDevice" }
 
+    --[[--
+    The two menu order tables. KOReader caches them through `require`, which
+    is what lets a plugin put itself somewhere other than the end; the stub
+    keeps that shape so a spec can read back where the entry landed. Fresh
+    tables per install, so one spec's insert cannot leak into the next.
+    --]]--
+    recorder.menu_order = {
+        reader = { tools = { "read_timer", "calibre", "more_tools" } },
+        filemanager = { tools = { "read_timer", "calibre", "more_tools" } },
+    }
+    package.loaded["ui/elements/reader_menu_order"] = recorder.menu_order.reader
+    package.loaded["ui/elements/filemanager_menu_order"] = recorder.menu_order.filemanager
+
+    -- The folder picker, which answers with whatever the spec told it to.
+    package.loaded["ui/widget/pathchooser"] = {
+        new = function(_, chooser)
+            recorder.path_chooser = chooser
+            return { widget_kind = "PathChooser", opts = chooser }
+        end,
+    }
+
     -- KOReader's Dispatcher, reduced to the registration the plugin does so
     -- a spec can see which actions a gesture could be bound to.
     package.loaded["dispatcher"] = {
@@ -331,6 +352,8 @@ function koreader.uninstall()
         "ui/widget/inputdialog", "ui/uimanager", "ui/trapper", "ui/network/manager",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
         "libs/libkoreader-lfs", "dispatcher",
+        "ui/elements/reader_menu_order", "ui/elements/filemanager_menu_order",
+        "ui/widget/pathchooser",
         "aidict.http_transport", "aidict.json", "main",
     }) do
         package.loaded[module] = nil
