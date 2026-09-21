@@ -17,7 +17,8 @@ request per dictionary lookup rather than per AI press.
 The same plugin also carries the **book library**: *Sync library* in the menu
 asks the gateway what is in the owner's R2 bucket and downloads whatever this
 Kindle does not have, mirroring the bucket's folders under `/mnt/us/books`.
-Nothing syncs on its own — it is a button, pressed when wanted.
+Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
+if one is bound to it.
 
 Shipped to a Kindle as a KPM package; the gateway's address and key are baked
 in at build time and are not in this repository.

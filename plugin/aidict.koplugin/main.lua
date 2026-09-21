@@ -10,6 +10,7 @@ behaviour lives in `aidict/`, which is plain Lua and covered by `spec/`.
 
 local DataStorage = require("datastorage")
 local Device = require("device")
+local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
@@ -83,6 +84,16 @@ function AiDict:init()
     -- Named rather than called directly so a spec can move it: the give-up
     -- branch below is otherwise half a minute away.
     self.now = os.time
+
+    -- So the sync can be a gesture rather than three taps into a menu: the
+    -- Kindle has no keyboard to reach for and this is the one action worth
+    -- doing from anywhere.
+    Dispatcher:registerAction("aidict_sync_library", {
+        category = "none",
+        event = "AiDictSyncLibrary",
+        title = _("Sync library"),
+        general = true,
+    })
 
     if self.ui and self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
@@ -679,6 +690,12 @@ function AiDict:syncLibrary()
             end
         end)
     end)
+end
+
+--- The gesture, if the reader bound one.
+function AiDict:onAiDictSyncLibrary()
+    self:syncLibrary()
+    return true
 end
 
 function showResult(word, result, from_cache)

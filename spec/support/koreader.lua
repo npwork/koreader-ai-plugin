@@ -62,6 +62,7 @@ function koreader.install(opts)
         files = {},          -- fake filesystem: path -> size
         dirs = {},           -- folders the sync created
         removed = {},        -- what the sync threw away
+        actions = {},        -- what the plugin registered with Dispatcher
         warn_lines = {},
         forks = 0,
         polls = 0,
@@ -197,6 +198,14 @@ function koreader.install(opts)
 
     package.loaded["device"] = { model = "SpecDevice" }
 
+    -- KOReader's Dispatcher, reduced to the registration the plugin does so
+    -- a spec can see which actions a gesture could be bound to.
+    package.loaded["dispatcher"] = {
+        registerAction = function(_, name, definition)
+            recorder.actions[name] = definition
+        end,
+    }
+
     package.loaded["ui/time"] = {
         now = function() return recorder.clock_ms end,
         to_ms = function(value) return value end,
@@ -321,7 +330,7 @@ function koreader.uninstall()
         "ui/widget/container/widgetcontainer", "ui/widget/infomessage", "ui/widget/textviewer",
         "ui/widget/inputdialog", "ui/uimanager", "ui/trapper", "ui/network/manager",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
-        "libs/libkoreader-lfs",
+        "libs/libkoreader-lfs", "dispatcher",
         "aidict.http_transport", "aidict.json", "main",
     }) do
         package.loaded[module] = nil

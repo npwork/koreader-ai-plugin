@@ -1015,6 +1015,19 @@ describe("the KOReader layer", function()
             assert.is_function(kor.deferred)
         end)
 
+        it("is an action a gesture can be bound to, and the event runs it", function()
+            build({
+                settings = { library_dir = BOOKS },
+                responses = { { status = 200, body = manifest({}) } },
+            })
+
+            assert.are.equal("Sync library", kor.actions["aidict_sync_library"].title)
+            assert.are.equal("AiDictSyncLibrary", kor.actions["aidict_sync_library"].event)
+
+            plugin:onAiDictSyncLibrary()
+            assert.are.equal(1, kor.transport.calls)
+        end)
+
         it("reports the gateway's own failure", function()
             build({
                 settings = { library_dir = BOOKS },
