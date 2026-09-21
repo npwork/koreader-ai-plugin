@@ -53,6 +53,15 @@ describe("format", function()
             assert.is_nil(text:find("1.5s", 1, true))
         end)
 
+        it("splits the wait into the gateway's share and the network's", function()
+            -- The point of the whole thing: five seconds of radio and five of
+            -- model look identical on the screen and want opposite fixes.
+            local text = Format.result({
+                definition = "d", model = "gpt-test", elapsed_ms = 5000, server_ms = 1800,
+            })
+            assert.is_truthy(text:find("5.0s (1.8s server, 3.2s network)", 1, true))
+        end)
+
         it("keeps the footer to the time when the model is unknown", function()
             local text = Format.result({ definition = "d", elapsed_ms = 120 })
             assert.is_truthy(text:find("— 120ms", 1, true))
@@ -97,6 +106,36 @@ describe("format", function()
         it("reads a number that arrived as a string", function()
             -- Timings survive a trip through the subprocess, so be forgiving.
             assert.are.equal("250ms", Format.duration("250"))
+        end)
+    end)
+
+    describe("timing", function()
+        it("names the gateway's share and what is left over", function()
+            assert.are.equal("5.0s (1.8s server, 3.2s network)",
+                Format.timing(5000, 1800))
+        end)
+
+        it("is just the total when the gateway did not say", function()
+            -- An older gateway, or an answer that came from somewhere else.
+            assert.are.equal("5.0s", Format.timing(5000, nil))
+            assert.are.equal("5.0s", Format.timing(5000, "not a number"))
+        end)
+
+        it("drops the split rather than reporting no network at all", function()
+            -- Two clocks on two machines; the subtraction can land at or under
+            -- zero, and "0ms network" is not a finding.
+            assert.are.equal("1.8s", Format.timing(1800, 1800))
+            assert.are.equal("1.7s", Format.timing(1700, 1800))
+        end)
+
+        it("has nothing to say without a round trip to describe", function()
+            assert.are.equal("", Format.timing(nil, 1800))
+        end)
+
+        it("reads numbers that arrived as strings", function()
+            -- Both survive a trip through the subprocess as JSON.
+            assert.are.equal("5.0s (1.8s server, 3.2s network)",
+                Format.timing("5000", "1800"))
         end)
     end)
 
