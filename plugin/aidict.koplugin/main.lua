@@ -43,8 +43,12 @@ local json = require("aidict.json")
 
 local CACHE_KEY = "cache_entries"
 
---- The menu id the sync is registered under, and its place in the menu.
+--- The menu ids registered outside the plugin's own submenu.
 local SYNC_MENU_ID = "aidict_sync_library"
+local UPDATE_MENU_ID = "aidict_check_updates"
+
+--- Both actions, in the order they should sit at the top of Tools.
+local TOP_MENU_IDS = { SYNC_MENU_ID, UPDATE_MENU_ID }
 
 --[[--
 Put "Sync library" at the top of the Tools tab rather than three taps deep.
@@ -64,11 +68,16 @@ local function claimMenuPosition()
         require("ui/elements/reader_menu_order"),
         require("ui/elements/filemanager_menu_order"),
     }) do
-        local placed = false
-        for _, id in ipairs(order.tools) do
-            if id == SYNC_MENU_ID then placed = true break end
+        -- Backwards, because each one goes in at index 1 and the last one in
+        -- ends up first.
+        for i = #TOP_MENU_IDS, 1, -1 do
+            local wanted = TOP_MENU_IDS[i]
+            local placed = false
+            for _, id in ipairs(order.tools) do
+                if id == wanted then placed = true break end
+            end
+            if not placed then table.insert(order.tools, 1, wanted) end
         end
-        if not placed then table.insert(order.tools, 1, SYNC_MENU_ID) end
     end
 end
 
@@ -902,6 +911,11 @@ function AiDict:addToMainMenu(menu_items)
         keep_menu_open = true,
         callback = function() self:syncLibrary() end,
     }
+    menu_items[UPDATE_MENU_ID] = {
+        text = _("Update the plugin"),
+        keep_menu_open = true,
+        callback = function() self:checkForUpdates() end,
+    }
 
     menu_items.aidict = {
         text = _("AI dictionary"),
@@ -972,11 +986,6 @@ function AiDict:addToMainMenu(menu_items)
                 keep_menu_open = true,
                 separator = true,
                 callback = function() self:chooseLibraryFolder() end,
-            },
-            {
-                text = _("Check for updates"),
-                keep_menu_open = true,
-                callback = function() self:checkForUpdates() end,
             },
             {
                 text = T(_("Version %1"), Version.string),
