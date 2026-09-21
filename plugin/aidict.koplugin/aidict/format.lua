@@ -268,9 +268,13 @@ function Format.result(result, opts)
 
     local footer = {}
     if result.model and result.model ~= "" then footer[#footer + 1] = result.model end
-    if opts.cached then
-        footer[#footer + 1] = "cached"
-    elseif result.elapsed_ms then
+    -- "cached" says the reader waited for nothing this time; the timings say
+    -- what the answer cost when it was actually fetched. Both are worth
+    -- knowing and neither replaces the other — showing only the first leaves
+    -- no way to tell a lookup that was free because it was prefetched from
+    -- one that was free because it was looked up last week.
+    if opts.cached then footer[#footer + 1] = "cached" end
+    if result.elapsed_ms then
         footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms)
     end
     if #footer > 0 then

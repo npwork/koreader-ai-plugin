@@ -171,12 +171,16 @@ describe("format", function()
             assert.is_truthy(text:find("gpt%-test · 1%.5s"))
         end)
 
-        it("says cached rather than how long the original ask took", function()
-            -- A cached answer took no time now; showing the old number would lie.
+        it("says cached AND what it cost when it was fetched", function()
+            -- Two different facts. "cached" is what the reader paid this time;
+            -- the timing is what the answer cost when it was really asked, and
+            -- without it there is no telling a lookup that was free because it
+            -- was prefetched from one free because it was asked last week.
             local text = Format.result(
-                { definition = "d", model = "gpt-test", elapsed_ms = 1500 }, { cached = true })
+                { definition = "d", model = "gpt-test", elapsed_ms = 1500, server_ms = 900 },
+                { cached = true })
             assert.is_truthy(text:find("cached", 1, true))
-            assert.is_nil(text:find("1.5s", 1, true))
+            assert.is_truthy(text:find("1.5s total · 900ms server", 1, true))
         end)
 
         it("shows the gateway's own time beside the round trip", function()
