@@ -364,8 +364,15 @@ describe("format", function()
                 Format.error({ code = "timeout", message = "the gateway did not answer in time" }))
         end)
 
-        it("has something to say about anything", function()
-            assert.are.equal("Lookup failed.", Format.error(nil))
+        it("names what failed, since it is not only the dictionary any more", function()
+            -- A sync that reports "Lookup failed." sends the reader looking
+            -- in the wrong place.
+            assert.are.equal("The sync failed.", Format.error(nil, "The sync failed."))
+            assert.are.equal("The update check failed.", Format.error("not a table", "The update check failed."))
+        end)
+
+        it("still has something to say when the caller says nothing", function()
+            assert.are.equal("Something went wrong.", Format.error(nil))
         end)
     end)
 end)

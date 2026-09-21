@@ -60,9 +60,19 @@ function Format.legs(legs)
 end
 
 --- Human-readable one-liner for an `ApiClient` error.
-function Format.error(err)
-    if type(err) ~= "table" then return "Lookup failed." end
-    local message = err.message or "lookup failed"
+--[[--
+@param err      table|nil  the failure, when there is one to read
+@param fallback string|nil what failed, for when there is not
+
+The fallback is the caller's because this is no longer only the dictionary's:
+the library sync and the update check report through here too, and a sync
+that says "Lookup failed." is a sync that sends the reader looking in the
+wrong place. It is wanted exactly when a subprocess came back with something
+unexpected — which is when a wrong noun costs the most.
+--]]--
+function Format.error(err, fallback)
+    if type(err) ~= "table" then return fallback or "Something went wrong." end
+    local message = err.message or "it failed"
     return (message:gsub("^%l", string.upper)) .. "."
 end
 

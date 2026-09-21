@@ -540,7 +540,7 @@ function AiDict:joinPrefetch(request, key)
         if self.now() > deadline then
             UIManager:close(waiting)
             logger.warn(string.format("aidict: %s still not here, gave up waiting", word))
-            UIManager:show(InfoMessage:new{ text = Format.error(nil) })
+            UIManager:show(InfoMessage:new{ text = Format.error(nil, _("The lookup failed.")) })
             return
         end
 
@@ -582,7 +582,7 @@ function AiDict:askNow(request)
             logger.warn(string.format("aidict: %s failed after %sms (%s: %s) [%s]",
                 word, tostring(err.elapsed_ms or "?"),
                 tostring(err.code), tostring(err.message), marks(err, request)))
-            UIManager:show(InfoMessage:new{ text = Format.error(outcome.err) })
+            UIManager:show(InfoMessage:new{ text = Format.error(outcome.err, _("The lookup failed.")) })
             return
         end
 
@@ -632,7 +632,7 @@ function AiDict:checkForUpdates()
         if not completed then return end
         if type(outcome) ~= "table" or not outcome.ok then
             local err = type(outcome) == "table" and outcome.err or nil
-            UIManager:show(InfoMessage:new{ text = Format.error(err) })
+            UIManager:show(InfoMessage:new{ text = Format.error(err, _("The update check failed.")) })
             return
         end
 
@@ -704,7 +704,7 @@ function AiDict:syncLibrary()
             if not completed then return end
             if type(outcome) ~= "table" or not outcome.ok then
                 local err = type(outcome) == "table" and outcome.err or nil
-                UIManager:show(InfoMessage:new{ text = Format.error(err) })
+                UIManager:show(InfoMessage:new{ text = Format.error(err, _("The sync failed.")) })
                 return
             end
 
@@ -912,7 +912,10 @@ function AiDict:addToMainMenu(menu_items)
         callback = function() self:syncLibrary() end,
     }
     menu_items[UPDATE_MENU_ID] = {
-        text = _("Update the plugin"),
+        -- The version is on the label because this is the one entry that
+        -- changes it: after an update and a restart, the menu itself is the
+        -- receipt.
+        text_func = function() return T(_("Update the plugin (%1)"), Version.string) end,
         keep_menu_open = true,
         callback = function() self:checkForUpdates() end,
     }

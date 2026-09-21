@@ -9,6 +9,7 @@ the emulator would otherwise be the only way to reach.
 
 local helpers = require("support.helpers")
 local koreader = require("support.koreader")
+local Version = require("aidict.version")
 
 local ANSWER = helpers.body({
     word = "fox",
@@ -1069,7 +1070,10 @@ describe("the KOReader layer", function()
                 assert.are.equal("aidict_check_updates", order.tools[2])
             end
             assert.are.equal("Sync library", items()["aidict_sync_library"].text)
-            assert.are.equal("Update the plugin", items()["aidict_check_updates"].text)
+            -- The version rides on the label: after an update and a restart,
+            -- the menu itself is the receipt.
+            assert.are.equal("Update the plugin (" .. Version.string .. ")",
+                items()["aidict_check_updates"].text_func())
         end)
 
         it("does not leave a second copy behind in its own submenu", function()
