@@ -62,6 +62,80 @@ function Format.escape(text)
         :gsub(">", "&gt;"))
 end
 
+--[[--
+The word under discussion, marked wherever it appears in an example.
+
+Not a substring search: the examples carry inflected forms ("strap" is
+illustrated by "strapped"), and matching loosely enough to catch those would
+also light up "fellow" for "fell". So the forms are generated from the
+headword by the endings English actually inflects with, and only whole words
+that land in that set are marked.
+
+It misses the irregulars — "left" is never reached from "leave" — and a miss
+costs nothing but the emphasis. Reaching further would cost a wrong word in
+bold, which is worse than a plain one.
+--]]--
+local SUFFIXES = {
+    "", "s", "es", "ed", "d", "ing", "er", "est", "en", "ies", "ied",
+}
+
+local function inflections_of(form)
+    local forms = {}
+    if type(form) ~= "string" or form == "" then return forms end
+    form = form:lower()
+    forms[form] = true
+
+    local stems = { form }
+    local last = form:sub(-1)
+    -- The two spelling rules come first: "y" is not a vowel, so left to the
+    -- doubling branch it would make "carryy" and never reach "carries".
+    if last == "e" then
+        -- leave → leaving
+        stems[#stems + 1] = form:sub(1, -2)
+    elseif last == "y" then
+        -- carry → carries, carried
+        stems[#stems + 1] = form:sub(1, -2) .. "i"
+    elseif last:match("%a") and not last:match("[aeiou]") then
+        -- strap → strapped, strapping
+        stems[#stems + 1] = form .. last
+    end
+
+    for _, stem in ipairs(stems) do
+        for _, suffix in ipairs(SUFFIXES) do
+            forms[stem .. suffix] = true
+        end
+    end
+    return forms
+end
+
+-- Control characters stand in for the tags while the text is still raw, so the
+-- escaping that follows cannot eat them and cannot be fooled by them.
+local OPEN, CLOSE = "\1", "\2"
+
+--[[--
+@param text  string  one example sentence, as the model wrote it
+@param words table   the headword and the tapped form
+@treturn string escaped HTML with the word in bold wherever it stands
+--]]--
+function Format.highlight(text, words)
+    if type(text) ~= "string" then return "" end
+
+    local wanted = {}
+    for _, word in ipairs(words or {}) do
+        for form in pairs(inflections_of(word)) do wanted[form] = true end
+    end
+    if not next(wanted) then return Format.escape(text) end
+
+    local marked = text:gsub("[%a']+", function(token)
+        if wanted[token:lower()] then return OPEN .. token .. CLOSE end
+        return token
+    end)
+
+    return (Format.escape(marked)
+        :gsub(OPEN, "<b>")
+        :gsub(CLOSE, "</b>"))
+end
+
 --- The headword this entry is filed under, and what the reader actually tapped.
 local function headwords(result, opts)
     local tapped = result.word or opts.word or ""
@@ -131,8 +205,10 @@ function Format.result(result, opts)
     -- open question.
 
     if result.definition and result.definition ~= "" then
+        -- Slightly larger than everything around it: it is the answer, and
+        -- the examples and the etymology are support for it.
         out[#out + 1] = string.format(
-            '<div style="margin-bottom: 0.9em">%s</div>',
+            '<div style="font-size: 1.1em; margin-bottom: 0.9em">%s</div>',
             Format.escape(result.definition)
         )
     end
@@ -141,7 +217,8 @@ function Format.result(result, opts)
         local items = {}
         for _, example in ipairs(result.examples) do
             items[#items + 1] = string.format(
-                '<li style="margin-bottom: 0.4em">%s</li>', Format.escape(example)
+                '<li style="margin-bottom: 0.4em">%s</li>',
+                Format.highlight(example, { headword, tapped })
             )
         end
         out[#out + 1] = string.format(

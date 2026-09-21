@@ -72,6 +72,14 @@ describe("format", function()
             assert.is_nil(text:find("<span", 1, true))
         end)
 
+        it("marks the word in each example, in whatever form it takes there", function()
+            local text = Format.result({
+                lemma = "strap", word = "strapped", definition = "To fasten.",
+                examples = { "The climbers strapped their harnesses." },
+            })
+            assert.is_truthy(text:find("<b>strapped</b> their harnesses", 1, true))
+        end)
+
         it("numbers the examples, so one of them can be referred to", function()
             local text = Format.result({
                 word = "fox",
@@ -80,8 +88,9 @@ describe("format", function()
             })
             assert.is_truthy(text:find("A wild animal.", 1, true))
             assert.is_truthy(text:find("<ol", 1, true))
-            assert.is_truthy(text:find(">The fox ran.</li>", 1, true))
-            assert.is_truthy(text:find(">Sly as a fox.</li>", 1, true))
+            -- The word itself is marked inside each one; see "highlight".
+            assert.is_truthy(text:find(">The <b>fox</b> ran.</li>", 1, true))
+            assert.is_truthy(text:find(">Sly as a <b>fox</b>.</li>", 1, true))
         end)
 
         it("escapes what the model wrote, rather than letting it be markup", function()
@@ -215,6 +224,58 @@ describe("format", function()
         it("reads numbers that arrived as strings", function()
             -- Both survive a trip through the subprocess as JSON.
             assert.are.equal("5.0s total · 1.8s server", Format.timing("5000", "1800"))
+        end)
+    end)
+
+    describe("highlight", function()
+        it("marks the word itself", function()
+            assert.are.equal("They died for <b>want</b> of bread.",
+                Format.highlight("They died for want of bread.", { "want" }))
+        end)
+
+        it("reaches the inflected forms the examples actually use", function()
+            -- The entry is filed under "strap"; every example shows "strapped".
+            local marked = Format.highlight(
+                "He strapped it on, strapping it twice, and the straps held.",
+                { "strap" })
+            assert.are.equal(
+                "He <b>strapped</b> it on, <b>strapping</b> it twice, and the <b>straps</b> held.",
+                marked)
+        end)
+
+        it("handles the spellings that change the stem", function()
+            assert.is_truthy(Format.highlight("She was leaving.", { "leave" })
+                :find("<b>leaving</b>", 1, true))
+            assert.is_truthy(Format.highlight("He carries it.", { "carry" })
+                :find("<b>carries</b>", 1, true))
+        end)
+
+        it("does not light up a different word that merely starts the same", function()
+            -- The reason this is not a substring search.
+            assert.are.equal("A fellow crossed the <b>fell</b>.",
+                Format.highlight("A fellow crossed the fell.", { "fell" }))
+        end)
+
+        it("matches whatever case the sentence used", function()
+            assert.are.equal("<b>Want</b> is a hard word.",
+                Format.highlight("Want is a hard word.", { "want" }))
+        end)
+
+        it("takes the tapped form too, for the irregulars", function()
+            -- "left" is never reached from "leave" by adding endings, but the
+            -- reader tapped it, so it is known.
+            assert.is_truthy(Format.highlight("He left early.", { "leave", "left" })
+                :find("<b>left</b>", 1, true))
+        end)
+
+        it("escapes the sentence around the marks", function()
+            local marked = Format.highlight("a < b & want", { "want" })
+            assert.are.equal("a &lt; b &amp; <b>want</b>", marked)
+        end)
+
+        it("leaves the sentence alone when there is nothing to look for", function()
+            assert.are.equal("A sentence.", Format.highlight("A sentence.", {}))
+            assert.are.equal("", Format.highlight(nil, { "want" }))
         end)
     end)
 
