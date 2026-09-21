@@ -28,10 +28,13 @@ Config.DEFAULTS = {
     cache_ttl = 30 * 24 * 60 * 60,
     -- Update channel used by the update check and by `kpm`.
     -- Look a word up when the dictionary opens, rather than when AI is
-    -- pressed, so the answer is already cached by the time it is wanted. Off
-    -- by default: it costs a request per dictionary lookup, and most lookups
-    -- never reach the AI button.
-    prefetch = false,
+    -- pressed, so the answer is waiting by the time it is wanted. On, because
+    -- the gateway takes seconds: pressing AI and watching a spinner is most
+    -- of what the feature costs, and this is the only thing that removes it.
+    -- The price is a request per dictionary lookup rather than per AI press,
+    -- and most lookups never reach the button — turn it off in the menu if
+    -- that ever matters more than the wait.
+    prefetch = true,
 
     channel = "stable",
     -- Root of the KPM repository, without the channel.

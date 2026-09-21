@@ -76,6 +76,15 @@ function koreader.install(opts)
     function InputDialog:getInputText() return self.input end
     package.loaded["ui/widget/inputdialog"] = InputDialog
 
+    recorder.scheduled = {}
+    --- Run one round of what is waiting, as the scheduler would a tick later.
+    function recorder.run_scheduled()
+        local due = recorder.scheduled
+        recorder.scheduled = {}
+        for _, callback in ipairs(due) do callback() end
+        return #due
+    end
+
     package.loaded["ui/uimanager"] = {
         show = function(_, widget)
             recorder.shown[#recorder.shown + 1] = widget
@@ -84,7 +93,20 @@ function koreader.install(opts)
         close = function(_, widget)
             widget.closed = true
         end,
-        scheduleIn = function(_, _, callback) callback() end,
+        -- Immediate by default, which is what every existing spec wants: the
+        -- prefetch poll then runs to completion inside onWordLookedUp.
+        --
+        -- `defer_scheduled` queues instead, for the one thing that cannot be
+        -- tested otherwise: a loop that waits for something to happen
+        -- elsewhere would, run immediately, simply recurse until the stack
+        -- gives out. `run_scheduled` then drains one round at a time.
+        scheduleIn = function(_, _, callback)
+            if recorder.defer_scheduled then
+                recorder.scheduled[#recorder.scheduled + 1] = callback
+            else
+                callback()
+            end
+        end,
     }
 
     package.loaded["ui/trapper"] = {

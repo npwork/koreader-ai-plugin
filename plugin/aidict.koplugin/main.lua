@@ -420,6 +420,82 @@ function AiDict:explain(request)
         return
     end
 
+    -- This exact question is already in the air: the dictionary opened a
+    -- moment ago and the prefetch went out then. Waiting for that answer beats
+    -- asking again — it is most of the way here, and a second identical
+    -- request would cost twice over and arrive no sooner.
+    local pending = Lookup.key(request)
+    if self.prefetch:is_pending(pending) then
+        self:joinPrefetch(request, pending)
+        return
+    end
+
+    self:askNow(request)
+end
+
+--[[--
+Wait for a prefetch already in flight rather than starting a second request.
+
+The prefetch has its own poll running on the scheduler and writes the answer
+to the cache when it lands, so there is nothing to do here but watch for it —
+and get out of the way if it fails, or if the reader gives up.
+--]]--
+function AiDict:joinPrefetch(request, key)
+    local word = request.word
+    logger.info(string.format("aidict: %s already on its way, waiting for it", word))
+
+    local waiting = InfoMessage:new{
+        text = T(_("Asking AI about “%1”…"), word),
+        dismissable = true,
+    }
+    local given_up = false
+    waiting.dismiss_callback = function() given_up = true end
+    UIManager:show(waiting)
+
+    -- The prefetch's own deadline plus a moment, so this never outlives the
+    -- thing it is waiting for.
+    local deadline = self.now() + self.settings:get("total_timeout") + 6
+
+    local function look()
+        if given_up then
+            logger.info(string.format("aidict: %s given up on while waiting", word))
+            return
+        end
+
+        local cached = self.lookup:peek(request)
+        if cached then
+            UIManager:close(waiting)
+            logger.info(string.format("aidict: %s caught the one already asked", word))
+            showResult(word, cached, true)
+            return
+        end
+
+        if not self.prefetch:is_pending(key) then
+            -- It finished without an answer. Ask properly rather than leaving
+            -- the reader with nothing.
+            UIManager:close(waiting)
+            logger.info(string.format("aidict: %s came to nothing ahead, asking now", word))
+            self:askNow(request)
+            return
+        end
+
+        if self.now() > deadline then
+            UIManager:close(waiting)
+            logger.warn(string.format("aidict: %s still not here, gave up waiting", word))
+            UIManager:show(InfoMessage:new{ text = Format.error(nil) })
+            return
+        end
+
+        UIManager:scheduleIn(PREFETCH_POLL_SECONDS, look)
+    end
+
+    UIManager:scheduleIn(PREFETCH_POLL_SECONDS, look)
+end
+
+--- Ask the gateway now, showing a progress the reader can dismiss.
+function AiDict:askNow(request)
+    local word = request.word
+
     if not canAsk() then
         -- Deliberately not offering to turn Wi-Fi on: the reader asked for a
         -- word, not for a connection.

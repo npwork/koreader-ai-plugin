@@ -520,8 +520,8 @@ describe("the KOReader layer", function()
             return build(opts)
         end
 
-        it("does nothing at all until it is switched on", function()
-            build()
+        it("does nothing at all once it is switched off", function()
+            build({ settings = { prefetch = false } })
             plugin:onWordLookedUp("fox")
 
             assert.are.equal(0, kor.forks)
@@ -711,6 +711,59 @@ describe("the KOReader layer", function()
             end
         end)
 
+        it("joins the request already in the air instead of asking twice", function()
+            -- The reason this matters: the gateway takes seconds, so pressing
+            -- AI while the prefetch is still out is the ordinary case, not a
+            -- race. A second identical request costs twice and lands no sooner.
+            prefetching()
+            local key = require("aidict.lookup").key(plugin:requestFor("fox", reader.ui.highlight))
+            plugin.prefetch:began(key)
+            kor.defer_scheduled = true
+
+            tap_dict_button()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("Asking AI", 1, true))
+        end)
+
+        it("shows the answer the moment the one it waited for lands", function()
+            prefetching()
+            local request = plugin:requestFor("fox", reader.ui.highlight)
+            local key = require("aidict.lookup").key(request)
+            plugin.prefetch:began(key)
+            kor.defer_scheduled = true
+            tap_dict_button()
+
+            -- The prefetch finishes: its answer goes to the cache and the slot
+            -- is freed, exactly as finishPrefetch does it.
+            plugin.lookup:remember(request, {
+                word = "fox", definition = "A wild animal of the dog family.",
+            })
+            plugin.prefetch:ended(key)
+            kor.run_scheduled()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("A wild animal", 1, true))
+        end)
+
+        it("asks properly when the one it waited for came to nothing", function()
+            prefetching()
+            local key = require("aidict.lookup").key(plugin:requestFor("fox", reader.ui.highlight))
+            plugin.prefetch:began(key)
+            kor.defer_scheduled = true
+            tap_dict_button()
+            -- Nothing asked yet: it is waiting on the one already out.
+            assert.are.equal(0, kor.transport.calls)
+
+            -- It ended without writing an answer: the reader must not be left
+            -- with a spinner and nothing behind it.
+            plugin.prefetch:ended(key)
+            kor.run_scheduled()
+
+            assert.are.equal(1, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("A wild animal", 1, true))
+        end)
+
         it("is a menu entry the reader can see the state of", function()
             build()
             local items = {}
@@ -721,10 +774,11 @@ describe("the KOReader layer", function()
                 if item.text and item.text:find("before I ask", 1, true) then entry = item end
             end
             assert.is_table(entry)
-            assert.is_false(entry.checked_func())
-            entry.callback()
+            -- On by default, and the entry both says so and can turn it off.
             assert.is_true(entry.checked_func())
-            assert.is_true(plugin.settings:get("prefetch"))
+            entry.callback()
+            assert.is_false(entry.checked_func())
+            assert.is_false(plugin.settings:get("prefetch"))
         end)
     end)
 
