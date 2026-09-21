@@ -108,6 +108,26 @@ local function inflections_of(form)
     return forms
 end
 
+--[[--
+The space between the parts, which is what does the separating.
+
+Not one gap repeated: an even rhythm is exactly what makes an entry read as a
+single block, however many pieces it has. Lines belonging to the same thought
+sit close, and the jump between one thought and the next is large enough to
+see without looking for it — the definition and the examples answer different
+questions, so the widest gap in the entry is the one between them.
+
+In `em`, like every size here, so the whole entry breathes with whatever text
+size the reader has chosen.
+--]]--
+local GAP = {
+    HEADWORD = "0.1em",   -- to the part of speech: the same thought
+    OPENING  = "1.0em",   -- the heading block, to the definition
+    ANSWER   = "1.8em",   -- the definition, to the evidence for it
+    EXAMPLE  = "0.45em",  -- between examples: a list, not a set of paragraphs
+    ASIDE    = "1.5em",   -- the examples, to the etymology and the footer
+}
+
 -- Control characters stand in for the tags while the text is still raw, so the
 -- escaping that follows cannot eat them and cannot be fooled by them.
 local OPEN, CLOSE = "\1", "\2"
@@ -178,7 +198,8 @@ function Format.result(result, opts)
             )
         end
         out[#out + 1] = string.format(
-            '<div style="font-size: 1.35em; margin-bottom: 0.1em">%s</div>', head
+            '<div style="font-size: 1.35em; margin-bottom: ' .. GAP.HEADWORD ..
+            '">%s</div>', head
         )
 
         -- The part of speech and the tapped form answer the same question —
@@ -194,8 +215,8 @@ function Format.result(result, opts)
         end
         if #under > 0 then
             out[#out + 1] = string.format(
-                '<div style="font-size: 0.85em; margin-bottom: 0.9em">%s</div>',
-                table.concat(under, " · ")
+                '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.OPENING ..
+                '">%s</div>', table.concat(under, " · ")
             )
         end
     end
@@ -208,8 +229,8 @@ function Format.result(result, opts)
         -- Slightly larger than everything around it: it is the answer, and
         -- the examples and the etymology are support for it.
         out[#out + 1] = string.format(
-            '<div style="font-size: 1.1em; margin-bottom: 0.9em">%s</div>',
-            Format.escape(result.definition)
+            '<div style="font-size: 1.1em; margin-bottom: ' .. GAP.ANSWER ..
+            '">%s</div>', Format.escape(result.definition)
         )
     end
 
@@ -217,12 +238,12 @@ function Format.result(result, opts)
         local items = {}
         for _, example in ipairs(result.examples) do
             items[#items + 1] = string.format(
-                '<li style="margin-bottom: 0.4em">%s</li>',
+                '<li style="margin-bottom: ' .. GAP.EXAMPLE .. '">%s</li>',
                 Format.highlight(example, { headword, tapped })
             )
         end
         out[#out + 1] = string.format(
-            '<ol style="margin: 0 0 0.9em 1.1em; padding: 0">%s</ol>',
+            '<ol style="margin: 0 0 ' .. GAP.ASIDE .. ' 1.1em; padding: 0">%s</ol>',
             table.concat(items)
         )
     end
@@ -231,8 +252,8 @@ function Format.result(result, opts)
     -- once and never the thing the reader opened this for.
     if type(result.etymology) == "string" and result.etymology ~= "" then
         out[#out + 1] = string.format(
-            '<div style="font-size: 0.85em; margin-bottom: 0.9em">' ..
-            '<i>%s</i></div>', Format.escape(result.etymology)
+            '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.ASIDE ..
+            '"><i>%s</i></div>', Format.escape(result.etymology)
         )
     end
 

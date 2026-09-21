@@ -80,6 +80,25 @@ describe("format", function()
             assert.is_truthy(text:find("<b>strapped</b> their harnesses", 1, true))
         end)
 
+        it("opens the widest gap between the definition and its examples", function()
+            -- What separates is not space but the difference in it: one gap
+            -- repeated makes the entry read as a single block.
+            local text = Format.result({
+                word = "fox", part_of_speech = "noun", definition = "A wild animal.",
+                examples = { "The fox ran." }, etymology = "From Old English.",
+            })
+            local after_definition = tonumber(
+                text:match('margin%-bottom: ([%d%.]+)em">A wild animal%.'))
+            local within_heading = tonumber(
+                text:match('margin%-bottom: ([%d%.]+)em">.-<b>fox</b>'))
+            assert.is_truthy(after_definition)
+            assert.is_true(after_definition > within_heading)
+            -- And wider than the space between two examples, which are a list.
+            local between_examples = tonumber(
+                text:match('<li style="margin%-bottom: ([%d%.]+)em"'))
+            assert.is_true(after_definition > between_examples * 2)
+        end)
+
         it("numbers the examples, so one of them can be referred to", function()
             local text = Format.result({
                 word = "fox",
