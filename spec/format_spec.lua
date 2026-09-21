@@ -53,13 +53,13 @@ describe("format", function()
             assert.is_nil(text:find("1.5s", 1, true))
         end)
 
-        it("splits the wait into the gateway's share and the network's", function()
+        it("shows the gateway's own time beside the round trip", function()
             -- The point of the whole thing: five seconds of radio and five of
             -- model look identical on the screen and want opposite fixes.
             local text = Format.result({
                 definition = "d", model = "gpt-test", elapsed_ms = 5000, server_ms = 1800,
             })
-            assert.is_truthy(text:find("5.0s (1.8s server, 3.2s network)", 1, true))
+            assert.is_truthy(text:find("5.0s total · 1.8s server", 1, true))
         end)
 
         it("keeps the footer to the time when the model is unknown", function()
@@ -110,22 +110,23 @@ describe("format", function()
     end)
 
     describe("timing", function()
-        it("names the gateway's share and what is left over", function()
-            assert.are.equal("5.0s (1.8s server, 3.2s network)",
-                Format.timing(5000, 1800))
+        it("reports both measurements, and does not invent a third", function()
+            -- The gap between them is not one thing — radio, DNS, handshake,
+            -- Cloudflare, two clocks — so it is left unnamed rather than
+            -- called "network".
+            assert.are.equal("5.0s total · 1.8s server", Format.timing(5000, 1800))
         end)
 
-        it("is just the total when the gateway did not say", function()
+        it("is just the round trip when the gateway did not say", function()
             -- An older gateway, or an answer that came from somewhere else.
             assert.are.equal("5.0s", Format.timing(5000, nil))
             assert.are.equal("5.0s", Format.timing(5000, "not a number"))
         end)
 
-        it("drops the split rather than reporting no network at all", function()
-            -- Two clocks on two machines; the subtraction can land at or under
-            -- zero, and "0ms network" is not a finding.
-            assert.are.equal("1.8s", Format.timing(1800, 1800))
-            assert.are.equal("1.7s", Format.timing(1700, 1800))
+        it("reports a server slower than the round trip rather than hiding it", function()
+            -- Two clocks on two machines can disagree by a little. Showing both
+            -- says so; a subtraction would have had to pretend otherwise.
+            assert.are.equal("1.7s total · 1.8s server", Format.timing(1700, 1800))
         end)
 
         it("has nothing to say without a round trip to describe", function()
@@ -134,8 +135,7 @@ describe("format", function()
 
         it("reads numbers that arrived as strings", function()
             -- Both survive a trip through the subprocess as JSON.
-            assert.are.equal("5.0s (1.8s server, 3.2s network)",
-                Format.timing("5000", "1800"))
+            assert.are.equal("5.0s total · 1.8s server", Format.timing("5000", "1800"))
         end)
     end)
 

@@ -97,11 +97,13 @@ still open. Everything else is optional and simply not shown when missing.
 `timing` is the gateway's own account of where the time went. `total_ms` is the
 whole handler, `upstream_ms` everything spent talking to other services, split
 into `model_ms`, `review_ms` and `retry_ms`. The device times its round trip
-separately, so the difference between that and `total_ms` is the network and
-the Kindle's radio — and that subtraction is what the footer under an answer
-shows: `5.0s (1.8s server, 3.2s network)`. A single number cannot be acted on,
-because three seconds of radio and three of model look identical on the screen
-and want opposite fixes.
+separately, and the footer under an answer shows both: `5.0s total · 1.8s
+server`. A single number cannot be acted on — three seconds of radio and three
+of model look identical on the screen and want opposite fixes.
+
+Two measurements, not three. The gap between them is the Wi-Fi waking, DNS,
+the handshake, Cloudflare and the flight each way, taken off two different
+clocks; calling it "network" would be a claim neither number supports.
 
 `review` appears when the gateway took a second opinion on its own answer:
 `sense` is 0..1 for "is this the sense the passage gives the word", `examples`

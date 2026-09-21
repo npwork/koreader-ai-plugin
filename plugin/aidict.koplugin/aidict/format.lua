@@ -13,14 +13,18 @@ function Format.duration(ms)
 end
 
 --[[--
-How long it took, and where the time went.
+How long it took, measured twice.
 
 A single number cannot be acted on: three seconds of radio and three seconds
-of model look identical on the screen and want opposite fixes. The gateway
-reports what it spent, the client times the whole round trip, and the
-difference is everything between the two — waking the Wi-Fi, the handshake,
-the flight. That difference is the number worth naming, so it is subtracted
-here rather than left to be done in the reader's head.
+of model look identical on the screen and want opposite fixes. So both are
+shown — what the device stopwatched from sending the request to holding the
+response, and what the gateway says it spent inside its own handler.
+
+Deliberately two measurements and not three: the gap between them is not one
+thing. It is the Wi-Fi waking, DNS, the handshake, Cloudflare and the flight
+each way, taken off two different clocks on two different machines. Naming it
+"network" would be a claim neither number supports; a reader who wants it can
+subtract, knowing what they have subtracted.
 
 @param elapsed_ms number  the whole round trip, as the device measured it
 @param server_ms  number  what the gateway says it spent, when it says
@@ -30,20 +34,10 @@ function Format.timing(elapsed_ms, server_ms)
     local total = Format.duration(elapsed_ms)
     if total == "" then return "" end
 
-    server_ms = tonumber(server_ms)
-    if not server_ms then return total end
+    local server = Format.duration(server_ms)
+    if server == "" then return total end
 
-    -- The two are measured by different clocks on different machines, so the
-    -- subtraction can come out at or below zero when the gateway is quick and
-    -- the network is quicker. "network 0ms" is not a finding, and a negative
-    -- one is noise, so the breakdown is simply dropped.
-    local network_ms = tonumber(elapsed_ms) - server_ms
-    if network_ms <= 0 then return total end
-
-    return string.format(
-        "%s (%s server, %s network)",
-        total, Format.duration(server_ms), Format.duration(network_ms)
-    )
+    return total .. " total · " .. server .. " server"
 end
 
 --- Human-readable one-liner for an `ApiClient` error.
