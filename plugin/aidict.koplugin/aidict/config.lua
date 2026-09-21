@@ -27,6 +27,12 @@ Config.DEFAULTS = {
     -- Seconds an answer stays fresh. 0 means "never expires".
     cache_ttl = 30 * 24 * 60 * 60,
     -- Update channel used by the update check and by `kpm`.
+    -- Look a word up when the dictionary opens, rather than when AI is
+    -- pressed, so the answer is already cached by the time it is wanted. Off
+    -- by default: it costs a request per dictionary lookup, and most lookups
+    -- never reach the AI button.
+    prefetch = false,
+
     channel = "stable",
     -- Root of the KPM repository, without the channel.
     repo_url = "https://npwork.github.io/koreader-ai-plugin",
@@ -43,6 +49,12 @@ Config.VALIDATORS = {
     endpoint = function(value)
         if not is_http_url(value) then
             return false, "endpoint must be an http:// or https:// URL"
+        end
+        return true
+    end,
+    prefetch = function(value)
+        if type(value) ~= "boolean" then
+            return false, "prefetch must be true or false"
         end
         return true
     end,

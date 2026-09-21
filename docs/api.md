@@ -143,6 +143,10 @@ subprocess doing the request.
 * **Timeouts.** The device gives up after 10s per block and 30s in total, both
   configurable. An answer that takes longer is simply lost, so the gateway
   should cap its own upstream call below that.
+* **Prefetch.** With it on, the device asks when the *dictionary* opens rather
+  than when AI is pressed, so expect a request for every dictionary lookup and
+  a hit rate well below one answer read per answer fetched. It is off by
+  default for that reason. The request is identical either way.
 * **Caching.** The device caches answers for 30 days keyed on (word, context),
   so repeat traffic for the same passage does not reach the gateway at all.
   The same word in another paragraph is a different key, and asks again.

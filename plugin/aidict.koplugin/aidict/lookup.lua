@@ -61,11 +61,17 @@ function Lookup:reload()
     end
 end
 
---- Cache key for a request, so the callers below agree on one.
-local function key_for(request)
+--[[--
+Cache key for a request, so everything agrees on one name for an answer.
+
+`main.lua` needs it too: a prefetch has to be tracked under the same key the
+button will later peek at, or the two would never meet.
+--]]--
+function Lookup.key(request)
     request = request or {}
     return Cache.key(Context.cleanup(request.word), Context.cleanup(request.context))
 end
+local key_for = Lookup.key
 
 --- Cached answer for a request, without touching the network.
 function Lookup:peek(request)

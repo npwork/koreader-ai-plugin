@@ -75,6 +75,17 @@ describe("the KOReader layer", function()
         return popup
     end
 
+    --- A request the way the plugin builds one, for the paths that bypass a
+    --- button. The word and passage are what the cache key is made of.
+    local function ask(word, passage)
+        plugin:explain({
+            word = word,
+            context = passage,
+            sentence = passage,
+            request_id = "aidict-spec-" .. word,
+        })
+    end
+
     local function tap_highlight_button()
         local builder = reader.highlight_buttons["13_aidict_explain"]
         local button = builder(reader.ui.highlight)
@@ -350,8 +361,8 @@ describe("the KOReader layer", function()
                 { status = 200, body = ANSWER },
                 { status = 200, body = ANSWER },
             } })
-            plugin:explain("fox", "a sentence about a fox", "a sentence about a fox")
-            plugin:explain("dog", "a sentence about a dog", "a sentence about a dog")
+            ask("fox", "a sentence about a fox")
+            ask("dog", "a sentence about a dog")
 
             assert.are_not.equal(kor.transport.requests[1].headers["X-Request-Id"],
                                  kor.transport.requests[2].headers["X-Request-Id"])
@@ -396,7 +407,7 @@ describe("the KOReader layer", function()
 
         it("says why it refused to ask when there is no Wi-Fi", function()
             build({ online = false })
-            plugin:explain("fox", "a sentence with fox in it", "a sentence with fox in it")
+            ask("fox", "a sentence with fox in it")
 
             assert.are.equal(0, kor.transport.calls)
             assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("offline", 1, true))
@@ -492,6 +503,216 @@ describe("the KOReader layer", function()
             assert.are.equal(0, kor.transport.calls)
             assert.are.equal("TextViewer", last_shown().widget_kind)
             assert.is_truthy(last_shown().text:find("cached", 1, true))
+        end)
+    end)
+
+    --[[--
+    The dictionary announces every lookup before it has even searched. With
+    prefetch on, that is when the plugin starts asking — so that by the time
+    the reader has read the dictionary entry and pressed AI, the answer is
+    already in the cache.
+    --]]--
+    describe("looking a word up before it is asked for", function()
+        local function prefetching(opts)
+            opts = opts or {}
+            opts.settings = opts.settings or {}
+            opts.settings.prefetch = true
+            return build(opts)
+        end
+
+        it("does nothing at all until it is switched on", function()
+            build()
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(0, kor.forks)
+            assert.are.equal(0, kor.transport.calls)
+        end)
+
+        it("asks as soon as the dictionary opens, once it is on", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(1, kor.forks)
+            assert.are.equal(1, kor.transport.calls)
+        end)
+
+        it("puts the answer where the button will find it — the point of the whole thing", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+            tap_dict_button()
+
+            -- Still one request: the button found the answer already there.
+            assert.are.equal(1, kor.transport.calls)
+            local shown = last_shown()
+            assert.are.equal("TextViewer", shown.widget_kind)
+            assert.is_truthy(shown.text:find("A wild animal of the dog family.", 1, true))
+            assert.is_truthy(shown.text:find("cached", 1, true))
+        end)
+
+        it("writes the cache to disk, so it survives the session too", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+
+            local saved = kor.store.data["cache_entries"]
+            assert.is_table(saved)
+            assert.is_true(#saved > 0)
+        end)
+
+        it("never swallows the event — the dictionary wanted it", function()
+            prefetching()
+            assert.is_false(plugin:onWordLookedUp("fox"))
+        end)
+
+        it("does not ask twice for a word already in the air", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(1, kor.forks)
+        end)
+
+        it("does not ask for an answer it already has", function()
+            prefetching()
+            tap_dict_button()          -- fetched and cached the ordinary way
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(0, kor.forks)
+            assert.are.equal(1, kor.transport.calls)
+        end)
+
+        it("stays quiet with no Wi-Fi", function()
+            prefetching({ online = false })
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(0, kor.forks)
+            assert.are.equal(0, kor.transport.calls)
+        end)
+
+        it("stays quiet with no endpoint to ask", function()
+            prefetching({ no_endpoint = true })
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(0, kor.forks)
+        end)
+
+        it("says nothing to the reader, whatever happens", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+
+            -- Nobody asked for this lookup; it must not put a widget on screen.
+            assert.are.equal(0, #kor.shown)
+        end)
+
+        it("records the one it fetched ahead, with its id", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+
+            local line = kor.info_lines[#kor.info_lines]
+            assert.is_truthy(line:find("fox", 1, true))
+            assert.is_truthy(line:find("fetched ahead", 1, true))
+        end)
+
+        it("survives a fork that never happens", function()
+            prefetching()
+            kor.fork_fails = true
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("fork", 1, true))
+            -- The button must still work afterwards.
+            kor.fork_fails = false
+            tap_dict_button()
+            assert.are.equal(1, kor.transport.calls)
+        end)
+
+        it("survives a subprocess that dies without a word", function()
+            prefetching()
+            kor.writes_nothing = true
+            plugin:onWordLookedUp("fox")
+
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("came to nothing", 1, true))
+        end)
+
+        it("caches nothing when the gateway refuses, so the button still asks", function()
+            prefetching({ responses = { { status = 500, body = "" } } })
+            plugin:onWordLookedUp("fox")
+
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("ahead failed", 1, true))
+            tap_dict_button()
+            assert.are.equal(2, kor.transport.calls)
+        end)
+
+        it("frees the slot again once it is done, however it went", function()
+            prefetching({ responses = { { status = 500, body = "" } } })
+            plugin:onWordLookedUp("fox")
+            assert.are.equal(0, plugin.prefetch:pending())
+        end)
+
+        it("lets go of everything when the document closes", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+            plugin:onCloseDocument()
+
+            assert.are.equal(0, plugin.prefetch:pending())
+            assert.are.same({}, plugin.prefetch_jobs)
+        end)
+
+        it("waits and looks again when the answer is not ready yet", function()
+            prefetching()
+            kor.ready_after_polls = 3
+            plugin:onWordLookedUp("fox")
+
+            assert.is_true(kor.polls > 3)
+            -- It still landed: polling is about patience, not about giving up.
+            tap_dict_button()
+            assert.are.equal(1, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("cached", 1, true))
+        end)
+
+        it("kills a subprocess that never comes back, rather than polling forever", function()
+            prefetching()
+            kor.never_ready = true
+            -- The deadline is set from the first reading and every later one
+            -- is long past it, so the give-up branch is reached on the first
+            -- poll rather than half a minute later.
+            local readings = 0
+            plugin.now = function()
+                readings = readings + 1
+                return os.time() + (readings > 1 and 10000 or 0)
+            end
+            plugin:onWordLookedUp("fox")
+
+            assert.are.equal(1, kor.terminated)
+            assert.are.equal(0, plugin.prefetch:pending())
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("gave up", 1, true))
+        end)
+
+        it("closes the pipe on every way out, so a reader never runs out of them", function()
+            for _, setup in ipairs({
+                function() end,                                  -- the ordinary way
+                function() kor.writes_nothing = true end,        -- died silently
+            }) do
+                prefetching()
+                setup()
+                plugin:onWordLookedUp("fox")
+                assert.is_true(kor.fds_closed >= 1)
+            end
+        end)
+
+        it("is a menu entry the reader can see the state of", function()
+            build()
+            local items = {}
+            plugin:addToMainMenu(items)
+
+            local entry
+            for _, item in ipairs(items.aidict.sub_item_table) do
+                if item.text and item.text:find("before I ask", 1, true) then entry = item end
+            end
+            assert.is_table(entry)
+            assert.is_false(entry.checked_func())
+            entry.callback()
+            assert.is_true(entry.checked_func())
+            assert.is_true(plugin.settings:get("prefetch"))
         end)
     end)
 

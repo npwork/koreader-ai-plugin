@@ -51,6 +51,14 @@ function koreader.install(opts)
         request_ms = 0,
         info_lines = {},
         warn_lines = {},
+        forks = 0,
+        polls = 0,
+        fds_closed = 0,
+        ready_after_polls = 0,
+        never_ready = false,
+        terminated = 0,
+        fork_fails = false,
+        writes_nothing = false,
     }
 
     local Widget = widget_class()
@@ -137,6 +145,16 @@ function koreader.install(opts)
         __call = function(_, text) return text end,
     })
 
+    --[[--
+    KOReader's ffi/util, reduced to the two things the plugin uses: string
+    templating and the fork-and-pipe the prefetch runs on.
+
+    The fake fork runs the task inline and keeps what it wrote, which preserves
+    the only semantics the plugin depends on — the task runs somewhere else,
+    writes once, and the parent reads it later. `forks` counts them so a spec
+    can assert that nothing was started; `fork_fails` and `writes_nothing`
+    drive the two ways it can come to nothing.
+    --]]--
     package.loaded["ffi/util"] = {
         template = function(text, ...)
             local args = { ... }
@@ -144,6 +162,36 @@ function koreader.install(opts)
                 return tostring(args[tonumber(index)])
             end))
         end,
+
+        runInSubProcess = function(task, with_pipe)
+            recorder.forks = recorder.forks + 1
+            if recorder.fork_fails then return false, "could not fork" end
+            recorder.written = nil
+            task(4242, "child-fd")
+            if recorder.writes_nothing then recorder.written = nil end
+            return 4242, with_pipe and "parent-fd" or nil
+        end,
+        writeToFD = function(_, data) recorder.written = data end,
+        -- A real fork is not ready on the first look. `ready_after_polls`
+        -- makes the parent wait, and `never_ready` makes it wait forever, so
+        -- the polling and the give-up branch are both reachable.
+        getNonBlockingReadSize = function()
+            recorder.polls = recorder.polls + 1
+            if recorder.never_ready then return 0 end
+            if recorder.polls <= (recorder.ready_after_polls or 0) then return 0 end
+            return recorder.written and #recorder.written or 0
+        end,
+        isSubProcessDone = function()
+            return not (recorder.never_ready or
+                        recorder.polls <= (recorder.ready_after_polls or 0))
+        end,
+        readAllFromFD = function()
+            local data = recorder.written
+            recorder.written = nil
+            recorder.fds_closed = recorder.fds_closed + 1
+            return data or ""
+        end,
+        terminateSubProcess = function() recorder.terminated = recorder.terminated + 1 end,
     }
 
     package.loaded["util"] = {

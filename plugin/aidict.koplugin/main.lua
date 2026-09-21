@@ -28,6 +28,7 @@ local Context = require("aidict.context")
 local Format = require("aidict.format")
 local Reqid = require("aidict.reqid")
 local Lookup = require("aidict.lookup")
+local Prefetch = require("aidict.prefetch")
 local Settings = require("aidict.settings")
 local Updater = require("aidict.updater")
 local Version = require("aidict.version")
@@ -35,6 +36,10 @@ local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
 
 local CACHE_KEY = "cache_entries"
+
+-- How often a prefetch in the background is checked on. Nothing is waiting on
+-- it, so this is about not spinning rather than about being quick.
+local PREFETCH_POLL_SECONDS = 0.5
 
 --- The ids a finished lookup is known by, for the log line.
 -- The request id is always there; the ray only once Cloudflare saw it.
@@ -72,6 +77,11 @@ function AiDict:init()
         monotonic = function() return time.to_ms(time.now()) end,
     })
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
+    self.prefetch = Prefetch.new({ settings = self.settings })
+    self.prefetch_jobs = {}
+    -- Named rather than called directly so a spec can move it: the give-up
+    -- branch below is otherwise half a minute away.
+    self.now = os.time
 
     if self.ui and self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
@@ -90,7 +100,156 @@ function AiDict:saveCache()
     self.store:flush()
 end
 
+--[[--
+KOReader announces every dictionary lookup, before it has even searched. That
+is the earliest the word is known, and the reader is about to spend a few
+seconds on the dictionary entry — so it is the moment to start asking, if the
+reader wants that.
+
+Nothing here may block: the dictionary window is opening behind it.
+--]]--
+function AiDict:onWordLookedUp(word)
+    if not (self.prefetch and self.lookup) then return end
+
+    local request = self:requestFor(word, self.ui and self.ui.highlight)
+    local key = request and Lookup.key(request) or nil
+    local wanted, why = self.prefetch:wanted(key, {
+        offline = not canAsk(),
+        cached = request ~= nil and self.lookup:peek(request) ~= nil,
+    })
+    if not wanted then
+        -- dbg, not info: this fires on every dictionary lookup, and the
+        -- commonest answer is "prefetch is off".
+        logger.dbg("aidict: not fetching ahead:", why)
+        return
+    end
+    self:startPrefetch(request, key)
+    -- Never swallow the event: the dictionary is the one that wanted it.
+    return false
+end
+
+--[[--
+Fork, ask, and let it finish on its own.
+
+This is the same work the button does, minus everything that waits or draws:
+`Trapper` exists to show a dismissable progress window, and here there is
+nobody to show it to.
+--]]--
+function AiDict:startPrefetch(request, key)
+    local ffiutil = require("ffi/util")
+    local lookup, codec = self.lookup, json
+
+    local ok, pid, fd = pcall(ffiutil.runInSubProcess, function(_, child_write_fd)
+        local outcome = lookup:fetch(request)
+        -- JSON rather than the serialiser Trapper uses: the payload is plain
+        -- data, and the codec is already a dependency of everything here.
+        local encoded, payload = pcall(codec.encode, outcome)
+        ffiutil.writeToFD(child_write_fd, encoded and payload or "", true)
+    end, true)
+
+    if not ok or not pid then
+        logger.warn("aidict: could not fork to fetch", request.word, "ahead:", tostring(pid))
+        return false
+    end
+
+    self.prefetch:began(key)
+    local job = {
+        key = key,
+        request = request,
+        pid = pid,
+        fd = fd,
+        -- The subprocess has its own timeouts; this is the backstop for one
+        -- that is wedged rather than slow.
+        deadline = self.now() + self.settings:get("total_timeout") + 5,
+    }
+    self.prefetch_jobs[key] = job
+    self:pollPrefetch(job)
+    return true
+end
+
+function AiDict:pollPrefetch(job)
+    UIManager:scheduleIn(PREFETCH_POLL_SECONDS, function()
+        -- The document may have closed under it, taking the job with it.
+        if self.prefetch_jobs[job.key] ~= job then return end
+        local ffiutil = require("ffi/util")
+
+        local readable = job.fd and ffiutil.getNonBlockingReadSize(job.fd) ~= 0
+        local finished = ffiutil.isSubProcessDone(job.pid)
+
+        if readable then
+            local raw = ffiutil.readAllFromFD(job.fd)   -- closes the fd
+            job.fd = nil
+            self:finishPrefetch(job, raw)
+            if not finished then
+                -- It wrote before exiting; collect it shortly so it does not
+                -- linger as a zombie.
+                UIManager:scheduleIn(1, function() ffiutil.isSubProcessDone(job.pid) end)
+            end
+            return
+        end
+
+        if finished then
+            -- Gone without writing: it failed in a way it could not report.
+            if job.fd then ffiutil.readAllFromFD(job.fd); job.fd = nil end
+            self:finishPrefetch(job, nil, "the subprocess wrote nothing")
+            return
+        end
+
+        if self.now() > job.deadline then
+            ffiutil.terminateSubProcess(job.pid)
+            if job.fd then ffiutil.readAllFromFD(job.fd); job.fd = nil end
+            self:finishPrefetch(job, nil, "gave up waiting")
+            return
+        end
+
+        self:pollPrefetch(job)
+    end)
+end
+
+--- Put what came back into the cache, so the button finds it already there.
+function AiDict:finishPrefetch(job, raw, why)
+    self.prefetch_jobs[job.key] = nil
+    self.prefetch:ended(job.key)
+
+    if not raw or raw == "" then
+        logger.warn(string.format("aidict: fetching %s ahead came to nothing (%s)",
+            job.request.word, why or "no data"))
+        return
+    end
+
+    local ok, outcome = pcall(json.decode, raw)
+    if not (ok and type(outcome) == "table") then
+        logger.warn("aidict: fetching", job.request.word, "ahead returned junk")
+        return
+    end
+    if not outcome.ok then
+        local err = outcome.err or {}
+        logger.warn(string.format("aidict: fetching %s ahead failed (%s: %s)",
+            job.request.word, tostring(err.code), tostring(err.message)))
+        return
+    end
+
+    self.lookup:remember(job.request, outcome.result)
+    self:saveCache()
+    logger.info(string.format("aidict: %s fetched ahead in %sms, waiting in the cache [%s]",
+        job.request.word, tostring(outcome.result.elapsed_ms or "?"),
+        marks(outcome.result, job.request)))
+end
+
+--- Kill anything still in the air. A closed document has nowhere to put it.
+function AiDict:stopPrefetching()
+    if not self.prefetch_jobs then return end
+    local ffiutil = require("ffi/util")
+    for key, job in pairs(self.prefetch_jobs) do
+        pcall(ffiutil.terminateSubProcess, job.pid)
+        if job.fd then pcall(ffiutil.readAllFromFD, job.fd) end
+        self.prefetch_jobs[key] = nil
+    end
+    self.prefetch:clear()
+end
+
 function AiDict:onCloseDocument()
+    self:stopPrefetching()
     self:saveCache()
 end
 
@@ -111,10 +270,11 @@ function AiDict:registerDictButton()
         -- failing.
         show_func = function() return canAsk() end,
         callback = function(dict_popup)
-            local word = dict_popup.word
-            local context, sentence = self:contextFor(dict_popup.highlight, word)
+            -- Built before the popup closes: closing can clear the selection
+            -- the passage is read from.
+            local request = self:requestFor(dict_popup.word, dict_popup.highlight)
             dict_popup:onClose()
-            self:explain(word, context, sentence)
+            self:explain(request)
         end,
     })
 end
@@ -129,9 +289,9 @@ function AiDict:registerHighlightButton()
                 this:highlightFromHoldPos()
                 if not (this.selected_text and this.selected_text.text) then return end
                 local word = util.cleanupSelectedText(this.selected_text.text)
-                local context, sentence = self:contextFor(this, word)
+                local request = self:requestFor(word, this)
                 this:onClose(true)
-                self:explain(word, context, sentence)
+                self:explain(request)
             end,
         }
     end)
@@ -209,8 +369,37 @@ end
 -- The lookup itself
 ----------------------------------------------------------------------------
 
-function AiDict:explain(word, context, sentence)
+--[[--
+Everything the gateway is asked, in one place.
+
+Both the button and the prefetch build their request here, and that is not
+tidiness: the cache key is the word plus its passage, so an answer fetched
+ahead is only ever found again if the two agree character for character on
+what the passage was.
+
+@treturn table the request, or nil when there is nothing to look up
+--]]--
+function AiDict:requestFor(word, highlight)
     word = Context.cleanup(word)
+    if word == "" then return nil end
+
+    local context, sentence = self:contextFor(highlight, word)
+    local props = self:bookProps()
+    return {
+        word = word,
+        context = context or "",
+        sentence = sentence or "",
+        title = props.title,
+        author = props.author,
+        source_lang = props.source_lang,
+        -- Minted here rather than in the subprocess: a fork inherits the
+        -- random seed, so ids made after the fork would repeat.
+        request_id = Reqid.generate(os.time(), math.random),
+    }
+end
+
+function AiDict:explain(request)
+    local word = request and request.word or ""
     if word == "" then
         UIManager:show(InfoMessage:new{ text = _("Nothing to look up.") })
         return
@@ -223,19 +412,6 @@ function AiDict:explain(word, context, sentence)
         })
         return
     end
-
-    local props = self:bookProps()
-    local request = {
-        word = word,
-        context = context or "",
-        sentence = sentence or "",
-        title = props.title,
-        author = props.author,
-        source_lang = props.source_lang,
-        -- Minted here rather than in the subprocess: a fork inherits the
-        -- random seed, so ids made after the fork would repeat.
-        request_id = Reqid.generate(os.time(), math.random),
-    }
 
     local cached = self.lookup:peek(request)
     if cached then
@@ -444,6 +620,15 @@ function AiDict:addToMainMenu(menu_items)
                 callback = function()
                     local next_channel = self.settings:get("channel") == "stable" and "dev" or "stable"
                     self.settings:set("channel", next_channel)
+                    self.settings:flush()
+                end,
+            },
+            {
+                text = _("Look words up before I ask"),
+                help_text = _("Start asking when the dictionary opens, so the answer is already there when you press AI. Costs a request for every dictionary lookup, not only the ones you press AI on."),
+                checked_func = function() return self.settings:get("prefetch") end,
+                callback = function()
+                    self.settings:set("prefetch", not self.settings:get("prefetch"))
                     self.settings:flush()
                 end,
             },

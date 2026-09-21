@@ -22,6 +22,7 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     http_transport.lua    the one file that uses luasocket
     json.lua              rapidjson if present, else KOReader's json
     lookup.lua            settings + cache + client wired together
+    prefetch.lua          whether to look a word up before the reader asks
     reqid.lua             one id per lookup, so both sides log under the same one
     settings.lua          typed access over a LuaSettings-shaped store
     updater.lua           "is there a newer build on my channel?"
