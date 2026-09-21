@@ -1,0 +1,252 @@
+local Library = require("aidict.library")
+local helpers = require("support.helpers")
+
+local BOOKS = "/mnt/us/books"
+
+local function entry(path, size)
+    return {
+        path = path,
+        size = size,
+        etag = "e-" .. path,
+        url = "https://r2.test/books/" .. path .. "?sig=x",
+    }
+end
+
+local function manifest_body(entries)
+    return helpers.body({ version = 1, generated_at = "2026-09-21T11:00:00Z", files = entries })
+end
+
+--[[--
+A transport that answers the manifest first and then every download.
+
+A download "arrives" by putting its size into the fake filesystem, which is
+what the real one does through `ltn12.sink.file`. `bytes` says how much
+actually landed, so a truncated transfer is one number.
+--]]--
+local function transport(fs, manifest, downloads)
+    local tr = { requests = {}, downloads = downloads or {}, sizes = {} }
+    -- What each URL is supposed to deliver, read off the manifest being
+    -- served: a download arrives whole unless a spec says otherwise.
+    if type(manifest.body) == "string" then
+        local ok, decoded = pcall(helpers.json.decode, manifest.body)
+        if ok and type(decoded) == "table" and type(decoded.files) == "table" then
+            for _, file in ipairs(decoded.files) do tr.sizes[file.url] = file.size end
+        end
+    end
+
+    tr.fn = function(request)
+        tr.requests[#tr.requests + 1] = request
+        if not request.download_to then
+            if manifest.err then return nil, manifest.err end
+            return manifest
+        end
+        local answer = tr.downloads[request.url] or {}
+        if answer.err then return nil, answer.err end
+        local status = answer.status or 200
+        if status >= 200 and status < 300 then
+            fs.files[request.download_to] = answer.bytes or tr.sizes[request.url]
+        end
+        return { status = status, body = "", headers = {} }
+    end
+    return tr
+end
+
+local function library(tr, fs, opts)
+    opts = opts or {}
+    return Library.new({
+        endpoint = opts.endpoint or "https://gw.test/koreader-library",
+        api_key = opts.api_key,
+        transport = tr.fn,
+        json = helpers.json,
+        fs = fs,
+    })
+end
+
+describe("library", function()
+    describe("finding the mount", function()
+        it("puts the library where the dictionary is", function()
+            assert.are.equal("https://gw.test/koreader-library",
+                Library.endpoint_from("https://gw.test/koreader-ai"))
+        end)
+
+        it("keeps a baked-in key at the end, where a query has to be", function()
+            assert.are.equal("https://gw.test/koreader-library?token=abc",
+                Library.endpoint_from("https://gw.test/koreader-ai?token=abc"))
+        end)
+
+        it("ignores a trailing slash", function()
+            assert.are.equal("https://gw.test/koreader-library",
+                Library.endpoint_from("https://gw.test/koreader-ai/"))
+        end)
+
+        it("prefers an explicit address when the two are ever split up", function()
+            assert.are.equal("https://books.test/x",
+                Library.endpoint_from("https://gw.test/koreader-ai", "https://books.test/x"))
+        end)
+
+        it("has nowhere to go without an endpoint", function()
+            assert.is_nil(Library.endpoint_from(""))
+            assert.is_nil(Library.endpoint_from(nil))
+            assert.is_nil(Library.endpoint_from("not a url", "also not a url"))
+        end)
+    end)
+
+    describe("the manifest", function()
+        it("asks the gateway and carries the key", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
+
+            local entries = library(tr, fs, { api_key = "k" }):manifest()
+
+            assert.are.equal("https://gw.test/koreader-library/manifest", tr.requests[1].url)
+            assert.are.equal("Bearer k", tr.requests[1].headers["Authorization"])
+            assert.are.equal(1, #entries)
+        end)
+
+        it("names the failure rather than the status code", function()
+            local fs = helpers.filesystem()
+            local _, err = library(transport(fs, { status = 401, body = "" }), fs):manifest()
+            assert.are.equal("unauthorized", err.code)
+
+            local _, timeout = library(transport(fs, { err = "timeout" }), fs):manifest()
+            assert.are.equal("timeout", timeout.code)
+
+            local _, junk = library(transport(fs, { status = 200, body = "<html>" }), fs):manifest()
+            assert.are.equal("bad_response", junk.code)
+        end)
+
+        it("refuses to ask when there is no address", function()
+            local fs = helpers.filesystem()
+            local _, err = library(transport(fs, {}), fs, { endpoint = "" }):manifest()
+            assert.are.equal("not_configured", err.code)
+        end)
+    end)
+
+    describe("syncing", function()
+        it("downloads what is missing and leaves the rest alone", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/B.epub"] = 100 })
+            local tr = transport(fs, {
+                status = 200,
+                body = manifest_body({ entry("A.epub", 10), entry("B.epub", 100) }),
+            })
+
+            local report = library(tr, fs):sync(BOOKS)
+
+            assert.are.equal(1, report.downloaded)
+            assert.are.equal(1, report.have)
+            assert.are.equal(10, report.bytes)
+            assert.are.equal(10, fs.files[BOOKS .. "/A.epub"])
+        end)
+
+        it("mirrors the shelves, creating every folder on the way", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs, {
+                status = 200,
+                body = manifest_body({ entry("Фантастика/Лем/Солярис.epub", 7) }),
+            })
+
+            local report = library(tr, fs):sync(BOOKS)
+
+            assert.are.equal(1, report.downloaded)
+            assert.are.equal(7, fs.files[BOOKS .. "/Фантастика/Лем/Солярис.epub"])
+            assert.is_true(fs.dirs[BOOKS .. "/Фантастика/Лем"])
+            assert.is_true(fs.dirs[BOOKS .. "/Фантастика"])
+        end)
+
+        it("sends no key with a download: the URL is already signed", function()
+            -- An Authorization header beside a signed query is how a
+            -- signature stops matching.
+            local fs = helpers.filesystem()
+            local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
+
+            library(tr, fs, { api_key = "k" }):sync(BOOKS)
+
+            assert.is_nil(tr.requests[2].headers["Authorization"])
+            assert.are.equal("https://r2.test/books/A.epub?sig=x", tr.requests[2].url)
+        end)
+
+        it("writes to .part and only then puts the book in place", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
+
+            library(tr, fs):sync(BOOKS)
+
+            assert.are.equal(BOOKS .. "/A.epub.part", tr.requests[2].download_to)
+            assert.is_nil(fs.files[BOOKS .. "/A.epub.part"])
+            assert.are.equal(10, fs.files[BOOKS .. "/A.epub"])
+        end)
+
+        it("throws away a truncated download instead of leaving half a book", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs,
+                { status = 200, body = manifest_body({ entry("A.epub", 10) }) },
+                { ["https://r2.test/books/A.epub?sig=x"] = { status = 200, bytes = 4 } })
+
+            local report = library(tr, fs):sync(BOOKS)
+
+            assert.are.equal(0, report.downloaded)
+            assert.are.equal(1, #report.failed)
+            assert.are.equal("A.epub", report.failed[1].path)
+            assert.is_nil(fs.files[BOOKS .. "/A.epub"])
+            assert.is_nil(fs.files[BOOKS .. "/A.epub.part"])
+        end)
+
+        it("says an expired link is expired, not 403", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs,
+                { status = 200, body = manifest_body({ entry("A.epub", 10) }) },
+                { ["https://r2.test/books/A.epub?sig=x"] = { status = 403 } })
+
+            local report = library(tr, fs):sync(BOOKS)
+
+            assert.is_truthy(report.failed[1].reason:find("expired"))
+        end)
+
+        it("keeps going after one book fails", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs,
+                { status = 200, body = manifest_body({ entry("A.epub", 10), entry("B.epub", 20) }) },
+                { ["https://r2.test/books/A.epub?sig=x"] = { err = "connection reset" } })
+
+            local report = library(tr, fs):sync(BOOKS)
+
+            assert.are.equal(1, report.downloaded)
+            assert.are.equal(1, #report.failed)
+            assert.are.equal(20, fs.files[BOOKS .. "/B.epub"])
+        end)
+
+        it("reports progress a book at a time", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs, {
+                status = 200,
+                body = manifest_body({ entry("A.epub", 10), entry("B.epub", 20) }),
+            })
+
+            local seen = {}
+            library(tr, fs):sync(BOOKS, {
+                on_progress = function(done, total, path)
+                    seen[#seen + 1] = done .. "/" .. total .. " " .. path
+                end,
+            })
+
+            assert.are.same({ "1/2 A.epub", "2/2 B.epub" }, seen)
+        end)
+
+        it("passes the manifest's own failure straight back", function()
+            local fs = helpers.filesystem()
+            local report, err = library(transport(fs, { status = 500, body = "" }), fs):sync(BOOKS)
+
+            assert.is_nil(report)
+            assert.are.equal("http_error", err.code)
+        end)
+
+        it("tolerates a trailing slash on the books folder", function()
+            local fs = helpers.filesystem()
+            local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
+
+            library(tr, fs):sync(BOOKS .. "/")
+
+            assert.are.equal(10, fs.files[BOOKS .. "/A.epub"])
+        end)
+    end)
+end)

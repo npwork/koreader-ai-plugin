@@ -12,6 +12,9 @@ real socket:
     POST /locked/define     401
     POST /garbage/define    200 that is not JSON
     GET  /stable/version.json   an update manifest one version ahead
+
+    GET  /koreader-library/manifest   two books, with URLs back into /store
+    GET  /store/<name>                the bytes of one of them
 """
 
 import json
@@ -21,6 +24,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 LAST_REQUEST = {}
+
+# The books the library manifest offers. `claimed` is what the manifest says
+# the file is; where it differs from the bytes actually served, the client is
+# being shown a download that arrives truncated — the case that must never
+# become a book on the device.
+BOOKS = {
+    "Lem/Solaris.epub": {"body": b"SOLARIS" * 10, "claimed": 70},
+    "Borges/Ficciones.epub": {"body": b"FICCIONES", "claimed": 9},
+    "Broken/Half.epub": {"body": b"only ten!!", "claimed": 4096},
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -42,6 +55,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == "/koreader-library/manifest":
+            host = self.headers.get("Host") or "127.0.0.1"
+            self._send(200, {
+                "version": 1,
+                "generated_at": "2026-09-21T11:00:00.000Z",
+                "files": [
+                    {
+                        "path": path,
+                        "size": book["claimed"],
+                        "etag": "etag-%d" % index,
+                        "url": "http://%s/store/%s" % (host, path),
+                    }
+                    for index, (path, book) in enumerate(BOOKS.items())
+                ],
+            })
+            return
+        if self.path.startswith("/store/"):
+            book = BOOKS.get(self.path[len("/store/"):])
+            if book is None:
+                self._send(404, {"error": "no such book"})
+                return
+            self._send(200, book["body"], "application/epub+zip")
+            return
         if self.path == "/last":
             self._send(200, LAST_REQUEST)
             return

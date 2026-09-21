@@ -27,6 +27,7 @@ local _ = require("gettext")
 local Context = require("aidict.context")
 local Format = require("aidict.format")
 local Reqid = require("aidict.reqid")
+local Library = require("aidict.library")
 local Lookup = require("aidict.lookup")
 local Prefetch = require("aidict.prefetch")
 local Settings = require("aidict.settings")
@@ -595,6 +596,91 @@ function AiDict:checkForUpdates()
     end)
 end
 
+--[[--
+The real filesystem, in the four calls `library.lua` asks for.
+
+KOReader bundles lfs; `spec/` passes a table of fake files instead, which is
+the whole reason the library module never requires it.
+--]]--
+local function deviceFilesystem()
+    local lfs = require("libs/libkoreader-lfs")
+    return {
+        size = function(path)
+            local attributes = lfs.attributes(path)
+            if attributes and attributes.mode == "file" then return attributes.size end
+            return nil
+        end,
+        mkdir = function(path) return lfs.mkdir(path) end,
+        rename = function(from, to) return os.rename(from, to) end,
+        remove = function(path) os.remove(path) end,
+    }
+end
+
+--- Pull the books the gateway has and this device does not.
+function AiDict:syncLibrary()
+    local endpoint = Library.endpoint_from(
+        self.settings:get("endpoint"),
+        self.settings:get("library_endpoint"))
+    if not endpoint then
+        UIManager:show(InfoMessage:new{ text = _("Set the endpoint first: the library lives beside it.") })
+        return
+    end
+
+    local dir = self.settings:get("library_dir")
+    local library = Library.new({
+        endpoint = endpoint,
+        api_key = self.settings:get("api_key"),
+        transport = http_transport,
+        json = json,
+        fs = deviceFilesystem(),
+    })
+
+    NetworkMgr:runWhenConnected(function()
+        Trapper:wrap(function()
+            -- In a subprocess so the reader can give up on it: a first sync
+            -- over a Kindle's radio is minutes, and the files it has already
+            -- written stay written when they do.
+            local completed, outcome = Trapper:dismissableRunInSubprocess(function()
+                local report, err = library:sync(dir)
+                return { ok = report ~= nil, report = report, err = err }
+            end, T(_("Syncing %1…"), dir))
+
+            if not completed then return end
+            if type(outcome) ~= "table" or not outcome.ok then
+                local err = type(outcome) == "table" and outcome.err or nil
+                UIManager:show(InfoMessage:new{ text = Format.error(err) })
+                return
+            end
+
+            local report = outcome.report
+            logger.info(string.format(
+                "aidict: library sync — %d downloaded, %d already here, %d failed, %d dropped",
+                report.downloaded, report.have, #report.failed, report.dropped or 0))
+
+            local text
+            if report.downloaded == 0 and #report.failed == 0 then
+                text = T(_("Nothing new. %1 books are already here."), report.have)
+            else
+                text = T(_("Downloaded %1 of %2 (%3 MB). %4 were already here."),
+                    report.downloaded, report.total,
+                    string.format("%.1f", report.bytes / 1024 / 1024), report.have)
+            end
+            if #report.failed > 0 then
+                text = text .. "\n\n" .. T(_("%1 failed: %2"),
+                    #report.failed, report.failed[1].path .. " — " .. tostring(report.failed[1].reason))
+            end
+
+            UIManager:show(InfoMessage:new{ text = text })
+            -- The file browser is very likely sitting on the folder that just
+            -- gained ten books.
+            local browser = self.ui and self.ui.file_chooser
+            if browser and browser.path and browser.path:find(dir, 1, true) == 1 then
+                browser:refreshPath()
+            end
+        end)
+    end)
+end
+
 function showResult(word, result, from_cache)
     UIManager:show(TextViewer:new{
         title = Format.title(result, word),
@@ -710,6 +796,22 @@ function AiDict:addToMainMenu(menu_items)
                 callback = function()
                     self.settings:set("prefetch", not self.settings:get("prefetch"))
                     self.settings:flush()
+                end,
+            },
+            {
+                text = _("Sync library"),
+                keep_menu_open = true,
+                separator = true,
+                callback = function() self:syncLibrary() end,
+            },
+            {
+                text_func = function()
+                    return T(_("Books folder: %1"), self.settings:get("library_dir"))
+                end,
+                keep_menu_open = true,
+                separator = true,
+                callback = function()
+                    self:editSetting("library_dir", _("Where synced books go"))
                 end,
             },
             {

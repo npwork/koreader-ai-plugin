@@ -6,9 +6,9 @@ manifest, so the number here is the number that ships.
 --]]--
 
 return {
-    string = "0.1.0",
+    string = "0.2.0",
     -- KPM stores versions as a [major, minor, patch] triple.
     major = 0,
-    minor = 1,
+    minor = 2,
     patch = 0,
 }

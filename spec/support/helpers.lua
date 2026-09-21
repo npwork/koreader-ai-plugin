@@ -62,6 +62,31 @@ function helpers.transport(responses)
     return tr
 end
 
+--[[--
+A filesystem in a table: the four calls `library.lua` asks the device for.
+
+`files` maps an absolute path to its size, so a spec says "this book is here
+and half-written" by putting a number in it.
+--]]--
+function helpers.filesystem(files)
+    local fs = { files = {}, dirs = {}, removed = {} }
+    for path, size in pairs(files or {}) do fs.files[path] = size end
+
+    fs.size = function(path) return fs.files[path] end
+    fs.mkdir = function(path) fs.dirs[path] = true; return true end
+    fs.rename = function(from, to)
+        if fs.files[from] == nil then return nil, "no such file" end
+        fs.files[to] = fs.files[from]
+        fs.files[from] = nil
+        return true
+    end
+    fs.remove = function(path)
+        if fs.files[path] ~= nil then fs.removed[#fs.removed + 1] = path end
+        fs.files[path] = nil
+    end
+    return fs
+end
+
 helpers.json = require("dkjson")
 
 --- A JSON body, as the gateway would send it.

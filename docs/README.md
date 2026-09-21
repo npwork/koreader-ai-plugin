@@ -14,6 +14,11 @@ pressing it while the request is still out joins that one rather than starting
 a second. This is on by default and switched off in the menu — it costs a
 request per dictionary lookup rather than per AI press.
 
+The same plugin also carries the **book library**: *Sync library* in the menu
+asks the gateway what is in the owner's R2 bucket and downloads whatever this
+Kindle does not have, mirroring the bucket's folders under `/mnt/us/books`.
+Nothing syncs on its own — it is a button, pressed when wanted.
+
 Shipped to a Kindle as a KPM package; the gateway's address and key are baked
 in at build time and are not in this repository.
 
@@ -30,7 +35,10 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     format.lua            result -> displayed text
     http_transport.lua    the one file that uses luasocket
     json.lua              rapidjson if present, else KOReader's json
+    library.lua           the book sync: manifest, plan, download
     lookup.lua            settings + cache + client wired together
+    manifest.lua          the library manifest, and which paths may be written
+    plan.lua              manifest vs what is on the device -> what to download
     prefetch.lua          whether to look a word up before the reader asks
     reqid.lua             one id per lookup, so both sides log under the same one
     settings.lua          typed access over a LuaSettings-shaped store
@@ -67,3 +75,8 @@ contract in `api.md`. Neither the endpoint nor the key is stored in this
 repository: `config.lua` ships both empty and the build injects them from the
 `AIDICT_ENDPOINT` and `AIDICT_TOKEN` secrets. The key is sent as a query
 parameter on the endpoint URL, so one baked-in string carries both.
+
+The library lives on the same gateway, one path along: `GET
+<endpoint>/../koreader-library/manifest`. The plugin derives that address from
+the one it was built with rather than carrying a second, so there is still one
+secret and one thing to change when the gateway moves.

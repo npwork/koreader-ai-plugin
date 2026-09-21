@@ -192,3 +192,73 @@ subprocess doing the request.
   opinion from `typesafe/jev-1.13`, and a retry when it doubts the sense. On
   44 deliberately nasty words that took the model from 41 right to 44; the
   settings and the numbers behind them are in the gateway's own source.
+
+# The library contract
+
+The same gateway, one path along. The plugin does not carry a second address:
+it takes the one baked in at build time and swaps the last path segment, so
+`https://host/koreader-ai` becomes `https://host/koreader-library`. A
+`?token=` riding on the baked-in address is kept at the end, where a query has
+to be. `library_endpoint` in the menu overrides the lot, for the day the two
+mounts are ever split up.
+
+## GET `<library>/manifest`
+
+Everything the gateway holds, in one request. The device does the diffing —
+only the device knows what it already has — so there is no per-folder walk and
+no listing credential on a Kindle.
+
+```json
+{
+  "version": 1,
+  "generated_at": "2026-09-21T11:00:00.000Z",
+  "files": [
+    {
+      "path": "Lem/Solaris.epub",
+      "size": 412345,
+      "etag": "d41d8cd98f00b204",
+      "url": "https://….r2.cloudflarestorage.com/…?X-Amz-Signature=…"
+    }
+  ]
+}
+```
+
+* `path` is relative and carries the folders. They are mirrored under
+  `library_dir` (`/mnt/us/books` by default — outside `documents/`, the only
+  folder the Kindle's own framework indexes).
+* `size` is what the device compares against. **Not existence**: a download
+  the Kindle lost Wi-Fi halfway through leaves a file that is there and wrong,
+  and "already have it" would keep it wrong for ever.
+* `url` is fetched with **no Authorization header** — it is presigned, and a
+  key beside a signed query is how a signature stops matching. A 401 or 403
+  from it means the link expired, and the fix is another manifest.
+* `etag` is carried and logged, never compared.
+* `Authorization: Bearer <key>` or `?token=` gates the manifest itself, the
+  same key the dictionary uses.
+
+A row the device cannot use — a path that would climb out of the books folder,
+a zero size, a URL that is not http — is dropped and counted rather than
+failing the sync. The gateway applies the same rule on upload; the device
+applies it again, because a device that trusts a server to have checked is a
+device that stops working the day the server does not.
+
+## Downloading
+
+Each file lands as `<target>.part` and is renamed only once its size matches
+the manifest. A sync that is interrupted leaves nothing the file browser will
+show and nothing the next sync will mistake for a finished book.
+
+Timeouts are the library's own — 30s per block, 600s total — rather than the
+dictionary's: a 30 MB book over a Kindle's radio needs room that would be an
+absurd wait for a word lookup.
+
+## Notes for the gateway implementation
+
+* **Nothing is automatic.** The reader presses *Sync library*. There is no
+  poll, no timer and no sync on resume, so the gateway sees a request only
+  when someone asked for one.
+* **The manifest is generated, not stored.** Listing the bucket on each
+  request is one API call and removes the question of what to do when a book
+  is uploaded and an index is not rebuilt.
+* **Presigned URLs keep the bytes out of the gateway.** They also mean the
+  store stays private: no public bucket, no custom domain on it.

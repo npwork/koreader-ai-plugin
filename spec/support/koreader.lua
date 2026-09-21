@@ -9,6 +9,15 @@ registered and requests made — without an emulator.
 
 local helpers = require("support.helpers")
 
+--[[--
+The real `os.rename` and `os.remove`, captured once at load.
+
+`install` swaps them for the fake filesystem and may run several times before
+an `uninstall` — so capturing them per install would eventually save a fake as
+the original and never give the suite its own back.
+--]]--
+local real_os = { rename = os.rename, remove = os.remove }
+
 local koreader = {}
 
 --- KOReader's class system, copied from frontend/ui/widget/widget.lua.
@@ -50,6 +59,9 @@ function koreader.install(opts)
         clock_ms = 0,
         request_ms = 0,
         info_lines = {},
+        files = {},          -- fake filesystem: path -> size
+        dirs = {},           -- folders the sync created
+        removed = {},        -- what the sync threw away
         warn_lines = {},
         forks = 0,
         polls = 0,
@@ -131,7 +143,49 @@ function koreader.install(opts)
             recorder.deferred = callback
             return true
         end,
+        -- The real one turns the radio on and then runs the callback; offline
+        -- it would put up KOReader's own prompt, so the spec keeps it.
+        runWhenConnected = function(_, callback)
+            if not recorder.online then
+                recorder.deferred = callback
+                return
+            end
+            return callback()
+        end,
     }
+
+    --[[--
+    KOReader's lfs, backed by `recorder.files` — a path-to-size table the
+    library sync reads and the fake transport writes.
+    --]]--
+    package.loaded["libs/libkoreader-lfs"] = {
+        attributes = function(path)
+            local size = recorder.files[path]
+            if size == nil then return nil end
+            return { mode = "file", size = size }
+        end,
+        mkdir = function(path)
+            recorder.dirs[path] = true
+            return true
+        end,
+    }
+
+    -- `os.rename` and `os.remove` are the right calls on the device, and the
+    -- wrong ones here — they would reach the machine running the suite. They
+    -- are swapped for the fake filesystem and put back by `uninstall`.
+    os.rename = function(from, to)
+        if recorder.files[from] == nil then return nil, "no such file" end
+        recorder.files[to] = recorder.files[from]
+        recorder.files[from] = nil
+        return true
+    end
+    os.remove = function(path)
+        if recorder.files[path] ~= nil then
+            recorder.removed[#recorder.removed + 1] = path
+            recorder.files[path] = nil
+        end
+        return true
+    end
 
     package.loaded["luasettings"] = {
         open = function(_, _) return recorder.store end,
@@ -238,7 +292,13 @@ function koreader.install(opts)
     -- long a request "took".
     package.loaded["aidict.http_transport"] = function(request)
         recorder.clock_ms = recorder.clock_ms + (recorder.request_ms or 0)
-        return recorder.transport.fn(request)
+        local response, err = recorder.transport.fn(request)
+        -- The real transport streams a download straight to disk; the queued
+        -- response says how many bytes landed there.
+        if request.download_to and response and response.bytes then
+            recorder.files[request.download_to] = response.bytes
+        end
+        return response, err
     end
     package.loaded["aidict.json"] = helpers.json
 
@@ -255,10 +315,13 @@ end
 
 --- Undo `install`, so the unit specs get a clean interpreter.
 function koreader.uninstall()
+    os.rename = real_os.rename
+    os.remove = real_os.remove
     for _, module in ipairs({
         "ui/widget/container/widgetcontainer", "ui/widget/infomessage", "ui/widget/textviewer",
         "ui/widget/inputdialog", "ui/uimanager", "ui/trapper", "ui/network/manager",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
+        "libs/libkoreader-lfs",
         "aidict.http_transport", "aidict.json", "main",
     }) do
         package.loaded[module] = nil

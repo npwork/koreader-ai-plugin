@@ -36,6 +36,15 @@ Config.DEFAULTS = {
     -- that ever matters more than the wait.
     prefetch = true,
 
+    -- Where synced books land. Outside `documents/`, which is the only
+    -- folder the Kindle's own framework indexes: an EPUB in there becomes a
+    -- broken entry in a library the reader does not use.
+    library_dir = "/mnt/us/books",
+    -- The library mount's address. Empty means "derive it from `endpoint`" —
+    -- both mounts sit on the same gateway, so one baked-in address covers
+    -- both and the repository still carries none.
+    library_endpoint = "",
+
     channel = "stable",
     -- Root of the KPM repository, without the channel.
     repo_url = "https://npwork.github.io/koreader-ai-plugin",
@@ -106,6 +115,21 @@ Config.VALIDATORS = {
     channel = function(value)
         if not Config.CHANNELS[value] then
             return false, "channel must be 'stable' or 'dev'"
+        end
+        return true
+    end,
+    library_dir = function(value)
+        if type(value) ~= "string" or value:sub(1, 1) ~= "/" then
+            return false, "library_dir must be an absolute path"
+        end
+        return true
+    end,
+    library_endpoint = function(value)
+        if type(value) ~= "string" then
+            return false, "library_endpoint must be a string"
+        end
+        if value ~= "" and not is_http_url(value) then
+            return false, "library_endpoint must be empty or an http:// or https:// URL"
         end
         return true
     end,

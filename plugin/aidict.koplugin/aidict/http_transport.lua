@@ -7,9 +7,15 @@ tests never need a socket.
 local logger = require("logger")
 
 --[[--
-@param request table { url, method, headers, body, block_timeout, total_timeout }
+@param request table { url, method, headers, body, block_timeout, total_timeout,
+                      download_to }
 @treturn table  response { status, body, headers }
 @treturn string error when the request never produced a response
+
+`download_to` names a file the body is written to as it arrives, and the
+returned body is empty. A book is tens of megabytes; holding one in a Lua
+string on a Kindle to write it out afterwards is the difference between a
+sync and an out-of-memory.
 --]]--
 return function(request)
     local http = require("socket.http")
@@ -22,8 +28,17 @@ return function(request)
         url = request.url,
         method = request.method or "GET",
         headers = request.headers,
-        sink = ltn12.sink.table(sink),
     }
+    if request.download_to then
+        local file, open_err = io.open(request.download_to, "wb")
+        if not file then
+            return nil, "cannot write " .. request.download_to .. ": " .. tostring(open_err)
+        end
+        -- ltn12 closes it, on success and on a broken transfer alike.
+        req.sink = ltn12.sink.file(file)
+    else
+        req.sink = ltn12.sink.table(sink)
+    end
     if request.body then
         req.source = ltn12.source.string(request.body)
     end

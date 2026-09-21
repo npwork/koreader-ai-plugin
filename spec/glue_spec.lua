@@ -917,4 +917,113 @@ describe("the KOReader layer", function()
             assert.is_truthy(last_shown().text:find("Host not found", 1, true))
         end)
     end)
+
+    describe("the book library", function()
+        local BOOKS = "/mnt/us/books"
+
+        local function manifest(files)
+            return helpers.body({ version = 1, files = files })
+        end
+
+        local function book(path, size)
+            return { path = path, size = size, etag = "e", url = "https://r2.test/" .. path .. "?sig=x" }
+        end
+
+        local function menu_item(matcher)
+            local items = {}
+            plugin:addToMainMenu(items)
+            for _, item in ipairs(items.aidict.sub_item_table) do
+                local label = item.text_func and item.text_func() or item.text
+                if label:find(matcher) then return item, label end
+            end
+        end
+
+        it("is a menu entry, next to the folder it syncs into", function()
+            build()
+            assert.is_not_nil(menu_item("Sync library"))
+            local _, label = menu_item("Books folder")
+            assert.are.equal("Books folder: /mnt/us/books", label)
+        end)
+
+        it("downloads what the device does not have", function()
+            build({
+                settings = { library_dir = BOOKS },
+                responses = {
+                    { status = 200, body = manifest({ book("Lem/Solaris.epub", 10) }) },
+                    { status = 200, bytes = 10 },
+                },
+            })
+
+            plugin:syncLibrary()
+
+            -- The library mount, derived from the dictionary's address rather
+            -- than baked in a second time.
+            assert.are.equal("https://gw.test/koreader-library/manifest", kor.transport.requests[1].url)
+            assert.are.equal(BOOKS .. "/Lem/Solaris.epub.part", kor.transport.requests[2].download_to)
+            assert.are.equal(10, kor.files[BOOKS .. "/Lem/Solaris.epub"])
+            assert.is_truthy(last_shown().text:find("Downloaded 1 of 1", 1, true))
+        end)
+
+        it("says so when there is nothing new", function()
+            build({
+                settings = { library_dir = BOOKS },
+                responses = { { status = 200, body = manifest({ book("A.epub", 10) }) } },
+            })
+            kor.files[BOOKS .. "/A.epub"] = 10
+
+            plugin:syncLibrary()
+
+            assert.are.equal(1, #kor.transport.requests)
+            assert.is_truthy(last_shown().text:find("Nothing new", 1, true))
+        end)
+
+        it("names the book that failed rather than only counting it", function()
+            build({
+                settings = { library_dir = BOOKS },
+                responses = {
+                    { status = 200, body = manifest({ book("A.epub", 10) }) },
+                    { status = 403 },
+                },
+            })
+
+            plugin:syncLibrary()
+
+            local text = last_shown().text
+            assert.is_truthy(text:find("A.epub", 1, true))
+            assert.is_truthy(text:find("expired", 1, true))
+        end)
+
+        it("asks for the endpoint rather than syncing into nowhere", function()
+            build({ no_endpoint = true })
+
+            plugin:syncLibrary()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("endpoint", 1, true))
+        end)
+
+        it("waits for Wi-Fi instead of failing on it", function()
+            build({
+                online = false,
+                settings = { library_dir = BOOKS },
+                responses = { { status = 200, body = manifest({}) } },
+            })
+
+            plugin:syncLibrary()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_function(kor.deferred)
+        end)
+
+        it("reports the gateway's own failure", function()
+            build({
+                settings = { library_dir = BOOKS },
+                responses = { { status = 500, body = "" } },
+            })
+
+            plugin:syncLibrary()
+
+            assert.are.equal("InfoMessage", last_shown().widget_kind)
+        end)
+    end)
 end)
