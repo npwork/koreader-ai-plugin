@@ -40,6 +40,25 @@ function Format.timing(elapsed_ms, server_ms)
     return total .. " total · " .. server .. " server"
 end
 
+--[[--
+Where the gateway's own time went, longest leg first.
+
+Not a fixed set of names: the gateway answers a lookup one of two ways, and
+which legs it reports is the record of which one it took. A line that named
+three fixed legs would have to lie about the path it did not take.
+
+@param legs table  {{ name = string, ms = number }, ...}
+@treturn string  e.g. "examples 1165ms, sense 731ms"
+--]]--
+function Format.legs(legs)
+    if type(legs) ~= "table" then return "" end
+    local parts = {}
+    for _, leg in ipairs(legs) do
+        parts[#parts + 1] = string.format("%s %s", leg.name, Format.duration(leg.ms))
+    end
+    return table.concat(parts, ", ")
+end
+
 --- Human-readable one-liner for an `ApiClient` error.
 function Format.error(err)
     if type(err) ~= "table" then return "Lookup failed." end

@@ -353,3 +353,17 @@ describe("format", function()
         end)
     end)
 end)
+
+describe("Format.legs", function()
+    it("names each leg with its time, in the order it was given", function()
+        assert.are.equal("examples 1.2s, sense 731ms", Format.legs({
+            { name = "examples", ms = 1165 },
+            { name = "sense", ms = 731 },
+        }))
+    end)
+
+    it("is empty when the gateway reported no legs", function()
+        assert.are.equal("", Format.legs(nil))
+        assert.are.equal("", Format.legs({}))
+    end)
+end)

@@ -349,19 +349,32 @@ describe("api client", function()
             assert.is_nil(result.elapsed_ms)
         end)
 
-        it("reads the gateway's own split out of the answer", function()
+        it("reads the gateway's own split out of the answer, longest leg first", function()
+            -- A JSON object arrives as a Lua table with no order, and the only
+            -- reason to read this is to find out what took the time.
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({
                     definition = "d",
-                    timing = { total_ms = 1800, upstream_ms = 1750, model_ms = 500,
-                               review_ms = 350, retry_ms = 900 },
+                    timing = { total_ms = 1800, upstream_ms = 1750,
+                               legs = { sense = 350, examples = 900 } },
                 }) },
             })
             local result = client(tr):define({ word = "fox" })
             assert.are.equal(1800, result.server_ms)
-            assert.are.equal(500, result.model_ms)
-            assert.are.equal(350, result.review_ms)
-            assert.are.equal(900, result.retry_ms)
+            assert.are.same(
+                { { name = "examples", ms = 900 }, { name = "sense", ms = 350 } },
+                result.legs)
+        end)
+
+        it("has no legs to report when the gateway named none", function()
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({
+                    definition = "d", timing = { total_ms = 12 },
+                }) },
+            })
+            local result = client(tr):define({ word = "fox" })
+            assert.are.equal(12, result.server_ms)
+            assert.is_nil(result.legs)
         end)
 
         it("carries the forms the examples use, for marking the word", function()

@@ -247,16 +247,30 @@ function ApiClient:define(request)
     -- that wrote them. Rules about endings never reach "went" from "go".
     local forms = strings(decoded.forms)
 
-    -- The gateway reports where its own time went: the model call, the second
-    -- opinion on the answer, and the retry that opinion may have caused. The
-    -- difference between its total and our round trip is the network and the
-    -- Kindle's radio.
-    local server_ms, model_ms, review_ms, retry_ms
+    -- The gateway reports where its own time went, leg by leg, and which legs
+    -- there are says which path answered: "sense" and "examples" mean the
+    -- dictionary had the word, "model" means it did not and one was asked
+    -- outright. The difference between its total and our round trip is the
+    -- network and the Kindle's radio.
+    --
+    -- Sorted longest first, because a JSON object arrives as a Lua table with
+    -- no order at all and the only reason to read this line is to find out
+    -- what took the time.
+    local server_ms, legs
     if type(decoded.timing) == "table" then
         server_ms = tonumber(decoded.timing.total_ms)
-        model_ms = tonumber(decoded.timing.model_ms)
-        review_ms = tonumber(decoded.timing.review_ms)
-        retry_ms = tonumber(decoded.timing.retry_ms)
+        if type(decoded.timing.legs) == "table" then
+            legs = {}
+            for name, ms in pairs(decoded.timing.legs) do
+                if type(name) == "string" and tonumber(ms) then
+                    legs[#legs + 1] = { name = name, ms = tonumber(ms) }
+                end
+            end
+            table.sort(legs, function(a, b)
+                if a.ms == b.ms then return a.name < b.name end
+                return a.ms > b.ms
+            end)
+        end
     end
 
     -- What the reviewer made of the answer. Logged, never shown.
@@ -279,9 +293,7 @@ function ApiClient:define(request)
         model = type(decoded.model) == "string" and decoded.model or nil,
         elapsed_ms = elapsed_ms,
         server_ms = server_ms,
-        model_ms = model_ms,
-        review_ms = review_ms,
-        retry_ms = retry_ms,
+        legs = legs,
         review = review,
         request_id = request_id,
         cf_ray = cf_ray,

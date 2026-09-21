@@ -80,14 +80,32 @@ the device from the plugin's menu.
   "pronunciation": "/ˈfaʊndər/",
   "etymology": "From Old French fonder, to lay a base for.",
   "forms": ["founders"],
-  "model": "openai/gpt-oss-120b",
+  "model": "google/gemini-2.5-flash-lite",
   "timing": {
-    "total_ms": 1800, "upstream_ms": 1750,
-    "model_ms": 500, "review_ms": 350, "retry_ms": 900
-  },
-  "review": { "sense": 0.17, "examples": 1.33, "retried": true }
+    "total_ms": 1100, "upstream_ms": 1080,
+    "legs": { "sense": 350, "examples": 730 }
+  }
 }
 ```
+
+### Two ways an answer is reached
+
+The gateway holds a static dictionary — 477k headwords from GCIDE and English
+Wiktionary — and tries it first. It already has the word's senses, so all that
+is asked of a model is which of them the passage is using, and that is a
+classification rather than a generation: about 350 ms, and the answer is one
+of the dictionary's own lines or it is nothing. The definition, part of
+speech, pronunciation, etymology and forms then come from a book, where they
+cannot be invented. Only the examples are written, by a model that is told
+which sense was chosen.
+
+When the dictionary has no entry, or no sense that fits — English grows senses
+faster than dictionaries record them — a model is asked to write the whole
+entry instead, which is what always used to happen. It takes two to six
+seconds against about one.
+
+The device is told which happened by `timing.legs`, and nothing else in the
+response changes shape.
 
 `definition` and `examples` are **English**. Only `definition` is required — a
 200 without a non-empty one is treated as a broken answer. `examples` is the
@@ -105,11 +123,12 @@ window is titled with this instead and the tapped form appears beneath it when
 the two differ. Which headword it is depends on the sense: "left" the verb
 lemmatises to "leave" while "left" the direction stays "left".
 
-`forms` is every spelling of the word that appears in `examples`, as the model
-wrote them there. The device marks the word in each example, and rules about
-endings reach "strapped" from "strap" but never "went" from "go" — so the
-model, which wrote the sentences, says which words they are. It may be empty,
-and the device then marks what it can work out on its own.
+`forms` is the inflected forms of the headword. The device marks the word in
+each example, and rules about endings reach "strapped" from "strap" but never
+"went" from "go". On the dictionary path these are the dictionary's own —
+Wiktionary spells them out on its headword line — and on the model path the
+model says which spellings it used. It may be empty, and the device then marks
+what it can work out on its own.
 
 `pronunciation` is IPA for the **lemma**, not for the form in the passage, and
 sits on the headword's line the way a dictionary prints it. `etymology` is one
@@ -122,17 +141,24 @@ asks for plain text and mostly gets it, but "from Old Norse *vanta*" comes back
 often enough to matter, and the device draws an asterisk as an asterisk.
 
 `timing` is the gateway's own account of where the time went. `total_ms` is the
-whole handler, `upstream_ms` everything spent talking to other services, split
-into `model_ms`, `review_ms` and `retry_ms`. The device times its round trip
-separately, and the footer under an answer shows both: `5.0s total · 1.8s
-server`. A single number cannot be acted on — three seconds of radio and three
-of model look identical on the screen and want opposite fixes.
+whole handler, `upstream_ms` everything spent talking to other services, and
+`legs` splits that by the calls that actually ran. Which legs appear says which
+path answered: `sense` and `examples` mean the dictionary had the word,
+`model` — with `review` and `retry` behind it — means it did not. A leg that
+did not run is absent rather than zero, because a named leg reads like a
+measurement.
+
+The device times its round trip separately, and the footer under an answer
+shows both: `5.0s total · 1.8s server`. A single number cannot be acted on —
+three seconds of radio and three of model look identical on the screen and
+want opposite fixes.
 
 Two measurements, not three. The gap between them is the Wi-Fi waking, DNS,
 the handshake, Cloudflare and the flight each way, taken off two different
 clocks; calling it "network" would be a claim neither number supports.
 
-`review` appears when the gateway took a second opinion on its own answer:
+`review` appears only on the model path, when the gateway took a second
+opinion on its own answer:
 `sense` is 0..1 for "is this the sense the passage gives the word", `examples`
 is 0..2 for how many of the three illustrate that same sense, and `retried`
 says the answer above is the second attempt. A low `sense` makes the gateway
@@ -142,9 +168,13 @@ reviewer raises a false alarm now and then.
 None of it is shown. It goes in the log, where one lookup is one line:
 
 ```
-aidict: founder ok in 1840ms (gateway 900ms: model 500ms, review 350ms, \
-  openai/gpt-oss-120b) [aidict-68ce5f3a-9c41f2 cf=a3e2705c8ddcdda5-IAD]
+aidict: founder ok in 1840ms (gateway 1100ms: examples 730ms, sense 350ms, \
+  google/gemini-2.5-flash-lite) [aidict-68ce5f3a-9c41f2 cf=a3e2705c8ddcdda5-IAD]
 ```
+
+Legs are listed longest first: a JSON object arrives as a Lua table with no
+order at all, and the only reason to read this line is to find out what took
+the time.
 
 ### Response, errors
 

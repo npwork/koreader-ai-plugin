@@ -256,8 +256,8 @@ describe("the KOReader layer", function()
             definition = "A wild animal of the dog family.",
             examples = { "The fox ran." },
             model = "spec-model",
-            timing = { total_ms = 900, upstream_ms = 850, model_ms = 500,
-                       review_ms = 350, retry_ms = 0 },
+            timing = { total_ms = 900, upstream_ms = 850,
+                       legs = { sense = 350, examples = 500 } },
         })
 
         local REVIEWED_ANSWER = helpers.body({
@@ -265,8 +265,8 @@ describe("the KOReader layer", function()
             definition = "A wild animal of the dog family.",
             examples = { "The fox ran." },
             model = "spec-model",
-            timing = { total_ms = 1800, upstream_ms = 1750, model_ms = 500,
-                       review_ms = 350, retry_ms = 900 },
+            timing = { total_ms = 1800, upstream_ms = 1750,
+                       legs = { model = 500, review = 350, retry = 900 } },
             review = { sense = 0.17, examples = 1.33, retried = true },
         })
 
@@ -279,15 +279,18 @@ describe("the KOReader layer", function()
             assert.is_truthy(line:find("fox", 1, true))
             assert.is_truthy(line:find("1500ms", 1, true))
             assert.is_truthy(line:find("gateway 900ms", 1, true))
-            assert.is_truthy(line:find("model 500ms", 1, true))
-            assert.is_truthy(line:find("review 350ms", 1, true))
+            -- Which legs there are says which path the gateway took.
+            assert.is_truthy(line:find("examples 500ms", 1, true))
+            assert.is_truthy(line:find("sense 350ms", 1, true))
             assert.is_truthy(line:find("spec-model", 1, true))
         end)
 
-        it("stays quiet about a retry that did not happen", function()
+        it("names no leg the gateway did not run", function()
             build({ responses = { { status = 200, body = TIMED_ANSWER } } })
             tap_dict_button()
-            assert.is_nil(kor.info_lines[#kor.info_lines]:find("retry", 1, true))
+            local line = kor.info_lines[#kor.info_lines]
+            assert.is_nil(line:find("retry", 1, true))
+            assert.is_nil(line:find("model ", 1, true))
         end)
 
         it("says when the gateway doubted its own answer and asked again", function()
@@ -318,7 +321,11 @@ describe("the KOReader layer", function()
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("1500ms", 1, true))
             assert.is_truthy(line:find("gateway ?ms", 1, true))
-            assert.is_truthy(line:find("model ?ms", 1, true))
+            -- And no leg invented to fill the gap: a named leg that did not
+            -- run reads like a measurement, which is worse than a question
+            -- mark.
+            assert.is_nil(line:find("sense", 1, true))
+            assert.is_nil(line:find("model ", 1, true))
         end)
 
         it("names the request id, so the device log and Axiom can be lined up", function()

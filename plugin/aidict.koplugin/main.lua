@@ -547,12 +547,9 @@ function AiDict:askNow(request)
         -- Everything the gateway told us about where its time went, plus what
         -- its reviewer made of the answer. One line per lookup, so a slow or
         -- doubtful one can be taken apart afterwards from the device alone.
-        local split = string.format("gateway %sms: model %sms, review %sms",
-            tostring(result.server_ms or "?"), tostring(result.model_ms or "?"),
-            tostring(result.review_ms or "?"))
-        if result.retry_ms and result.retry_ms > 0 then
-            split = split .. string.format(", retry %sms", tostring(result.retry_ms))
-        end
+        local legs = Format.legs(result.legs)
+        local split = string.format("gateway %sms%s",
+            tostring(result.server_ms or "?"), legs ~= "" and (": " .. legs) or "")
         local judged = ""
         if result.review then
             judged = string.format(" sense=%s ex=%s%s",
