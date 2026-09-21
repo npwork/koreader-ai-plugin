@@ -521,11 +521,15 @@ end
 
 function showResult(word, result, from_cache)
     UIManager:show(TextViewer:new{
-        title = word,
+        title = Format.title(result, word),
         text = Format.result(result, { word = word, cached = from_cache }),
         -- "lookup" is what KOReader uses for dictionary results: same font
         -- size as book info, left-aligned rather than justified.
         text_type = "lookup",
+        -- The entry is markup, not a wall of one typeface: TextViewer renders
+        -- it through crengine when told the format, the same engine that draws
+        -- the book underneath it.
+        text_format = "html",
     })
 end
 

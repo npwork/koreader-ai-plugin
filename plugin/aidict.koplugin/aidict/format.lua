@@ -48,6 +48,40 @@ function Format.error(err)
 end
 
 --[[--
+Text from a model, made safe to put inside markup.
+
+Everything shown comes from a language model, which means a definition may
+legitimately contain `<`, `>` or `&` — explaining "gt", quoting code, naming
+"AT&T". Unescaped, the first of those silently swallows the rest of the entry.
+--]]--
+function Format.escape(text)
+    if text == nil then return "" end
+    return (tostring(text)
+        :gsub("&", "&amp;")
+        :gsub("<", "&lt;")
+        :gsub(">", "&gt;"))
+end
+
+--- The headword this entry is filed under, and what the reader actually tapped.
+local function headwords(result, opts)
+    local tapped = result.word or opts.word or ""
+    local headword = result.lemma
+    if type(headword) ~= "string" or headword == "" then headword = tapped end
+    return headword, tapped
+end
+
+--[[--
+The entry, as HTML for a `TextViewer` opened with `text_format = "html"`.
+
+Markup rather than plain text because the parts have different jobs and a wall
+of one typeface makes the reader find them: the headword is what the entry is
+about, the part of speech qualifies it, the definition is the answer, and the
+examples are evidence for it. Numbered rather than bulleted so that "the second
+one" is a thing that can be said.
+
+Sizes are relative, never absolute — the reader has already chosen a comfortable
+size for this screen and the entry should move with it, not argue.
+
 @param result table  an `ApiClient:define` result
 @param opts   table  { word = string, cached = bool }
 @treturn string
@@ -56,28 +90,57 @@ function Format.result(result, opts)
     opts = opts or {}
     if type(result) ~= "table" then return "" end
 
-    local lines = {}
-    local headword = result.word or opts.word
-    if headword and headword ~= "" then
-        local head = headword
-        if result.part_of_speech and result.part_of_speech ~= "" then
-            head = head .. "  (" .. result.part_of_speech .. ")"
-        end
-        lines[#lines + 1] = head
-        lines[#lines + 1] = ""
-    end
+    local out = {}
+    local headword, tapped = headwords(result, opts)
 
-    lines[#lines + 1] = result.definition or ""
+    if headword ~= "" then
+        local head = string.format(
+            '<div style="font-size: 1.35em; margin-bottom: 0.1em">' ..
+            '<b>%s</b></div>', Format.escape(headword)
+        )
+        out[#out + 1] = head
+
+        -- The part of speech and the tapped form answer the same question —
+        -- "why am I looking at this word?" — so they share a line under it.
+        local under = {}
+        if result.part_of_speech and result.part_of_speech ~= "" then
+            under[#under + 1] = "<i>" .. Format.escape(result.part_of_speech) .. "</i>"
+        end
+        -- Only worth saying when the entry is filed elsewhere than the reader
+        -- tapped: "strap" for "strapped" needs the bridge, "fell" does not.
+        if tapped ~= "" and tapped:lower() ~= headword:lower() then
+            under[#under + 1] = "as “" .. Format.escape(tapped) .. "”"
+        end
+        if #under > 0 then
+            out[#out + 1] = string.format(
+                '<div style="font-size: 0.85em; margin-bottom: 0.9em">%s</div>',
+                table.concat(under, " · ")
+            )
+        end
+    end
 
     -- `result.translation` is fetched and cached but deliberately not shown:
     -- how a translation should sit next to an English explanation is still an
     -- open question.
 
+    if result.definition and result.definition ~= "" then
+        out[#out + 1] = string.format(
+            '<div style="margin-bottom: 0.9em">%s</div>',
+            Format.escape(result.definition)
+        )
+    end
+
     if type(result.examples) == "table" and #result.examples > 0 then
-        lines[#lines + 1] = ""
+        local items = {}
         for _, example in ipairs(result.examples) do
-            lines[#lines + 1] = "• " .. example
+            items[#items + 1] = string.format(
+                '<li style="margin-bottom: 0.4em">%s</li>', Format.escape(example)
+            )
         end
+        out[#out + 1] = string.format(
+            '<ol style="margin: 0 0 0.9em 1.1em; padding: 0">%s</ol>',
+            table.concat(items)
+        )
     end
 
     local footer = {}
@@ -88,11 +151,19 @@ function Format.result(result, opts)
         footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms)
     end
     if #footer > 0 then
-        lines[#lines + 1] = ""
-        lines[#lines + 1] = "— " .. table.concat(footer, " · ")
+        out[#out + 1] = string.format(
+            '<div style="font-size: 0.8em">%s</div>',
+            Format.escape(table.concat(footer, " · "))
+        )
     end
 
-    return table.concat(lines, "\n")
+    return table.concat(out)
+end
+
+--- The title bar: the headword, so the top of the entry is a dictionary word.
+function Format.title(result, word)
+    local headword = headwords(type(result) == "table" and result or {}, { word = word })
+    return headword
 end
 
 return Format

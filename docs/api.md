@@ -76,6 +76,7 @@ the device from the plugin's menu.
   ],
   "translation": "основатель",
   "part_of_speech": "noun",
+  "lemma": "founder",
   "model": "openai/gpt-oss-120b",
   "timing": {
     "total_ms": 1800, "upstream_ms": 1750,
@@ -93,6 +94,13 @@ screen; entries that are not non-empty strings are dropped.
 `translation` is the Russian rendering. The plugin parses and caches it but
 **does not show it yet** — how it should sit next to an English explanation is
 still open. Everything else is optional and simply not shown when missing.
+
+`lemma` is the headword a dictionary would file the answer under — the
+infinitive for a verb, the singular for a noun. The reader taps an inflected
+form and an entry titled with that form is an echo, not an entry, so the
+window is titled with this instead and the tapped form appears beneath it when
+the two differ. Which headword it is depends on the sense: "left" the verb
+lemmatises to "leave" while "left" the direction stays "left".
 
 `timing` is the gateway's own account of where the time went. `total_ms` is the
 whole handler, `upstream_ms` everything spent talking to other services, split

@@ -2,22 +2,65 @@ local Format = require("aidict.format")
 
 describe("format", function()
     describe("result", function()
-        it("leads with the word and its part of speech", function()
+        it("leads with the word in bold and its part of speech in italic", function()
             local text = Format.result({
                 word = "fox", part_of_speech = "noun", definition = "A wild animal.",
             })
-            assert.are.equal("fox  (noun)", text:match("^[^\n]+"))
+            assert.is_truthy(text:find("<b>fox</b>", 1, true))
+            assert.is_truthy(text:find("<i>noun</i>", 1, true))
+            -- The headword comes before everything it heads.
+            assert.is_true(text:find("<b>fox</b>", 1, true) < text:find("A wild animal.", 1, true))
         end)
 
-        it("includes the definition and the examples", function()
+        it("files the entry under the headword, not the form that was tapped", function()
+            local text = Format.result({
+                lemma = "strap", word = "strapped", part_of_speech = "verb",
+                definition = "To fasten with straps.",
+            })
+            assert.is_truthy(text:find("<b>strap</b>", 1, true))
+            -- And says where the reader came from, or the entry looks like a
+            -- different word than the one they touched.
+            assert.is_truthy(text:find("as “strapped”", 1, true))
+        end)
+
+        it("says nothing about the tapped form when it is the headword", function()
+            local text = Format.result({
+                lemma = "fell", word = "fell", definition = "An upland moor.",
+            })
+            assert.is_nil(text:find("as “", 1, true))
+        end)
+
+        it("still leads with the word when the gateway sent no headword", function()
+            local text = Format.result({ word = "fox", definition = "A wild animal." })
+            assert.is_truthy(text:find("<b>fox</b>", 1, true))
+            assert.is_nil(text:find("as “", 1, true))
+        end)
+
+        it("numbers the examples, so one of them can be referred to", function()
             local text = Format.result({
                 word = "fox",
                 definition = "A wild animal.",
                 examples = { "The fox ran.", "Sly as a fox." },
             })
             assert.is_truthy(text:find("A wild animal.", 1, true))
-            assert.is_truthy(text:find("• The fox ran.", 1, true))
-            assert.is_truthy(text:find("• Sly as a fox.", 1, true))
+            assert.is_truthy(text:find("<ol", 1, true))
+            assert.is_truthy(text:find(">The fox ran.</li>", 1, true))
+            assert.is_truthy(text:find(">Sly as a fox.</li>", 1, true))
+        end)
+
+        it("escapes what the model wrote, rather than letting it be markup", function()
+            -- A definition may legitimately contain these — explaining "gt",
+            -- quoting code, naming AT&T. Unescaped, the first swallows the rest.
+            local text = Format.result({
+                word = "gt",
+                definition = "Short for <greater than> in code & markup.",
+                examples = { "a < b" },
+            })
+            assert.is_truthy(text:find("&lt;greater than&gt;", 1, true))
+            assert.is_truthy(text:find("code &amp; markup", 1, true))
+            assert.is_truthy(text:find("a &lt; b", 1, true))
+            -- And the entry still closes properly around it.
+            assert.is_truthy(text:find("</ol>", 1, true))
         end)
 
         it("does not show the translation yet, though it is fetched", function()
@@ -64,7 +107,7 @@ describe("format", function()
 
         it("keeps the footer to the time when the model is unknown", function()
             local text = Format.result({ definition = "d", elapsed_ms = 120 })
-            assert.is_truthy(text:find("— 120ms", 1, true))
+            assert.is_truthy(text:find(">120ms</div>", 1, true))
         end)
 
         it("has no footer at all when there is nothing to put in it", function()
@@ -74,7 +117,7 @@ describe("format", function()
 
         it("falls back to the requested word", function()
             local text = Format.result({ definition = "d" }, { word = "fox" })
-            assert.are.equal("fox", text:match("^[^\n]+"))
+            assert.is_truthy(text:find("<b>fox</b>", 1, true))
         end)
 
         it("returns nothing for a non-result", function()
@@ -136,6 +179,27 @@ describe("format", function()
         it("reads numbers that arrived as strings", function()
             -- Both survive a trip through the subprocess as JSON.
             assert.are.equal("5.0s total · 1.8s server", Format.timing("5000", "1800"))
+        end)
+    end)
+
+    describe("title", function()
+        it("titles the window with the headword, not the tapped form", function()
+            assert.are.equal("strap",
+                Format.title({ lemma = "strap", word = "strapped" }, "strapped"))
+        end)
+
+        it("uses what it has when the gateway sent no headword", function()
+            assert.are.equal("fox", Format.title({ word = "fox" }, "fox"))
+            assert.are.equal("fox", Format.title({}, "fox"))
+            assert.are.equal("fox", Format.title(nil, "fox"))
+        end)
+    end)
+
+    describe("escape", function()
+        it("makes model text safe to put inside markup", function()
+            assert.are.equal("a &amp;lt; b", Format.escape("a &lt; b"))
+            assert.are.equal("&lt;b&gt;", Format.escape("<b>"))
+            assert.are.equal("", Format.escape(nil))
         end)
     end)
 
