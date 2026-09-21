@@ -35,16 +35,28 @@ test ! -f "${WORK}/koreader/plugins/aidict.koplugin/stale.lua"
 KOREADER_DIR="${WORK}/koreader" sh uninstall.sh >/dev/null
 test ! -d "${WORK}/koreader/plugins/aidict.koplugin"
 
-# The gateway address is injected at build time, never committed.
-AIDICT_ENDPOINT="https://gateway.test/koreader-ai" \
+# The gateway address and its key are injected at build time, never committed.
+AIDICT_ENDPOINT="https://gateway.test/koreader-ai" AIDICT_TOKEN="test-key-123" \
     python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-ep" >/dev/null
 mkdir -p "${WORK}/pkg-ep"
 tar xzf "${WORK}"/dist-ep/*.kpkg -C "${WORK}/pkg-ep"
 grep -q 'endpoint = "https://gateway.test/koreader-ai"' \
     "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
     || { echo "the endpoint was not baked into the package"; exit 1; }
+grep -q 'api_key = "test-key-123"' \
+    "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
+    || { echo "the key was not baked into the package"; exit 1; }
 grep -q 'endpoint = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "an endpoint leaked into the committed config.lua"; exit 1; }
+grep -q 'api_key = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
+    || { echo "a key leaked into the committed config.lua"; exit 1; }
+
+# A key without an address is a package that cannot reach anything: refuse it
+# rather than shipping one that silently asks the reader to set an endpoint.
+if AIDICT_TOKEN="orphan" python3 "${ROOT}/scripts/kpmrepo.py" package \
+        --output "${WORK}/dist-orphan" >/dev/null 2>&1; then
+    echo "packaging accepted a token with no endpoint"; exit 1
+fi
 
 # Every Lua file in the package must parse. Injection rewrites source, and a
 # value with a newline in it once produced a config.lua that only failed on
@@ -52,4 +64,4 @@ grep -q 'endpoint = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
 find "${WORK}/pkg-ep" -name '*.lua' -exec luac5.1 -p {} +
 
 echo "package verified: install, upgrade and uninstall all behave,"
-echo "and the endpoint is injected at build time rather than committed"
+echo "and the endpoint and key are injected at build time rather than committed"

@@ -40,7 +40,12 @@ the device from the plugin's menu.
   word explained, not replaced, so the answer is English; `source_lang` is the
   book's language as KOReader knows it, which is often absent.
 * `title` and `author` are there for disambiguation, not for logging.
-* `Authorization: Bearer <key>` is present only when the reader set a key.
+* `Authorization: Bearer <key>` carries the gateway's key. The key is baked
+  into the package at build time from the `AIDICT_TOKEN` secret, the same way
+  the address is — neither is in the repository. The gateway also accepts the
+  key as `?token=<key>`, so it can ride inside the baked-in address instead
+  and there is one secret to inject rather than two; the header is the better
+  of the two, since a query string reaches access logs.
 * `X-Request-Id` is minted by the device, one per lookup, shaped
   `aidict-<hex seconds>-<hex random>`. The gateway keeps it if it matches
   `[A-Za-z0-9._-]{1,64}`, stamps it onto every log line the request produces,
@@ -71,8 +76,12 @@ the device from the plugin's menu.
   ],
   "translation": "основатель",
   "part_of_speech": "noun",
-  "model": "claude-haiku-4-5",
-  "timing": { "total_ms": 900, "upstream_ms": 850 }
+  "model": "openai/gpt-oss-120b",
+  "timing": {
+    "total_ms": 1800, "upstream_ms": 1750,
+    "model_ms": 500, "review_ms": 350, "retry_ms": 900
+  },
+  "review": { "sense": 0.17, "examples": 1.33, "retried": true }
 }
 ```
 
@@ -85,13 +94,24 @@ screen; entries that are not non-empty strings are dropped.
 **does not show it yet** — how it should sit next to an English explanation is
 still open. Everything else is optional and simply not shown when missing.
 
-`timing` is the gateway's own account of where the time went: `upstream_ms` is
-the model call, `total_ms` the whole handler. The device times its round trip
-separately, so the difference between the two is the network and the Kindle's
-radio. It ends up in the log, not on screen:
+`timing` is the gateway's own account of where the time went. `total_ms` is the
+whole handler, `upstream_ms` everything spent talking to other services, split
+into `model_ms`, `review_ms` and `retry_ms`. The device times its round trip
+separately, so the difference between that and `total_ms` is the network and
+the Kindle's radio.
+
+`review` appears when the gateway took a second opinion on its own answer:
+`sense` is 0..1 for "is this the sense the passage gives the word", `examples`
+is 0..2 for how many of the three illustrate that same sense, and `retried`
+says the answer above is the second attempt. A low `sense` makes the gateway
+ask the model again; it never makes it withhold an answer, because the
+reviewer raises a false alarm now and then.
+
+None of it is shown. It goes in the log, where one lookup is one line:
 
 ```
-aidict: founder ok in 1840ms (gateway 900ms, model 850ms, claude-haiku-4-5)
+aidict: founder ok in 1840ms (gateway 900ms: model 500ms, review 350ms, \
+  openai/gpt-oss-120b) [aidict-68ce5f3a-9c41f2 cf=a3e2705c8ddcdda5-IAD]
 ```
 
 ### Response, errors
@@ -128,6 +148,11 @@ subprocess doing the request.
   The same word in another paragraph is a different key, and asks again.
 * **Size.** Keep the answer short. It is rendered in a text viewer on a
   600×800 e-ink screen; a paragraph plus three examples is the right shape.
-* **Auth.** A single shared bearer token is enough — this serves one reader.
-  `GET /health` stays open even when a token is set, so an uptime check does
-  not need the device's key.
+* **Auth.** A single shared token is enough — this serves one reader. It is
+  read from `Authorization: Bearer` or from `?token=`. `GET /health` stays
+  open even when a token is set, so an uptime check does not need the key.
+* **The answer.** `openai/gpt-oss-120b`, Cerebras preferred but not pinned,
+  `reasoning: medium`, `part_of_speech` constrained to an enum. Then a second
+  opinion from `typesafe/jev-1.13`, and a retry when it doubts the sense. On
+  44 deliberately nasty words that took the model from 41 right to 44; the
+  settings and the numbers behind them are in the gateway's own source.

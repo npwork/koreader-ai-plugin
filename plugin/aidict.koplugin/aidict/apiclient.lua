@@ -69,11 +69,25 @@ function ApiClient.new(opts)
     }, ApiClient)
 end
 
---- Join the endpoint and a path without doubling or dropping the slash.
+--[[--
+Join the endpoint and a path without doubling or dropping the slash.
+
+The endpoint may already carry a query string — the gateway accepts its key
+as `?token=…` as well as a bearer header, and baking the whole URL into the
+package is one secret instead of two. The query has to stay at the end, so it
+is lifted off and put back rather than having the path appended after it.
+--]]--
 function ApiClient:url_for(path)
-    local base = (self.endpoint or ""):gsub("/+$", "")
+    local base = self.endpoint or ""
+    local query = ""
+    local mark = base:find("?", 1, true)
+    if mark then
+        query = base:sub(mark)
+        base = base:sub(1, mark - 1)
+    end
+    base = base:gsub("/+$", "")
     path = tostring(path or ""):gsub("^/+", "")
-    return base .. "/" .. path
+    return base .. "/" .. path .. query
 end
 
 local function status_to_error(status, message)
@@ -110,7 +124,8 @@ Ask the gateway to explain a word.
   title        string optional book title, for disambiguation
   author       string optional
   request_id   string optional, sent as X-Request-Id so both logs agree
-@treturn table result { word, definition, translation, examples, part_of_speech, model }
+@treturn table result { word, definition, translation, examples, part_of_speech,
+                        model, timings, review }
 @treturn table err    { code, message, status, elapsed_ms, request_id, cf_ray }
 --]]--
 function ApiClient:define(request)
@@ -224,12 +239,26 @@ function ApiClient:define(request)
         end
     end
 
-    -- The gateway reports its own split (handler vs. model); the difference
-    -- between that and our round trip is the network and the radio.
-    local server_ms, model_ms
+    -- The gateway reports where its own time went: the model call, the second
+    -- opinion on the answer, and the retry that opinion may have caused. The
+    -- difference between its total and our round trip is the network and the
+    -- Kindle's radio.
+    local server_ms, model_ms, review_ms, retry_ms
     if type(decoded.timing) == "table" then
         server_ms = tonumber(decoded.timing.total_ms)
-        model_ms = tonumber(decoded.timing.upstream_ms)
+        model_ms = tonumber(decoded.timing.model_ms)
+        review_ms = tonumber(decoded.timing.review_ms)
+        retry_ms = tonumber(decoded.timing.retry_ms)
+    end
+
+    -- What the reviewer made of the answer. Logged, never shown.
+    local review
+    if type(decoded.review) == "table" then
+        review = {
+            sense = tonumber(decoded.review.sense),
+            examples = tonumber(decoded.review.examples),
+            retried = decoded.review.retried == true,
+        }
     end
 
     return {
@@ -242,6 +271,9 @@ function ApiClient:define(request)
         elapsed_ms = elapsed_ms,
         server_ms = server_ms,
         model_ms = model_ms,
+        review_ms = review_ms,
+        retry_ms = retry_ms,
+        review = review,
         request_id = request_id,
         cf_ray = cf_ray,
     }

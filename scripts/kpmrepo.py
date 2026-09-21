@@ -60,18 +60,18 @@ def parse_version(text: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
-def config_lua(endpoint: str) -> bytes:
-    """config.lua with the gateway address baked in.
+def config_lua(endpoint: str, token: str | None = None) -> bytes:
+    """config.lua with the gateway address, and its key, baked in.
 
-    The address is deliberately absent from the source tree, so it lives in a
-    CI secret and is injected here. It ends up inside the published .kpkg,
-    which anyone can download — this keeps it out of the repository, not out
-    of the world. The gateway's bearer token is what actually guards it.
+    Neither belongs in the source tree, so both live in CI secrets and are
+    injected here. They end up inside the published .kpkg, which anyone can
+    download: this keeps them out of the repository, not out of the world.
+    What actually guards the endpoint is that the gateway checks the key.
     """
     # A secret pasted into CI usually carries a trailing newline, and that
     # newline inside a Lua string literal is a syntax error that would only
     # show up on the device. Anything that cannot sit inside "..." is refused
-    # outright rather than escaped, because none of it belongs in a URL.
+    # outright rather than escaped, because none of it belongs in either value.
     endpoint = endpoint.strip()
     if not re.match(r"^https?://[^\s\"\\\\]+\Z", endpoint):
         raise SystemExit(f"--endpoint wants a plain http(s) URL, got {endpoint!r}")
@@ -81,6 +81,16 @@ def config_lua(endpoint: str) -> bytes:
     patched, count = re.subn(r'endpoint\s*=\s*"[^"]*",', f'endpoint = "{endpoint}",', text, count=1)
     if count != 1:
         raise SystemExit("could not find the endpoint default in config.lua")
+
+    if token is not None:
+        token = token.strip()
+        if not re.match(r"^[^\s\"\\\\]+\Z", token):
+            raise SystemExit("--token wants a plain token with no spaces or quotes")
+        patched, count = re.subn(r'api_key\s*=\s*"[^"]*",', f'api_key = "{token}",',
+                                 patched, count=1)
+        if count != 1:
+            raise SystemExit("could not find the api_key default in config.lua")
+
     return patched.encode()
 
 
@@ -117,6 +127,7 @@ def build_package(
     output_dir: Path,
     version: tuple[int, int, int] | None = None,
     endpoint: str | None = None,
+    token: str | None = None,
 ) -> Path:
     """Build the .kpkg.
 
@@ -129,6 +140,10 @@ def build_package(
         endpoint = endpoint.strip()
         if not endpoint:
             endpoint = None
+    if token is not None:
+        token = token.strip()
+        if not token:
+            token = None
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "id": PACKAGE_ID,
@@ -179,8 +194,10 @@ def build_package(
                 patched = version_lua(version)
                 info.size = len(patched)
                 archive.addfile(entry(info), __import__("io").BytesIO(patched))
-            elif endpoint and relative == Path("aidict/config.lua"):
-                patched = config_lua(endpoint)
+            elif (endpoint or token) and relative == Path("aidict/config.lua"):
+                if not endpoint:
+                    raise SystemExit("--token needs --endpoint: a key without an address is useless")
+                patched = config_lua(endpoint, token)
                 info.size = len(patched)
                 archive.addfile(entry(info), __import__("io").BytesIO(patched))
             else:
@@ -189,6 +206,7 @@ def build_package(
 
     print(f"built {display(package_path)} ({package_path.stat().st_size} bytes)")
     print(f"endpoint {endpoint if endpoint else 'not set — configure it on the device'}")
+    print(f"key {'baked in' if token else 'not set — the gateway had better be open'}")
     print(f"sha256 {sha256(package_path)}")
     return package_path
 
@@ -301,6 +319,11 @@ def main(argv: list[str]) -> int:
         default=os.environ.get("AIDICT_ENDPOINT") or None,
         help="bake the gateway address into the package (default: $AIDICT_ENDPOINT)",
     )
+    package_parser.add_argument(
+        "--token",
+        default=os.environ.get("AIDICT_TOKEN") or None,
+        help="bake the gateway key into the package (default: $AIDICT_TOKEN)",
+    )
 
     repo_parser = sub.add_parser("repo", help="build the KPM repository around built packages")
     repo_parser.add_argument("packages", nargs="*", help=".kpkg files (default: everything in dist/)")
@@ -315,6 +338,7 @@ def main(argv: list[str]) -> int:
             Path(args.output),
             parse_version(args.version) if args.version else None,
             args.endpoint,
+            args.token,
         )
         return 0
 

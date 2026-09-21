@@ -52,6 +52,24 @@ describe("api client", function()
             assert.are.equal("https://gw.test/koreader-ai/define", tr.requests[1].url)
         end)
 
+        it("keeps a query string at the end, where the gateway looks for it", function()
+            -- The key can ride in the baked-in URL instead of a header, which
+            -- is one secret to inject at build time instead of two.
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            client(tr, { endpoint = "https://gw.test/koreader-ai?token=s3cret" })
+                :define({ word = "fox" })
+            assert.are.equal("https://gw.test/koreader-ai/define?token=s3cret",
+                tr.requests[1].url)
+        end)
+
+        it("handles a trailing slash and a query string together", function()
+            local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
+            client(tr, { endpoint = "https://gw.test/koreader-ai/?token=s3cret" })
+                :define({ word = "fox" })
+            assert.are.equal("https://gw.test/koreader-ai/define?token=s3cret",
+                tr.requests[1].url)
+        end)
+
         it("sends the word, context and book details", function()
             local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
             client(tr):define({
@@ -334,12 +352,36 @@ describe("api client", function()
         it("reads the gateway's own split out of the answer", function()
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({
-                    definition = "d", timing = { total_ms = 900, upstream_ms = 850 },
+                    definition = "d",
+                    timing = { total_ms = 1800, upstream_ms = 1750, model_ms = 500,
+                               review_ms = 350, retry_ms = 900 },
                 }) },
             })
             local result = client(tr):define({ word = "fox" })
-            assert.are.equal(900, result.server_ms)
-            assert.are.equal(850, result.model_ms)
+            assert.are.equal(1800, result.server_ms)
+            assert.are.equal(500, result.model_ms)
+            assert.are.equal(350, result.review_ms)
+            assert.are.equal(900, result.retry_ms)
+        end)
+
+        it("carries what the gateway's reviewer thought, for the log", function()
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({
+                    definition = "d",
+                    review = { sense = 0.17, examples = 1.33, retried = true },
+                }) },
+            })
+            local result = client(tr):define({ word = "fox" })
+            assert.are.equal(0.17, result.review.sense)
+            assert.are.equal(1.33, result.review.examples)
+            assert.is_true(result.review.retried)
+        end)
+
+        it("has no review when the gateway took no second opinion", function()
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({ definition = "d" }) },
+            })
+            assert.is_nil(client(tr):define({ word = "fox" }).review)
         end)
 
         it("reports no split when the gateway sends none", function()

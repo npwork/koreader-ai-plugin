@@ -280,11 +280,25 @@ function AiDict:explain(word, context, sentence)
         self:saveCache()
 
         local result = outcome.result
+        -- Everything the gateway told us about where its time went, plus what
+        -- its reviewer made of the answer. One line per lookup, so a slow or
+        -- doubtful one can be taken apart afterwards from the device alone.
+        local split = string.format("gateway %sms: model %sms, review %sms",
+            tostring(result.server_ms or "?"), tostring(result.model_ms or "?"),
+            tostring(result.review_ms or "?"))
+        if result.retry_ms and result.retry_ms > 0 then
+            split = split .. string.format(", retry %sms", tostring(result.retry_ms))
+        end
+        local judged = ""
+        if result.review then
+            judged = string.format(" sense=%s ex=%s%s",
+                tostring(result.review.sense or "?"), tostring(result.review.examples or "?"),
+                result.review.retried and " RETRIED" or "")
+        end
         logger.info(string.format(
-            "aidict: %s ok in %sms (gateway %sms, model %sms, %s) [%s]",
-            word, tostring(result.elapsed_ms or "?"), tostring(result.server_ms or "?"),
-            tostring(result.model_ms or "?"), tostring(result.model or "?"),
-            marks(result, request)))
+            "aidict: %s ok in %sms (%s, %s)%s [%s]",
+            word, tostring(result.elapsed_ms or "?"), split,
+            tostring(result.model or "?"), judged, marks(result, request)))
 
         showResult(word, result, false)
     end)

@@ -245,7 +245,18 @@ describe("the KOReader layer", function()
             definition = "A wild animal of the dog family.",
             examples = { "The fox ran." },
             model = "spec-model",
-            timing = { total_ms = 900, upstream_ms = 850 },
+            timing = { total_ms = 900, upstream_ms = 850, model_ms = 500,
+                       review_ms = 350, retry_ms = 0 },
+        })
+
+        local REVIEWED_ANSWER = helpers.body({
+            word = "fox",
+            definition = "A wild animal of the dog family.",
+            examples = { "The fox ran." },
+            model = "spec-model",
+            timing = { total_ms = 1800, upstream_ms = 1750, model_ms = 500,
+                       review_ms = 350, retry_ms = 900 },
+            review = { sense = 0.17, examples = 1.33, retried = true },
         })
 
         it("records where the time went, not just how much", function()
@@ -257,8 +268,35 @@ describe("the KOReader layer", function()
             assert.is_truthy(line:find("fox", 1, true))
             assert.is_truthy(line:find("1500ms", 1, true))
             assert.is_truthy(line:find("gateway 900ms", 1, true))
-            assert.is_truthy(line:find("model 850ms", 1, true))
+            assert.is_truthy(line:find("model 500ms", 1, true))
+            assert.is_truthy(line:find("review 350ms", 1, true))
             assert.is_truthy(line:find("spec-model", 1, true))
+        end)
+
+        it("stays quiet about a retry that did not happen", function()
+            build({ responses = { { status = 200, body = TIMED_ANSWER } } })
+            tap_dict_button()
+            assert.is_nil(kor.info_lines[#kor.info_lines]:find("retry", 1, true))
+        end)
+
+        it("says when the gateway doubted its own answer and asked again", function()
+            build({ responses = { { status = 200, body = REVIEWED_ANSWER } } })
+            tap_dict_button()
+
+            local line = kor.info_lines[#kor.info_lines]
+            assert.is_truthy(line:find("retry 900ms", 1, true))
+            assert.is_truthy(line:find("sense=0.17", 1, true))
+            assert.is_truthy(line:find("RETRIED", 1, true))
+        end)
+
+        it("shows the reader the answer, not the doubts about it", function()
+            build({ responses = { { status = 200, body = REVIEWED_ANSWER } } })
+            tap_dict_button()
+
+            local shown = last_shown().text
+            assert.is_nil(shown:find("sense", 1, true))
+            assert.is_nil(shown:find("RETRIED", 1, true))
+            assert.is_truthy(shown:find("A wild animal", 1, true))
         end)
 
         it("logs a question mark rather than crashing on a gateway that sends no timing", function()
@@ -269,6 +307,7 @@ describe("the KOReader layer", function()
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("1500ms", 1, true))
             assert.is_truthy(line:find("gateway ?ms", 1, true))
+            assert.is_truthy(line:find("model ?ms", 1, true))
         end)
 
         it("names the request id, so the device log and Axiom can be lined up", function()
