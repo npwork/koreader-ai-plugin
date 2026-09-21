@@ -614,6 +614,34 @@ describe("the KOReader layer", function()
             assert.are.equal(0, kor.forks)
         end)
 
+        it("marks an answer that was already waiting as cached", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")   -- prefetch runs and lands
+            tap_dict_button()
+
+            local shown = last_shown()
+            assert.is_truthy(shown.text:find("cached", 1, true))
+            assert.is_nil(shown.text:find("prefetch", 1, true))
+        end)
+
+        it("marks an answer the reader waited for as prefetch, not cached", function()
+            -- The reader tapped while the prefetch was still in the air:
+            -- they watched a spinner. Calling that "cached" is what made it
+            -- impossible to tell whether the prefetch was doing anything.
+            prefetching()
+            kor.defer_scheduled = true     -- the prefetch stays in flight
+            plugin:onWordLookedUp("fox")
+            tap_dict_button()              -- joins it rather than asking again
+            kor.run_scheduled()
+
+            local shown = last_shown()
+            assert.are.equal("TextViewer", shown.widget_kind)
+            assert.is_truthy(shown.text:find("prefetch", 1, true))
+            assert.is_nil(shown.text:find("cached", 1, true))
+            -- And it joined rather than asking a second time.
+            assert.are.equal(1, kor.transport.calls)
+        end)
+
         it("says nothing to the reader, whatever happens", function()
             prefetching()
             plugin:onWordLookedUp("fox")

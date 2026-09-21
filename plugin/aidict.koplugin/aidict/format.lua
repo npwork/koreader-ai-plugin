@@ -196,7 +196,7 @@ Sizes are relative, never absolute — the reader has already chosen a comfortab
 size for this screen and the entry should move with it, not argue.
 
 @param result table  an `ApiClient:define` result
-@param opts   table  { word = string, cached = bool }
+@param opts   table  { word = string, source = "cached"|"prefetch"|nil }
 @treturn string
 --]]--
 function Format.result(result, opts)
@@ -287,12 +287,20 @@ function Format.result(result, opts)
 
     local footer = {}
     if result.model and result.model ~= "" then footer[#footer + 1] = result.model end
-    -- "cached" says the reader waited for nothing this time; the timings say
-    -- what the answer cost when it was actually fetched. Both are worth
-    -- knowing and neither replaces the other — showing only the first leaves
-    -- no way to tell a lookup that was free because it was prefetched from
-    -- one that was free because it was looked up last week.
-    if opts.cached then footer[#footer + 1] = "cached" end
+    -- How the answer got here, and the three cases are genuinely different:
+    --
+    --   cached    it was answered before you asked, and you waited for nothing
+    --   prefetch  it was already on its way when you asked, so you waited less
+    --             than the timings below say
+    --   neither   it was asked when you asked
+    --
+    -- Saying "cached" for the middle one — which is what happened until a
+    -- reader watched a spinner and then read the word "cached" underneath the
+    -- answer — makes it impossible to tell whether the prefetch is doing
+    -- anything at all.
+    if opts.source == "cached" or opts.source == "prefetch" then
+        footer[#footer + 1] = opts.source
+    end
     if result.elapsed_ms then
         footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms)
     end

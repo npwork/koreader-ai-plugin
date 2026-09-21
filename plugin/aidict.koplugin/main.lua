@@ -459,7 +459,7 @@ function AiDict:explain(request)
     local cached = self.lookup:peek(request)
     if cached then
         logger.info(string.format("aidict: %s from cache (no request)", word))
-        showResult(word, cached, true)
+        showResult(word, cached, "cached")
         return
     end
 
@@ -509,7 +509,10 @@ function AiDict:joinPrefetch(request, key)
         if cached then
             UIManager:close(waiting)
             logger.info(string.format("aidict: %s caught the one already asked", word))
-            showResult(word, cached, true)
+            -- Not "cached": the reader watched a spinner for this one. It was
+            -- on its way before they asked, which is a different thing and
+            -- the only way to see the prefetch working.
+            showResult(word, cached, "prefetch")
             return
         end
 
@@ -592,7 +595,7 @@ function AiDict:askNow(request)
             word, tostring(result.elapsed_ms or "?"), split,
             tostring(result.model or "?"), judged, marks(result, request)))
 
-        showResult(word, result, false)
+        showResult(word, result, nil)
     end)
 end
 
@@ -747,10 +750,11 @@ function AiDict:onAiDictSyncLibrary()
     return true
 end
 
-function showResult(word, result, from_cache)
+--- @param source string|nil "cached", "prefetch", or nil for a fresh ask.
+function showResult(word, result, source)
     UIManager:show(TextViewer:new{
         title = Format.title(result, word),
-        text = Format.result(result, { word = word, cached = from_cache }),
+        text = Format.result(result, { word = word, source = source }),
         -- "lookup" is what KOReader uses for dictionary results: same font
         -- size as book info, left-aligned rather than justified.
         text_type = "lookup",

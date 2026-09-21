@@ -162,8 +162,24 @@ describe("format", function()
         end)
 
         it("marks a cached answer in the footer", function()
-            local text = Format.result({ definition = "d", model = "gpt-test" }, { cached = true })
+            local text = Format.result({ definition = "d", model = "gpt-test" }, { source = "cached" })
             assert.is_truthy(text:find("gpt%-test · cached"))
+        end)
+
+        it("says prefetch, not cached, for an answer the reader waited for", function()
+            -- The reader watched a spinner and then read the word "cached"
+            -- underneath the answer, which made it impossible to tell whether
+            -- the prefetch was doing anything. It was on its way before they
+            -- asked; that is a different fact from having been free.
+            local text = Format.result({ definition = "d", model = "gpt-test" }, { source = "prefetch" })
+            assert.is_truthy(text:find("gpt%-test · prefetch"))
+            assert.is_nil(text:find("cached", 1, true))
+        end)
+
+        it("says nothing about where it came from when it was simply asked", function()
+            local text = Format.result({ definition = "d", model = "gpt-test" }, {})
+            assert.is_nil(text:find("cached", 1, true))
+            assert.is_nil(text:find("prefetch", 1, true))
         end)
 
         it("shows the round trip in the footer when it was not cached", function()
@@ -178,7 +194,7 @@ describe("format", function()
             -- was prefetched from one free because it was asked last week.
             local text = Format.result(
                 { definition = "d", model = "gpt-test", elapsed_ms = 1500, server_ms = 900 },
-                { cached = true })
+                { source = "cached" })
             assert.is_truthy(text:find("cached", 1, true))
             assert.is_truthy(text:find("1.5s total · 900ms server", 1, true))
         end)
