@@ -549,6 +549,18 @@ describe("the KOReader layer", function()
             assert.is_truthy(shown.text:find("cached", 1, true))
         end)
 
+        it("is found from the highlight menu too, which builds its own request", function()
+            -- The two entry points build the request separately; if they ever
+            -- disagree about the passage, the fetched-ahead answer is orphaned
+            -- and the reader waits for a second identical lookup.
+            prefetching()
+            plugin:onWordLookedUp("fox")
+            tap_highlight_button()
+
+            assert.are.equal(1, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("cached", 1, true))
+        end)
+
         it("writes the cache to disk, so it survives the session too", function()
             prefetching()
             plugin:onWordLookedUp("fox")
