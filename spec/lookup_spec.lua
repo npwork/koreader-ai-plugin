@@ -4,6 +4,24 @@ local helpers = require("support.helpers")
 
 local GOOD_BODY = helpers.body({ word = "fox", definition = "A wild animal.", model = "m" })
 
+--[[--
+One lookup, in the order `main.lua` performs it: peek in the main process,
+fetch in the forked one, remember what came back. There is no single call
+that does all three — see lookup.lua — so the specs perform the sequence
+themselves, which is also the only way they can be about the real path.
+--]]--
+local function ask(l, request, opts)
+    opts = opts or {}
+    if not opts.skip_cache then
+        local hit = l:peek(request)
+        if hit then return hit, nil, true end
+    end
+    local outcome = l:fetch(request)
+    if not outcome.ok then return nil, outcome.err, false end
+    l:remember(request, outcome.result)
+    return outcome.result, nil, false
+end
+
 local function lookup(transport, settings, clock, monotonic)
     return Lookup.new({
         settings = settings or helpers.settings({ endpoint = helpers.ENDPOINT }),
@@ -17,7 +35,7 @@ end
 describe("lookup", function()
     it("asks the gateway and returns the answer", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        local result, err, cached = lookup(tr):define({ word = "fox" })
+        local result, err, cached = ask(lookup(tr), { word = "fox" })
 
         assert.is_nil(err)
         assert.is_false(cached)
@@ -28,8 +46,8 @@ describe("lookup", function()
     it("serves the second lookup of the same word from the cache", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
         local l = lookup(tr)
-        l:define({ word = "fox", context = "a quick fox" })
-        local result, err, cached = l:define({ word = "fox", context = "a quick fox" })
+        ask(l, { word = "fox", context = "a quick fox" })
+        local result, err, cached = ask(l, { word = "fox", context = "a quick fox" })
 
         assert.is_nil(err)
         assert.is_true(cached)
@@ -40,8 +58,8 @@ describe("lookup", function()
     it("treats a different context as a different question", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
         local l = lookup(tr)
-        l:define({ word = "fox", context = "the animal" })
-        l:define({ word = "fox", context = "to fox someone" })
+        ask(l, { word = "fox", context = "the animal" })
+        ask(l, { word = "fox", context = "to fox someone" })
         assert.are.equal(2, tr.calls)
     end)
 
@@ -51,9 +69,9 @@ describe("lookup", function()
         local settings = helpers.settings({ endpoint = helpers.ENDPOINT, cache_ttl = 60 })
         local l = lookup(tr, settings, clock)
 
-        l:define({ word = "fox" })
+        ask(l, { word = "fox" })
         clock.advance(61)
-        local _, _, cached = l:define({ word = "fox" })
+        local _, _, cached = ask(l, { word = "fox" })
 
         assert.is_false(cached)
         assert.are.equal(2, tr.calls)
@@ -62,8 +80,8 @@ describe("lookup", function()
     it("skips the cache when told to", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
         local l = lookup(tr)
-        l:define({ word = "fox" })
-        local _, _, cached = l:define({ word = "fox" }, { skip_cache = true })
+        ask(l, { word = "fox" })
+        local _, _, cached = ask(l, { word = "fox" }, { skip_cache = true })
         assert.is_false(cached)
         assert.are.equal(2, tr.calls)
     end)
@@ -71,8 +89,8 @@ describe("lookup", function()
     it("never asks when the cache is disabled, but never caches either", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
         local l = lookup(tr, helpers.settings({ endpoint = helpers.ENDPOINT, cache_size = 0 }))
-        l:define({ word = "fox" })
-        l:define({ word = "fox" })
+        ask(l, { word = "fox" })
+        ask(l, { word = "fox" })
         assert.are.equal(2, tr.calls)
     end)
 
@@ -83,17 +101,17 @@ describe("lookup", function()
         })
         local l = lookup(tr)
 
-        local _, err = l:define({ word = "fox" })
+        local _, err = ask(l, { word = "fox" })
         assert.are.equal(ApiClient.ERRORS.SERVER_ERROR, err.code)
 
-        local result = l:define({ word = "fox" })
+        local result = ask(l, { word = "fox" })
         assert.are.equal("A wild animal.", result.definition)
         assert.are.equal(2, tr.calls)
     end)
 
     it("rejects an empty word before it reaches the client", function()
         local tr = helpers.transport({})
-        local _, err = lookup(tr):define({ word = "  \n " })
+        local _, err = ask(lookup(tr), { word = "  \n " })
         assert.are.equal(ApiClient.ERRORS.INVALID_REQUEST, err.code)
         assert.are.equal(0, tr.calls)
     end)
@@ -101,15 +119,15 @@ describe("lookup", function()
     it("normalises the word before caching it", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
         local l = lookup(tr)
-        l:define({ word = " Fox\n" })
-        local _, _, cached = l:define({ word = "fox" })
+        ask(l, { word = " Fox\n" })
+        local _, _, cached = ask(l, { word = "fox" })
         assert.is_true(cached)
         assert.are.equal(1, tr.calls)
     end)
 
     it("sends the sentence alongside the paragraph", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
-        lookup(tr):define({ word = "fox", context = "a paragraph", sentence = "a sentence" })
+        ask(lookup(tr), { word = "fox", context = "a paragraph", sentence = "a sentence" })
 
         local sent = helpers.json.decode(tr.requests[1].body)
         assert.are.equal("a paragraph", sent.context)
@@ -123,7 +141,7 @@ describe("lookup", function()
 
         settings:set("endpoint", "https://other.test/ai")
         l:reload()
-        l:define({ word = "fox" })
+        ask(l, { word = "fox" })
 
         assert.are.equal("https://other.test/ai/define", tr.requests[1].url)
     end)
@@ -134,7 +152,7 @@ describe("lookup", function()
         local unwrapped = tr.fn
         tr.fn = function(request) ms = ms + 400 return unwrapped(request) end
 
-        local result = lookup(tr, nil, nil, function() return ms end):define({ word = "fox" })
+        local result = ask(lookup(tr, nil, nil, function() return ms end), { word = "fox" })
         assert.are.equal(400, result.elapsed_ms)
     end)
 
@@ -149,7 +167,7 @@ describe("lookup", function()
         settings:set("block_timeout", 12)
         l:reload()
 
-        assert.are.equal(400, l:define({ word = "fox" }).elapsed_ms)
+        assert.are.equal(400, ask(l, { word = "fox" }).elapsed_ms)
     end)
 
     it("keeps cached answers across a reload", function()
@@ -157,21 +175,13 @@ describe("lookup", function()
         local settings = helpers.settings({ endpoint = helpers.ENDPOINT })
         local l = lookup(tr, settings)
 
-        l:define({ word = "fox" })
+        ask(l, { word = "fox" })
         settings:set("block_timeout", 12)
         l:reload()
-        local _, _, cached = l:define({ word = "fox" })
+        local _, _, cached = ask(l, { word = "fox" })
 
         assert.is_true(cached)
         assert.are.equal(1, tr.calls)
-    end)
-
-    it("builds the context window from the context_chars setting", function()
-        local l = lookup(helpers.transport({}),
-            helpers.settings({ endpoint = helpers.ENDPOINT, context_chars = 12 }))
-        local context = l:build_context("before text here", "fox", "after text here")
-        assert.is_truthy(context:find("fox", 1, true))
-        assert.is_true(require("aidict.context").len(context) <= 12)
     end)
 
     describe("the split used by the reader's subprocess", function()
@@ -224,11 +234,11 @@ describe("lookup", function()
         it("survives a dump and restore into a new instance", function()
             local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
             local first = lookup(tr)
-            first:define({ word = "fox" })
+            ask(first, { word = "fox" })
 
             local second = lookup(tr)
             second:restore_cache(first:dump_cache())
-            local _, _, cached = second:define({ word = "fox" })
+            local _, _, cached = ask(second, { word = "fox" })
 
             assert.is_true(cached)
             assert.are.equal(1, tr.calls)
@@ -237,9 +247,9 @@ describe("lookup", function()
         it("clears on request", function()
             local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
             local l = lookup(tr)
-            l:define({ word = "fox" })
+            ask(l, { word = "fox" })
             l:clear_cache()
-            local _, _, cached = l:define({ word = "fox" })
+            local _, _, cached = ask(l, { word = "fox" })
             assert.is_false(cached)
         end)
     end)

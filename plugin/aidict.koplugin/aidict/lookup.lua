@@ -1,8 +1,11 @@
 --[[--
 Wires settings, cache and API client together.
 
-This is the whole behaviour of the plugin minus the widgets: `main.lua` hands
-it a word and gets back either something to show or an error to report.
+This is the whole behaviour of the plugin minus the widgets. It is split the
+way `main.lua` has to use it: `peek` before anything, then `fetch` inside the
+subprocess that can be dismissed, then `remember` back in the main process
+with whatever survived the fork. There is deliberately no single call that
+does all three — nothing could use it.
 --]]--
 
 local ApiClient = require("aidict.apiclient")
@@ -56,52 +59,6 @@ function Lookup:reload()
     else
         self.cache = Cache.new({ max_entries = max_entries, ttl = ttl, now = self.now })
     end
-end
-
---- Context snippet for a word, sized by the `context_chars` setting.
-function Lookup:build_context(before, word, after)
-    return Context.build(before, word, after, self.settings:get("context_chars"))
-end
-
---[[--
-@param request table { word, context, title, author, source_lang, request_id }
-@param opts    table { skip_cache = bool }
-@treturn table  result
-@treturn table  err
-@treturn bool   whether the result came from the cache
---]]--
-function Lookup:define(request, opts)
-    request = request or {}
-    opts = opts or {}
-
-    local word = Context.cleanup(request.word)
-    if word == "" then
-        return nil, { code = ApiClient.ERRORS.INVALID_REQUEST, message = "no word to look up" }, false
-    end
-
-    local context = Context.cleanup(request.context)
-    local key = Cache.key(word, context)
-
-    if not opts.skip_cache then
-        local hit = self.cache:get(key)
-        if hit then return hit, nil, true end
-    end
-
-    local result, err = self.client:define({
-        word = word,
-        context = context,
-        sentence = Context.cleanup(request.sentence),
-        source_lang = request.source_lang,
-        title = request.title,
-        author = request.author,
-        request_id = request.request_id,
-    })
-    if not result then
-        return nil, err, false
-    end
-
-    self.cache:set(key, result)
-    return result, nil, false
 end
 
 --- Cache key for a request, so the callers below agree on one.
