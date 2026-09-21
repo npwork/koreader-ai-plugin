@@ -94,11 +94,18 @@ function Format.result(result, opts)
     local headword, tapped = headwords(result, opts)
 
     if headword ~= "" then
-        local head = string.format(
-            '<div style="font-size: 1.35em; margin-bottom: 0.1em">' ..
-            '<b>%s</b></div>', Format.escape(headword)
+        -- The pronunciation rides on the headword's line, where a dictionary
+        -- puts it: it is how to say *this* word, not a fact about it.
+        local head = "<b>" .. Format.escape(headword) .. "</b>"
+        if type(result.pronunciation) == "string" and result.pronunciation ~= "" then
+            head = head .. string.format(
+                ' <span style="font-size: 0.7em">%s</span>',
+                Format.escape(result.pronunciation)
+            )
+        end
+        out[#out + 1] = string.format(
+            '<div style="font-size: 1.35em; margin-bottom: 0.1em">%s</div>', head
         )
-        out[#out + 1] = head
 
         -- The part of speech and the tapped form answer the same question —
         -- "why am I looking at this word?" — so they share a line under it.
@@ -140,6 +147,15 @@ function Format.result(result, opts)
         out[#out + 1] = string.format(
             '<ol style="margin: 0 0 0.9em 1.1em; padding: 0">%s</ol>',
             table.concat(items)
+        )
+    end
+
+    -- Last, and quieter than the rest: where a word came from is worth reading
+    -- once and never the thing the reader opened this for.
+    if type(result.etymology) == "string" and result.etymology ~= "" then
+        out[#out + 1] = string.format(
+            '<div style="font-size: 0.85em; margin-bottom: 0.9em">' ..
+            '<i>%s</i></div>', Format.escape(result.etymology)
         )
     end
 

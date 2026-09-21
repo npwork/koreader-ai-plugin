@@ -77,6 +77,8 @@ the device from the plugin's menu.
   "translation": "основатель",
   "part_of_speech": "noun",
   "lemma": "founder",
+  "pronunciation": "/ˈfaʊndər/",
+  "etymology": "From Old French fonder, to lay a base for.",
   "model": "openai/gpt-oss-120b",
   "timing": {
     "total_ms": 1800, "upstream_ms": 1750,
@@ -101,6 +103,16 @@ form and an entry titled with that form is an echo, not an entry, so the
 window is titled with this instead and the tapped form appears beneath it when
 the two differ. Which headword it is depends on the sense: "left" the verb
 lemmatises to "leave" while "left" the direction stays "left".
+
+`pronunciation` is IPA for the **lemma**, not for the form in the passage, and
+sits on the headword's line the way a dictionary prints it. `etymology` is one
+sentence, drawn last and quieter than the rest. Both may come back empty and
+are then simply absent: a wrong pronunciation teaches a reader to say the word
+wrongly, which is worse than saying nothing.
+
+Every text field is stripped of emphasis markers before it is sent. The prompt
+asks for plain text and mostly gets it, but "from Old Norse *vanta*" comes back
+often enough to matter, and the device draws an asterisk as an asterisk.
 
 `timing` is the gateway's own account of where the time went. `total_ms` is the
 whole handler, `upstream_ms` everything spent talking to other services, split

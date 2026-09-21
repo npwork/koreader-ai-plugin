@@ -36,6 +36,42 @@ describe("format", function()
             assert.is_nil(text:find("as “", 1, true))
         end)
 
+        it("puts the pronunciation on the headword's line, where a dictionary does", function()
+            local text = Format.result({
+                lemma = "themselves", word = "themselves",
+                pronunciation = "/ðəmˈsɛlvz/", definition = "Reflexive pronoun.",
+            })
+            local head = text:find("<b>themselves</b>", 1, true)
+            local pron = text:find("/ðəmˈsɛlvz/", 1, true)
+            assert.is_truthy(pron)
+            -- Same line: the pronunciation follows the headword before the
+            -- heading div closes.
+            assert.is_true(pron > head)
+            assert.is_true(pron < text:find("</div>", head, true))
+        end)
+
+        it("puts the etymology last and quieter, after the examples", function()
+            local text = Format.result({
+                word = "want", definition = "A lack.",
+                examples = { "For want of bread." },
+                etymology = "From Old Norse vanta, to lack.",
+            })
+            local etym = text:find("From Old Norse", 1, true)
+            assert.is_truthy(etym)
+            assert.is_true(etym > text:find("</ol>", 1, true))
+        end)
+
+        it("says nothing where the gateway had nothing to say", function()
+            -- Both are allowed to come back empty: a wrong pronunciation
+            -- teaches the reader to say the word wrongly.
+            local text = Format.result({
+                word = "fox", definition = "A wild animal.",
+                pronunciation = "", etymology = "",
+            })
+            assert.is_nil(text:find("<i></i>", 1, true))
+            assert.is_nil(text:find("<span", 1, true))
+        end)
+
         it("numbers the examples, so one of them can be referred to", function()
             local text = Format.result({
                 word = "fox",
