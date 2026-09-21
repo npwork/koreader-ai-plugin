@@ -19,6 +19,8 @@ local PathChooser = require("ui/widget/pathchooser")
 local TextViewer = require("ui/widget/textviewer")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
+local Event = require("ui/event")
+local ConfirmBox = require("ui/widget/confirmbox")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 local time = require("ui/time")
@@ -30,6 +32,7 @@ local Context = require("aidict.context")
 local Format = require("aidict.format")
 local Reqid = require("aidict.reqid")
 local Library = require("aidict.library")
+local Kpm = require("aidict.kpm")
 local Lookup = require("aidict.lookup")
 local Prefetch = require("aidict.prefetch")
 local Settings = require("aidict.settings")
@@ -626,9 +629,11 @@ function AiDict:checkForUpdates()
 
         local info = outcome.info
         if info.available then
-            UIManager:show(InfoMessage:new{
-                text = T(_("Version %1 is available on the %2 channel (you have %3).\n\nInstall it from the Kindle search bar:\n;kpm upgrade %4"),
-                    info.latest, info.channel, info.current, Updater.PACKAGE_ID),
+            UIManager:show(ConfirmBox:new{
+                text = T(_("Version %1 is available on the %2 channel.\nYou have %3.\n\nInstall it now?"),
+                    info.latest, info.channel, info.current),
+                ok_text = _("Install"),
+                ok_callback = function() self:installUpdate(info.latest) end,
             })
         else
             UIManager:show(InfoMessage:new{
@@ -748,6 +753,90 @@ end
 function AiDict:onAiDictSyncLibrary()
     self:syncLibrary()
     return true
+end
+
+--[[--
+Run KPM on this device and hand back what it said.
+
+Forked, because the download and the unpacking both block, and the reader
+should be able to give up on them. Whatever KPM wrote to disk stays written
+either way — it is the package manager's own business, not a transaction we
+opened.
+--]]--
+local function runKpm(command)
+    local pipe = io.popen(command)
+    if not pipe then return nil end
+    local output = pipe:read("*a")
+    -- Lua 5.1's close() returns only a boolean; the exit status is the
+    -- tiebreaker anyway, never the verdict on its own.
+    local closed = pipe:close()
+    return { output = output or "", ok_status = closed ~= false }
+end
+
+--[[--
+Update the package this plugin ships in, without leaving KOReader.
+
+The alternative is the Kindle's search bar — leave the book, wake the home
+screen, type `;kpm install koreader-aidict` correctly — which is enough
+friction that an update waits weeks.
+
+KPM replaces `aidict.koplugin` underneath a running KOReader, which is safe:
+the Lua already loaded stays loaded, and the new files are picked up at the
+next restart. So the restart is offered rather than taken.
+--]]--
+function AiDict:installUpdate(version)
+    local lfs = require("libs/libkoreader-lfs")
+    local binary = Kpm.find(function(path) return lfs.attributes(path, "mode") == "file" end)
+    if not binary then
+        UIManager:show(InfoMessage:new{
+            text = T(_("KPM is not on this device, so the update has to be installed from the Kindle search bar:\n\n;kpm install %1"),
+                Updater.PACKAGE_ID),
+        })
+        return
+    end
+
+    local command = Kpm.command(binary, Updater.PACKAGE_ID)
+    NetworkMgr:runWhenConnected(function()
+        Trapper:wrap(function()
+            -- Which channel it is coming from, because "installing 0.2.50"
+            -- means something different on dev than on stable.
+            local progress = version
+                and T(_("Installing %1 from the %2 channel…"), version, self.settings:get("channel"))
+                or T(_("Installing %1…"), Updater.PACKAGE_ID)
+            local completed, result = Trapper:dismissableRunInSubprocess(function()
+                return runKpm(command)
+            end, progress)
+
+            if not completed then return end
+            if type(result) ~= "table" then
+                UIManager:show(InfoMessage:new{ text = _("KPM could not be started.") })
+                return
+            end
+
+            local ok, message = Kpm.interpret(result.output, result.ok_status)
+            logger.info("aidict: kpm install —", ok and "ok" or "failed", tostring(message))
+            if not ok then
+                UIManager:show(InfoMessage:new{
+                    text = T(_("The update failed.\n\n%1"), tostring(message)),
+                })
+                return
+            end
+
+            if not Device:canRestart() then
+                UIManager:show(InfoMessage:new{
+                    text = _("Installed. Restart KOReader to load it."),
+                })
+                return
+            end
+            UIManager:show(ConfirmBox:new{
+                text = _("Installed. KOReader has to restart to load it.\n\nRestart now?"),
+                ok_text = _("Restart"),
+                ok_callback = function()
+                    UIManager:broadcastEvent(Event:new("Restart"))
+                end,
+            })
+        end)
+    end)
 end
 
 --- @param source string|nil "cached", "prefetch", or nil for a fresh ask.

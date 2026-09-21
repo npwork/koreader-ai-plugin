@@ -17,6 +17,7 @@ an `uninstall` — so capturing them per install would eventually save a fake as
 the original and never give the suite its own back.
 --]]--
 local real_os = { rename = os.rename, remove = os.remove }
+local real_io = { popen = io.popen }
 
 local koreader = {}
 
@@ -71,6 +72,10 @@ function koreader.install(opts)
         never_ready = false,
         terminated = 0,
         fork_fails = false,
+        can_restart = opts.can_restart ~= false,
+        broadcast = {},      -- events the plugin sent everyone
+        commands = {},       -- shell commands it ran
+        shell = nil,         -- what the next command answers with
         writes_nothing = false,
     }
 
@@ -84,6 +89,7 @@ function koreader.install(opts)
     package.loaded["ui/widget/container/widgetcontainer"] = Widget
     package.loaded["ui/widget/infomessage"] = recording_widget("InfoMessage")
     package.loaded["ui/widget/textviewer"] = recording_widget("TextViewer")
+    package.loaded["ui/widget/confirmbox"] = recording_widget("ConfirmBox")
     local InputDialog = recording_widget("InputDialog")
     function InputDialog:onShowKeyboard() self.keyboard_shown = true end
     function InputDialog:getInputText() return self.input end
@@ -113,6 +119,9 @@ function koreader.install(opts)
         -- tested otherwise: a loop that waits for something to happen
         -- elsewhere would, run immediately, simply recurse until the stack
         -- gives out. `run_scheduled` then drains one round at a time.
+        broadcastEvent = function(_, event)
+            recorder.broadcast[#recorder.broadcast + 1] = event
+        end,
         scheduleIn = function(_, _, callback)
             if recorder.defer_scheduled then
                 recorder.scheduled[#recorder.scheduled + 1] = callback
@@ -160,16 +169,36 @@ function koreader.install(opts)
     library sync reads and the fake transport writes.
     --]]--
     package.loaded["libs/libkoreader-lfs"] = {
-        attributes = function(path)
+        -- The real one answers a single field when asked for one by name,
+        -- and the whole table otherwise; callers use both.
+        attributes = function(path, request)
             local size = recorder.files[path]
             if size == nil then return nil end
-            return { mode = "file", size = size }
+            local all = { mode = "file", size = size }
+            if request then return all[request] end
+            return all
         end,
         mkdir = function(path)
             recorder.dirs[path] = true
             return true
         end,
     }
+
+    --[[--
+    KPM, which is a real binary on a Kindle and nothing at all here. A spec
+    says what it printed and whether it exited cleanly; the command itself is
+    recorded so the spec can assert on what would have run.
+    --]]--
+    recorder.real_io_popen = io.popen
+    io.popen = function(command, ...)
+        recorder.commands[#recorder.commands + 1] = command
+        local answer = recorder.shell
+        if answer == nil then return recorder.real_io_popen(command, ...) end
+        return {
+            read = function() return answer.output or "" end,
+            close = function() return answer.ok_status ~= false end,
+        }
+    end
 
     -- `os.rename` and `os.remove` are the right calls on the device, and the
     -- wrong ones here — they would reach the machine running the suite. They
@@ -196,7 +225,16 @@ function koreader.install(opts)
         getSettingsDir = function() return "/tmp/aidict-spec" end,
     }
 
-    package.loaded["device"] = { model = "SpecDevice" }
+    package.loaded["device"] = {
+        model = "SpecDevice",
+        canRestart = function() return recorder.can_restart end,
+    }
+
+    -- KOReader restarts by broadcasting an event; the spec reads it back
+    -- rather than a process actually going away.
+    package.loaded["ui/event"] = {
+        new = function(_, name) return { name = name } end,
+    }
 
     --[[--
     The two menu order tables. KOReader caches them through `require`, which
@@ -347,9 +385,11 @@ end
 function koreader.uninstall()
     os.rename = real_os.rename
     os.remove = real_os.remove
+    io.popen = real_io.popen
     for _, module in ipairs({
         "ui/widget/container/widgetcontainer", "ui/widget/infomessage", "ui/widget/textviewer",
-        "ui/widget/inputdialog", "ui/uimanager", "ui/trapper", "ui/network/manager",
+        "ui/widget/inputdialog", "ui/widget/confirmbox", "ui/uimanager", "ui/trapper",
+        "ui/network/manager", "ui/event",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
         "libs/libkoreader-lfs", "dispatcher",
         "ui/elements/reader_menu_order", "ui/elements/filemanager_menu_order",

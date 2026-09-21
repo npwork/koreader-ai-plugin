@@ -32,6 +32,7 @@ describe("the KOReader layer", function()
         kor = koreader.install({
             responses = opts.responses or { { status = 200, body = ANSWER } },
             online = opts.online,
+            can_restart = opts.can_restart,
             settings = settings,
         })
         local selected_text = opts.selected_text or { text = "fox", pos0 = "p1", pos1 = "p2" }
@@ -930,8 +931,9 @@ describe("the KOReader layer", function()
             plugin:checkForUpdates()
 
             assert.are.equal("https://repo.test/kpm/stable/version.json", kor.transport.requests[1].url)
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
             assert.is_truthy(last_shown().text:find("9.9.9", 1, true))
-            assert.is_truthy(last_shown().text:find("kpm upgrade koreader%-aidict"))
+            assert.are.equal("Install", last_shown().ok_text)
         end)
 
         it("says when there is nothing newer", function()
@@ -950,6 +952,83 @@ describe("the KOReader layer", function()
             plugin:checkForUpdates()
             assert.are.equal("InfoMessage", last_shown().widget_kind)
             assert.is_truthy(last_shown().text:find("Host not found", 1, true))
+        end)
+    end)
+
+    describe("installing an update", function()
+        local KPM = "/var/local/kmc/kindlehf/bin/kpm"
+
+        local function withKpm(opts)
+            opts = opts or {}
+            build({ settings = opts.settings })
+            -- KPM is a real binary on a Kindle; here it is a path that exists
+            -- and a canned thing for it to have printed.
+            kor.files[KPM] = 1
+            kor.shell = opts.shell or { output = "Installed 1 package(s) succesfully." }
+            return plugin
+        end
+
+        it("runs KPM on this package, and only this one", function()
+            withKpm():installUpdate("9.9.9")
+
+            local command = kor.commands[1]
+            assert.is_truthy(command:find("-y install 'koreader-aidict'", 1, true))
+            assert.is_truthy(command:find("LD_LIBRARY_PATH='/var/local/kmc/kindlehf/lib'", 1, true))
+            -- `kpm upgrade` would walk every package the reader has.
+            assert.is_nil(command:find(" upgrade", 1, true))
+        end)
+
+        it("offers the restart that loads the new code, rather than taking it", function()
+            withKpm():installUpdate("9.9.9")
+
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("Restart", 1, true))
+            assert.are.equal(0, #kor.broadcast)
+
+            last_shown().ok_callback()
+            assert.are.equal("Restart", kor.broadcast[1].name)
+        end)
+
+        it("says so plainly on a device that cannot restart itself", function()
+            build({ can_restart = false })
+            kor.files[KPM] = 1
+            kor.shell = { output = "Installed 1 package(s) succesfully." }
+
+            plugin:installUpdate("9.9.9")
+
+            assert.are.equal("InfoMessage", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("Restart KOReader", 1, true))
+        end)
+
+        it("quotes KPM's own failure instead of swallowing it", function()
+            withKpm({ shell = {
+                output = "Failed to install packages (3: could not reach the repository)",
+                ok_status = false,
+            } }):installUpdate("9.9.9")
+
+            assert.are.equal("InfoMessage", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("could not reach the repository", 1, true))
+            assert.are.equal(0, #kor.broadcast)
+        end)
+
+        it("falls back to the search bar when the device has no KPM", function()
+            build()
+            kor.shell = { output = "should never run" }
+
+            plugin:installUpdate("9.9.9")
+
+            assert.are.equal(0, #kor.commands)
+            assert.is_truthy(last_shown().text:find(";kpm install koreader-aidict", 1, true))
+        end)
+
+        it("waits for Wi-Fi rather than failing on it", function()
+            build({ online = false })
+            kor.files[KPM] = 1
+
+            plugin:installUpdate("9.9.9")
+
+            assert.are.equal(0, #kor.commands)
+            assert.is_function(kor.deferred)
         end)
     end)
 

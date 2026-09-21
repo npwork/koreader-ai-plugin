@@ -37,6 +37,7 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     format.lua            result -> displayed text
     http_transport.lua    the one file that uses luasocket
     json.lua              rapidjson if present, else KOReader's json
+    kpm.lua               driving the Kindle package manager to update this package
     library.lua           the book sync: manifest, plan, download
     lookup.lua            settings + cache + client wired together
     manifest.lua          the library manifest, and which paths may be written
@@ -59,6 +60,20 @@ docs/                     api.md (gateway contract), testing.md, emulator.md, di
 * Versions are never written by hand outside `version.lua`.
 * No backward compatibility: change settings, API contract or package layout outright.
 * Delete dead code and dead settings.
+
+## Updating itself
+
+**Check for updates** asks the channel's `version.json` whether there is
+something newer, and offers to install it. Installing runs the Kindle's own
+package manager — `kpm -y install koreader-aidict`, found at
+`/var/local/kmc/<platform>/bin/kpm` — from inside KOReader, so an update does
+not mean leaving the book to type `;kpm install …` into the Kindle's search
+bar. `install` rather than `upgrade`: KPM's `upgrade` walks every package the
+reader has, and a button here has no business updating somebody else's.
+
+KPM replaces the plugin underneath a running KOReader, which is safe — the Lua
+already loaded stays loaded — so the restart that picks up the new code is
+offered, not taken.
 
 ## Check before pushing
 
