@@ -1,9 +1,12 @@
 # koreader-ai-plugin
 
 KOReader plugin: tap a word (or hold a selection) and an **AI** button sends the
-word plus its surrounding sentence to a remote gateway; the reply (definition,
-examples) is shown in the viewer and cached on the device. Shipped to a Kindle
-as a KPM package.
+word, the sentence and the paragraph around it to a remote gateway; the reply —
+a definition of the sense this passage gives the word, three examples in that
+same sense, and a Russian translation that is fetched but not yet shown — is
+displayed in the viewer and cached on the device for thirty days. Shipped to a
+Kindle as a KPM package; the gateway's address and key are baked in at build
+time and are not in this repository.
 
 ## Layout
 
@@ -19,6 +22,7 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     http_transport.lua    the one file that uses luasocket
     json.lua              rapidjson if present, else KOReader's json
     lookup.lua            settings + cache + client wired together
+    reqid.lua             one id per lookup, so both sides log under the same one
     settings.lua          typed access over a LuaSettings-shaped store
     updater.lua           "is there a newer build on my channel?"
     version.lua           major.minor; patch = branch commit count, set at build
