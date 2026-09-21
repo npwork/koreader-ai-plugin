@@ -41,7 +41,7 @@ Config.DEFAULTS = {
     -- file browser. The sync creates it, and `documents/` is deliberately not
     -- it — that is the one folder the Kindle's own framework indexes, and an
     -- EPUB in there becomes an entry in the native library that opens badly.
-    library_dir = "/mnt/us/AI Books",
+    library_dir = "/mnt/us/AI_Books",
     -- The library mount's address. Empty means "derive it from `endpoint`" —
     -- both mounts sit on the same gateway, so one baked-in address covers
     -- both and the repository still carries none.

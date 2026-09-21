@@ -254,7 +254,7 @@ no listing credential on a Kindle.
 ```
 
 * `path` is relative and carries the folders. They are mirrored under
-  `library_dir`, which defaults to `/mnt/us/AI Books` — its own folder beside
+  `library_dir`, which defaults to `/mnt/us/AI_Books` — its own folder beside
   Audible, Documents and Screenshots, named to sort above them. The sync
   creates it. `documents/` is deliberately not it: that is the one folder the
   Kindle's own framework indexes, and an EPUB in there becomes an entry in

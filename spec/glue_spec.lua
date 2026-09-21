@@ -973,7 +973,7 @@ describe("the KOReader layer", function()
         it("keeps the folder in the plugin's own settings, and picks it", function()
             build()
             local _, label = menu_item("Books folder")
-            assert.are.equal("Books folder: /mnt/us/AI Books", label)
+            assert.are.equal("Books folder: /mnt/us/AI_Books", label)
 
             menu_item("Books folder").callback()
             assert.is_not_nil(kor.path_chooser)
