@@ -99,6 +99,25 @@ describe("format", function()
             assert.is_true(after_definition > between_examples * 2)
         end)
 
+        it("marks the irregular forms the gateway named, which no rule reaches", function()
+            -- "went" is not "go" plus an ending, and never will be.
+            local text = Format.result({
+                lemma = "go", word = "went", definition = "To move.",
+                forms = { "went", "goes" },
+                examples = { "He went down to the river.", "She goes early." },
+            })
+            assert.is_truthy(text:find("He <b>went</b> down", 1, true))
+            assert.is_truthy(text:find("She <b>goes</b> early", 1, true))
+        end)
+
+        it("still marks by rule when the gateway named no forms", function()
+            local text = Format.result({
+                lemma = "strap", word = "strapped", definition = "To fasten.",
+                examples = { "The climbers strapped their harnesses." },
+            })
+            assert.is_truthy(text:find("<b>strapped</b>", 1, true))
+        end)
+
         it("numbers the examples, so one of them can be referred to", function()
             local text = Format.result({
                 word = "fox",

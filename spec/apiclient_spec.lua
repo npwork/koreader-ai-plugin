@@ -364,6 +364,22 @@ describe("api client", function()
             assert.are.equal(900, result.retry_ms)
         end)
 
+        it("carries the forms the examples use, for marking the word", function()
+            local tr = helpers.transport({ { status = 200, body = helpers.body({
+                definition = "d", lemma = "go", forms = { "went", "goes" },
+            }) } })
+            assert.are.same({ "went", "goes" }, client(tr):define({ word = "went" }).forms)
+        end)
+
+        it("has an empty list when the gateway named none", function()
+            -- The gateway may legitimately send none, and the device then
+            -- falls back to what it can work out from the headword.
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({ definition = "d" }) },
+            })
+            assert.are.same({}, client(tr):define({ word = "fox" }).forms)
+        end)
+
         it("carries what the gateway's reviewer thought, for the log", function()
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({

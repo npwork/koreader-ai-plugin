@@ -124,7 +124,7 @@ Ask the gateway to explain a word.
   title        string optional book title, for disambiguation
   author       string optional
   request_id   string optional, sent as X-Request-Id so both logs agree
-@treturn table result { word, definition, translation, examples, part_of_speech,
+@treturn table result { word, definition, translation, examples, forms, part_of_speech,
                         model, timings, review }
 @treturn table err    { code, message, status, elapsed_ms, request_id, cf_ray }
 --]]--
@@ -230,14 +230,22 @@ function ApiClient:define(request)
         return fail(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition")
     end
 
-    local examples = {}
-    if type(decoded.examples) == "table" then
-        for _, example in ipairs(decoded.examples) do
-            if type(example) == "string" and example ~= "" then
-                examples[#examples + 1] = example
+    -- Strings out of a JSON array, keeping only the ones with something in
+    -- them: the gateway may legitimately send an empty list.
+    local function strings(value)
+        local out = {}
+        if type(value) == "table" then
+            for _, item in ipairs(value) do
+                if type(item) == "string" and item ~= "" then out[#out + 1] = item end
             end
         end
+        return out
     end
+
+    local examples = strings(decoded.examples)
+    -- Which spellings of the word the examples actually use, said by the model
+    -- that wrote them. Rules about endings never reach "went" from "go".
+    local forms = strings(decoded.forms)
 
     -- The gateway reports where its own time went: the model call, the second
     -- opinion on the answer, and the retry that opinion may have caused. The
@@ -267,6 +275,7 @@ function ApiClient:define(request)
         translation = type(decoded.translation) == "string" and decoded.translation or nil,
         part_of_speech = type(decoded.part_of_speech) == "string" and decoded.part_of_speech or nil,
         examples = examples,
+        forms = forms,
         model = type(decoded.model) == "string" and decoded.model or nil,
         elapsed_ms = elapsed_ms,
         server_ms = server_ms,

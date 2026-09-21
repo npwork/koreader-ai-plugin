@@ -79,6 +79,7 @@ the device from the plugin's menu.
   "lemma": "founder",
   "pronunciation": "/ˈfaʊndər/",
   "etymology": "From Old French fonder, to lay a base for.",
+  "forms": ["founders"],
   "model": "openai/gpt-oss-120b",
   "timing": {
     "total_ms": 1800, "upstream_ms": 1750,
@@ -103,6 +104,12 @@ form and an entry titled with that form is an echo, not an entry, so the
 window is titled with this instead and the tapped form appears beneath it when
 the two differ. Which headword it is depends on the sense: "left" the verb
 lemmatises to "leave" while "left" the direction stays "left".
+
+`forms` is every spelling of the word that appears in `examples`, as the model
+wrote them there. The device marks the word in each example, and rules about
+endings reach "strapped" from "strap" but never "went" from "go" — so the
+model, which wrote the sentences, says which words they are. It may be empty,
+and the device then marks what it can work out on its own.
 
 `pronunciation` is IPA for the **lemma**, not for the form in the passage, and
 sits on the headword's line the way a dictionary prints it. `etymology` is one

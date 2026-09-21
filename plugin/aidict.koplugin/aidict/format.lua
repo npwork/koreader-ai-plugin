@@ -235,11 +235,20 @@ function Format.result(result, opts)
     end
 
     if type(result.examples) == "table" and #result.examples > 0 then
+        -- Three sources for what to mark, and they cover different gaps: the
+        -- headword and the tapped form are always known, the endings rule
+        -- reaches the regular inflections, and the gateway's `forms` reach the
+        -- ones no rule does — "went" for "go", "mice" for "mouse".
+        local marks = { headword, tapped }
+        if type(result.forms) == "table" then
+            for _, form in ipairs(result.forms) do marks[#marks + 1] = form end
+        end
+
         local items = {}
         for _, example in ipairs(result.examples) do
             items[#items + 1] = string.format(
                 '<li style="margin-bottom: ' .. GAP.EXAMPLE .. '">%s</li>',
-                Format.highlight(example, { headword, tapped })
+                Format.highlight(example, marks)
             )
         end
         out[#out + 1] = string.format(
