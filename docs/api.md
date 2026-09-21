@@ -254,11 +254,11 @@ no listing credential on a Kindle.
 ```
 
 * `path` is relative and carries the folders. They are mirrored under
-  `library_dir`, which defaults to `/mnt/us/documents` — the folder the
-  reader already keeps books in. The Kindle's own framework indexes that one,
-  so a synced EPUB also appears in the native library, usually as an entry
-  that opens badly; that is the price of one books folder instead of two, and
-  the menu picks a different one in two taps.
+  `library_dir`, which defaults to `/mnt/us/AI Books` — its own folder beside
+  Audible, Documents and Screenshots, named to sort above them. The sync
+  creates it. `documents/` is deliberately not it: that is the one folder the
+  Kindle's own framework indexes, and an EPUB in there becomes an entry in
+  the native library that opens badly.
 * `size` is what the device compares against. **Not existence**: a download
   the Kindle lost Wi-Fi halfway through leaves a file that is there and wrong,
   and "already have it" would keep it wrong for ever.

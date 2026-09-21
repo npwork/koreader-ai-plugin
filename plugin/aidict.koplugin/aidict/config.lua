@@ -36,12 +36,12 @@ Config.DEFAULTS = {
     -- that ever matters more than the wait.
     prefetch = true,
 
-    -- Where synced books land: the folder the reader already keeps books in.
-    -- The Kindle's own framework indexes this one, so a synced EPUB also
-    -- shows up in the native library — usually as an entry that opens badly.
-    -- That is the price of having one books folder instead of two, and it is
-    -- the reader's own call; the menu picks a different one in two taps.
-    library_dir = "/mnt/us/documents",
+    -- Where synced books land: its own folder beside Audible, Documents and
+    -- Screenshots, named to sort above them so it is the first thing in the
+    -- file browser. The sync creates it, and `documents/` is deliberately not
+    -- it — that is the one folder the Kindle's own framework indexes, and an
+    -- EPUB in there becomes an entry in the native library that opens badly.
+    library_dir = "/mnt/us/AI Books",
     -- The library mount's address. Empty means "derive it from `endpoint`" —
     -- both mounts sit on the same gateway, so one baked-in address covers
     -- both and the repository still carries none.
