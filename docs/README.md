@@ -1,12 +1,21 @@
 # koreader-ai-plugin
 
-KOReader plugin: tap a word (or hold a selection) and an **AI** button sends the
-word, the sentence and the paragraph around it to a remote gateway; the reply —
-a definition of the sense this passage gives the word, three examples in that
-same sense, and a Russian translation that is fetched but not yet shown — is
-displayed in the viewer and cached on the device for thirty days. Shipped to a
-Kindle as a KPM package; the gateway's address and key are baked in at build
-time and are not in this repository.
+KOReader plugin: tap a word (or hold a selection) and an **AI** button sends
+the word, the sentence and the paragraph around it to a remote gateway. The
+answer is a dictionary entry for the sense *this passage* gives the word —
+headword, IPA, part of speech, a definition, three examples in that same sense
+with the word marked in each, and a line of etymology. A Russian translation
+is fetched and cached but not yet shown. Everything is cached on the device
+for thirty days.
+
+The request does not wait for the button. It goes out when the dictionary
+opens, so by the time **AI** is pressed the answer is usually already there;
+pressing it while the request is still out joins that one rather than starting
+a second. This is on by default and switched off in the menu — it costs a
+request per dictionary lookup rather than per AI press.
+
+Shipped to a Kindle as a KPM package; the gateway's address and key are baked
+in at build time and are not in this repository.
 
 ## Layout
 
@@ -53,6 +62,8 @@ no KOReader checkout, no Kindle.
 ## Gateway
 
 `POST <endpoint>/define` with `{word, context, sentence}`, answered with
-`{definition, examples}`. Full contract in `api.md`. The endpoint is not stored
-in this repository; `config.lua` ships it empty and it is set at build time or
-from the plugin's menu. The bearer token is typed on the device only.
+`{lemma, pronunciation, definition, etymology, examples, forms, …}`. Full
+contract in `api.md`. Neither the endpoint nor the key is stored in this
+repository: `config.lua` ships both empty and the build injects them from the
+`AIDICT_ENDPOINT` and `AIDICT_TOKEN` secrets. The key is sent as a query
+parameter on the endpoint URL, so one baked-in string carries both.
