@@ -35,28 +35,43 @@ test ! -f "${WORK}/koreader/plugins/aidict.koplugin/stale.lua"
 KOREADER_DIR="${WORK}/koreader" sh uninstall.sh >/dev/null
 test ! -d "${WORK}/koreader/plugins/aidict.koplugin"
 
-# The gateway address and its key are injected at build time, never committed.
-AIDICT_ENDPOINT="https://gateway.test/koreader-ai" AIDICT_TOKEN="test-key-123" \
+# The gateway address is injected at build time, never committed.
+AIDICT_ENDPOINT="https://gateway.test/koreader-ai" \
     python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-ep" >/dev/null
 mkdir -p "${WORK}/pkg-ep"
 tar xzf "${WORK}"/dist-ep/*.kpkg -C "${WORK}/pkg-ep"
 grep -q 'endpoint = "https://gateway.test/koreader-ai"' \
     "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
     || { echo "the endpoint was not baked into the package"; exit 1; }
-grep -q 'api_key = "test-key-123"' \
-    "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
-    || { echo "the key was not baked into the package"; exit 1; }
 grep -q 'endpoint = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "an endpoint leaked into the committed config.lua"; exit 1; }
 grep -q 'api_key = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "a key leaked into the committed config.lua"; exit 1; }
 
-# A key without an address is a package that cannot reach anything: refuse it
-# rather than shipping one that silently asks the reader to set an endpoint.
-if AIDICT_TOKEN="orphan" python3 "${ROOT}/scripts/kpmrepo.py" package \
-        --output "${WORK}/dist-orphan" >/dev/null 2>&1; then
-    echo "packaging accepted a token with no endpoint"; exit 1
-fi
+# The published package is world-readable and the key now opens far more than
+# the dictionary, so a built package must never carry one — whatever is in the
+# environment. This is the check that keeps it that way.
+grep -q 'api_key = ""' "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
+    || { echo "a key was baked into the package"; exit 1; }
+AIDICT_TOKEN="must-be-ignored" AIDICT_ENDPOINT="https://gateway.test/koreader-ai" \
+    python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-nokey" >/dev/null
+mkdir -p "${WORK}/pkg-nokey"
+tar xzf "${WORK}"/dist-nokey/*.kpkg -C "${WORK}/pkg-nokey"
+grep -q 'api_key = ""' "${WORK}/pkg-nokey/aidict.koplugin/aidict/config.lua" \
+    || { echo "AIDICT_TOKEN in the environment still reached the package"; exit 1; }
+
+# The address IS baked in, and the gateway takes its key as `?token=` — so an
+# endpoint carrying a query string, a fragment or userinfo would publish the
+# credential by the back door. Each must be refused, not quietly packaged.
+for bad in \
+        "https://gateway.test/koreader-ai?token=leaked" \
+        "https://gateway.test/koreader-ai#leaked" \
+        "https://someone:leaked@gateway.test/koreader-ai"; do
+    if AIDICT_ENDPOINT="$bad" python3 "${ROOT}/scripts/kpmrepo.py" package \
+            --output "${WORK}/dist-bad" >/dev/null 2>&1; then
+        echo "packaging accepted an endpoint that can carry a credential: $bad"; exit 1
+    fi
+done
 
 # Every Lua file in the package must parse. Injection rewrites source, and a
 # value with a newline in it once produced a config.lua that only failed on
@@ -64,4 +79,4 @@ fi
 find "${WORK}/pkg-ep" -name '*.lua' -exec luac5.1 -p {} +
 
 echo "package verified: install, upgrade and uninstall all behave,"
-echo "and the endpoint and key are injected at build time rather than committed"
+echo "and the endpoint is injected at build time while the key never is"
