@@ -40,12 +40,13 @@ the device from the plugin's menu.
   word explained, not replaced, so the answer is English; `source_lang` is the
   book's language as KOReader knows it, which is often absent.
 * `title` and `author` are there for disambiguation, not for logging.
-* `Authorization: Bearer <key>` carries the gateway's key. The key is baked
-  into the package at build time from the `AIDICT_TOKEN` secret, the same way
-  the address is — neither is in the repository. The gateway also accepts the
-  key as `?token=<key>`, so it can ride inside the baked-in address instead
-  and there is one secret to inject rather than two; the header is the better
-  of the two, since a query string reaches access logs.
+* `Authorization: Bearer <key>` carries the gateway's key. Unlike the address,
+  the key is **not** baked into the package: the package is published on a
+  public site, and this key is the one token the gateway answers to, so a
+  baked copy would be a published one. It is set on the device instead, under
+  the plugin's "API key" setting. The gateway also accepts it as
+  `?token=<key>`, but the header is the better of the two, since a query
+  string reaches access logs.
 * `X-Request-Id` is minted by the device, one per lookup, shaped
   `aidict-<hex seconds>-<hex random>`. The gateway keeps it if it matches
   `[A-Za-z0-9._-]{1,64}`, stamps it onto every log line the request produces,

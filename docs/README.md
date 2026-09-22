@@ -91,9 +91,11 @@ no KOReader checkout, no Kindle.
 `POST <endpoint>/define` with `{word, context, sentence}`, answered with
 `{lemma, pronunciation, definition, etymology, examples, forms, …}`. Full
 contract in `api.md`. Neither the endpoint nor the key is stored in this
-repository: `config.lua` ships both empty and the build injects them from the
-`AIDICT_ENDPOINT` and `AIDICT_TOKEN` secrets. The key is sent as a query
-parameter on the endpoint URL, so one baked-in string carries both.
+repository. `config.lua` ships both empty; the build injects the address from
+the `AIDICT_ENDPOINT` secret, and the key is never injected at all — the
+published package is world-readable and the gateway's key now opens the codex
+proxy and the Words data endpoint too, so it is typed once into the plugin's
+own "API key" field on the device.
 
 The library lives on the same gateway, one path along: `GET
 <endpoint>/../koreader-library/manifest`. The plugin derives that address from
