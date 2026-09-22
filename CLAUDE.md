@@ -31,9 +31,22 @@ that is the layering telling you it is on the wrong side.
 make check      # luacheck + busted + package install/upgrade/uninstall
 ```
 
-There is no emulator in the cloud environment by default; `docs/emulator.md`
-says exactly what to change if you need one, and what only the physical Kindle
-can answer.
+Run it, every time, before the push — not after. A push here is a release:
+by the time CI goes red the broken package is already on Pages, waiting for
+the next `;kpm upgrade` to put it on the Kindle. CI is the second opinion,
+never the first.
+
+`make check` covers what runs in a container. Two things it does not:
+
+* `make check-all` adds the real KPM over real HTTP, worth it when the change
+  touches packaging, `scripts/` or the manifest.
+* Nothing local loads the plugin into KOReader. The `koreader smoke` workflow
+  does that on a push, and `docs/emulator.md` says what to change to run one
+  here — and what only the physical Kindle can answer.
+
+Unlike `ai-small-projects`, this repo is public, so its Actions minutes are
+free and its CI runs in full. Do not turn any of it off to save minutes;
+there are none to save.
 
 ## Changing things
 
