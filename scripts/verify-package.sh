@@ -60,6 +60,19 @@ tar xzf "${WORK}"/dist-nokey/*.kpkg -C "${WORK}/pkg-nokey"
 grep -q 'api_key = ""' "${WORK}/pkg-nokey/aidict.koplugin/aidict/config.lua" \
     || { echo "AIDICT_TOKEN in the environment still reached the package"; exit 1; }
 
+# The address IS baked in, and the gateway takes its key as `?token=` — so an
+# endpoint carrying a query string, a fragment or userinfo would publish the
+# credential by the back door. Each must be refused, not quietly packaged.
+for bad in \
+        "https://gateway.test/koreader-ai?token=leaked" \
+        "https://gateway.test/koreader-ai#leaked" \
+        "https://someone:leaked@gateway.test/koreader-ai"; do
+    if AIDICT_ENDPOINT="$bad" python3 "${ROOT}/scripts/kpmrepo.py" package \
+            --output "${WORK}/dist-bad" >/dev/null 2>&1; then
+        echo "packaging accepted an endpoint that can carry a credential: $bad"; exit 1
+    fi
+done
+
 # Every Lua file in the package must parse. Injection rewrites source, and a
 # value with a newline in it once produced a config.lua that only failed on
 # the device.

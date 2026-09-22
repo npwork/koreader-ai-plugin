@@ -45,8 +45,9 @@ the device from the plugin's menu.
   public site, and this key is the one token the gateway answers to, so a
   baked copy would be a published one. It is set on the device instead, under
   the plugin's "API key" setting. The gateway also accepts it as
-  `?token=<key>`, but the header is the better of the two, since a query
-  string reaches access logs.
+  `?token=<key>`, but the header is the better of the two: a query string
+  reaches access logs, and packaging refuses an `AIDICT_ENDPOINT` carrying a
+  query string precisely so the key cannot re-enter the package that way.
 * `X-Request-Id` is minted by the device, one per lookup, shaped
   `aidict-<hex seconds>-<hex random>`. The gateway keeps it if it matches
   `[A-Za-z0-9._-]{1,64}`, stamps it onto every log line the request produces,

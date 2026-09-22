@@ -77,10 +77,33 @@ def config_lua(endpoint: str) -> bytes:
     # A secret pasted into CI usually carries a trailing newline, and that
     # newline inside a Lua string literal is a syntax error that would only
     # show up on the device. Anything that cannot sit inside "..." is refused
-    # outright rather than escaped, because none of it belongs in either value.
+    # outright rather than escaped, because none of it belongs in the value.
     endpoint = endpoint.strip()
     if not re.match(r"^https?://[^\s\"\\\\]+\Z", endpoint):
         raise SystemExit(f"--endpoint wants a plain http(s) URL, got {endpoint!r}")
+
+    # The address is baked in and the key is not — but the gateway also accepts
+    # the key as `?token=`, and userinfo is a password in a URL, so an address
+    # carrying either would put the credential straight back into a package
+    # anyone can download. Refuse rather than strip: a CI secret set to such a
+    # URL is a mistake to fix at the source, not to paper over silently.
+    #
+    # None of these belong in this address anyway. The plugin appends `/define`
+    # and derives the library mount from it, so a query string or a fragment
+    # would land in the middle of the path and break both.
+    rest = endpoint.split("://", 1)[1]
+    authority = re.split(r"[/?#]", rest, maxsplit=1)[0]
+    if "@" in authority:
+        raise SystemExit(
+            "--endpoint must not carry userinfo: it would be published inside the package"
+        )
+    for mark, what in (("?", "a query string"), ("#", "a fragment")):
+        if mark in rest:
+            raise SystemExit(
+                f"--endpoint must not carry {what}: the gateway takes its key as "
+                "?token=, and this address is published inside the package. Set the "
+                "bare address here and the key on the device."
+            )
 
     path = PLUGIN_DIR / "aidict" / "config.lua"
     text = path.read_text()
