@@ -11,6 +11,10 @@ local helpers = {}
 --- package at build time, so the specs supply their own.
 helpers.ENDPOINT = "https://gw.test/koreader-ai"
 
+--- The library's, which is its own address rather than the one above with a
+--- path segment swapped: the dictionary is a Worker and the library is not.
+helpers.LIBRARY_ENDPOINT = "https://gw.test/koreader-library"
+
 --- A LuaSettings-shaped store backed by a table.
 function helpers.store(initial)
     local data = {}

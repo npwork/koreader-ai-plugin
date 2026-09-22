@@ -42,9 +42,12 @@ Config.DEFAULTS = {
     -- it — that is the one folder the Kindle's own framework indexes, and an
     -- EPUB in there becomes an entry in the native library that opens badly.
     library_dir = "/mnt/us/AI_Books",
-    -- The library mount's address. Empty means "derive it from `endpoint`" —
-    -- both mounts sit on the same gateway, so one baked-in address covers
-    -- both and the repository still carries none.
+    -- The library mount's address. Baked in at package time from
+    -- AIDICT_LIBRARY_ENDPOINT, the way `endpoint` is from AIDICT_ENDPOINT, so
+    -- the public repository still carries none. It used to be derived from
+    -- `endpoint` by swapping the last path segment; that stopped working when
+    -- the dictionary moved to a Worker and the library stayed on the gateway.
+    -- Empty means the device has not been told, and the sync says so.
     library_endpoint = "",
 
     channel = "stable",

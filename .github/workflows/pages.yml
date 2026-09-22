@@ -35,9 +35,15 @@ jobs:
           fetch-depth: 0
 
       - name: Build the site
-        # The gateway address is baked into the package here; without
-        # AIDICT_ENDPOINT it ships with no address and the reader is asked to
-        # set one on the device.
+        # Two addresses are baked into the package here, and each is its own
+        # secret: AIDICT_ENDPOINT for the dictionary and
+        # AIDICT_LIBRARY_ENDPOINT for the library. They used to be one — the
+        # library's was worked out from the dictionary's by swapping the last
+        # path segment — which held while both mounts sat on the same gateway.
+        # /koreader-ai moved to a Cloudflare Worker on 2026-09-22 and the
+        # library stayed with the books, so neither address says anything
+        # about the other. Either one unset ships without it, and the reader
+        # is asked to set it on the device.
         #
         # The KEY IS DELIBERATELY NOT BAKED IN any more. This site is public,
         # so anyone can download a .kpkg and read what is inside it — and the
@@ -47,9 +53,13 @@ jobs:
         # own "API key" field on the device.
         env:
           AIDICT_ENDPOINT: ${{ secrets.AIDICT_ENDPOINT }}
+          AIDICT_LIBRARY_ENDPOINT: ${{ secrets.AIDICT_LIBRARY_ENDPOINT }}
         run: |
           if [ -z "${AIDICT_ENDPOINT}" ]; then
             echo "address: AIDICT_ENDPOINT is not set — the reader will be asked for one"
+          fi
+          if [ -z "${AIDICT_LIBRARY_ENDPOINT}" ]; then
+            echo "library: AIDICT_LIBRARY_ENDPOINT is not set — the reader will be asked for one"
           fi
           echo "key: never packaged — set it on the device (Settings > API key)"
           ./scripts/build-site.sh

@@ -64,30 +64,36 @@ end
 
 describe("library", function()
     describe("finding the mount", function()
-        it("puts the library where the dictionary is", function()
+        it("uses the address it is given", function()
             assert.are.equal("https://gw.test/koreader-library",
-                Library.endpoint_from("https://gw.test/koreader-ai"))
+                Library.endpoint_from("https://gw.test/koreader-library"))
         end)
 
         it("keeps a baked-in key at the end, where a query has to be", function()
             assert.are.equal("https://gw.test/koreader-library?token=abc",
-                Library.endpoint_from("https://gw.test/koreader-ai?token=abc"))
+                Library.endpoint_from("https://gw.test/koreader-library?token=abc"))
         end)
 
         it("ignores a trailing slash", function()
             assert.are.equal("https://gw.test/koreader-library",
-                Library.endpoint_from("https://gw.test/koreader-ai/"))
+                Library.endpoint_from("https://gw.test/koreader-library/"))
+            assert.are.equal("https://gw.test/koreader-library?token=abc",
+                Library.endpoint_from("https://gw.test/koreader-library/?token=abc"))
         end)
 
-        it("prefers an explicit address when the two are ever split up", function()
-            assert.are.equal("https://books.test/x",
-                Library.endpoint_from("https://gw.test/koreader-ai", "https://books.test/x"))
+        -- The dictionary's address is no longer a route to the library's: one
+        -- is a Worker and the other is the gateway. Handing it this one used
+        -- to yield https://koreader-library, which failed at the fetch.
+        it("will not take the dictionary's address for the library's", function()
+            assert.are.equal("https://koreader-ai.test",
+                Library.endpoint_from("https://koreader-ai.test"))
         end)
 
-        it("has nowhere to go without an endpoint", function()
+        it("has nowhere to go without an address", function()
             assert.is_nil(Library.endpoint_from(""))
             assert.is_nil(Library.endpoint_from(nil))
-            assert.is_nil(Library.endpoint_from("not a url", "also not a url"))
+            assert.is_nil(Library.endpoint_from("not a url"))
+            assert.is_nil(Library.endpoint_from("ftp://gw.test/koreader-library"))
         end)
     end)
 

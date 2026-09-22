@@ -24,10 +24,14 @@ describe("the KOReader layer", function()
 
     local function build(opts)
         opts = opts or {}
-        -- The shipped package carries no endpoint; it is baked in at build
-        -- time. Give the reader one unless the spec is about not having it.
+        -- The shipped package carries neither address; both are baked in at
+        -- build time. Give the reader them unless the spec is about not
+        -- having one.
         local settings = {}
         if not opts.no_endpoint then settings.endpoint = helpers.ENDPOINT end
+        if not opts.no_library_endpoint then
+            settings.library_endpoint = helpers.LIBRARY_ENDPOINT
+        end
         for key, value in pairs(opts.settings or {}) do settings[key] = value end
 
         kor = koreader.install({
@@ -1117,8 +1121,7 @@ describe("the KOReader layer", function()
 
             plugin:syncLibrary()
 
-            -- The library mount, derived from the dictionary's address rather
-            -- than baked in a second time.
+            -- The library mount, from its own setting.
             assert.are.equal("https://gw.test/koreader-library/manifest", kor.transport.requests[1].url)
             assert.are.equal(BOOKS .. "/Lem/Solaris.epub.part", kor.transport.requests[2].download_to)
             assert.are.equal(10, kor.files[BOOKS .. "/Lem/Solaris.epub"])
@@ -1154,13 +1157,23 @@ describe("the KOReader layer", function()
             assert.is_truthy(text:find("expired", 1, true))
         end)
 
-        it("asks for the endpoint rather than syncing into nowhere", function()
-            build({ no_endpoint = true })
+        -- And specifically for its own: the dictionary's address is no route
+        -- to it now that one is a Worker and the other is the gateway.
+        it("asks for the library address rather than syncing into nowhere", function()
+            build({ no_library_endpoint = true })
 
             plugin:syncLibrary()
 
             assert.are.equal(0, kor.transport.calls)
-            assert.is_truthy(last_shown().text:find("endpoint", 1, true))
+            assert.is_truthy(last_shown().text:find("library address", 1, true))
+        end)
+
+        it("does not fall back to the dictionary's address", function()
+            build({ no_library_endpoint = true, settings = { library_dir = BOOKS } })
+
+            plugin:syncLibrary()
+
+            assert.are.equal(0, kor.transport.calls)
         end)
 
         it("waits for Wi-Fi instead of failing on it", function()

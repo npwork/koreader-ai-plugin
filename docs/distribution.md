@@ -82,17 +82,24 @@ in this repository.
 The artifacts have to be anonymously downloadable whatever the host: KPM speaks
 plain libcurl and has no way to send credentials.
 
-### The one secret in the pipeline
+### The two secrets in the pipeline
 
-`AIDICT_ENDPOINT` (a repository secret) is the gateway address, injected into
-`config.lua` inside the package at build time. The source tree leaves it empty,
-so nothing commits it. `scripts/verify-package.sh` fails if an address ever
-leaks into the committed `config.lua`, or if the injected one does not reach
-the built package.
+`AIDICT_ENDPOINT` and `AIDICT_LIBRARY_ENDPOINT` (repository secrets) are the
+two addresses, injected into `config.lua` inside the package at build time.
+The source tree leaves both empty, so nothing commits either.
+`scripts/verify-package.sh` fails if an address ever leaks into the committed
+`config.lua`, if an injected one does not reach the built package, or if
+setting one invents the other.
 
-The address is not protected by this — the package is public and can be
-unpacked. It is kept out of the repository so it is not searchable, and the
-gateway's bearer token, which never enters the package, is what guards it.
+There was one until 2026-09-22, because the library's address was the
+dictionary's with the last path segment swapped and both mounts sat on the
+same gateway. `/koreader-ai` moved to a Cloudflare Worker and the library
+stayed with the books, so the old rule produced `https://koreader-library` —
+an address that is not one. They are set separately now.
+
+Neither address is protected by this — the package is public and can be
+unpacked. They are kept out of the repository so they are not searchable, and
+the bearer token, which never enters the package, is what guards both.
 
 ### Releasing
 

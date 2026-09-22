@@ -674,11 +674,9 @@ end
 
 --- Pull the books the gateway has and this device does not.
 function AiDict:syncLibrary()
-    local endpoint = Library.endpoint_from(
-        self.settings:get("endpoint"),
-        self.settings:get("library_endpoint"))
+    local endpoint = Library.endpoint_from(self.settings:get("library_endpoint"))
     if not endpoint then
-        UIManager:show(InfoMessage:new{ text = _("Set the endpoint first: the library lives beside it.") })
+        UIManager:show(InfoMessage:new{ text = _("Set the library address first: it is its own setting now.") })
         return
     end
 

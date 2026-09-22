@@ -9,7 +9,10 @@ and `/message-watcher` the same way, so `/koreader-ai` is one more mount).
 
 The address is not written down in this repository: it is injected into the
 package at build time from the `AIDICT_ENDPOINT` secret, and can be changed on
-the device from the plugin's menu.
+the device from the plugin's menu. Since 2026-09-22 it is a Cloudflare Worker
+rather than a gateway mount — the same handler, answering at the edge at
+roughly a third of the latency. The library kept its own address, which is
+now `AIDICT_LIBRARY_ENDPOINT`: nothing derives one from the other.
 
 ### Request
 
@@ -42,12 +45,13 @@ the device from the plugin's menu.
 * `title` and `author` are there for disambiguation, not for logging.
 * `Authorization: Bearer <key>` carries the gateway's key. Unlike the address,
   the key is **not** baked into the package: the package is published on a
-  public site, and this key is the one token the gateway answers to, so a
+  public site, and this key is the one token both mounts answer to, so a
   baked copy would be a published one. It is set on the device instead, under
-  the plugin's "API key" setting. The gateway also accepts it as
+  the plugin's "API key" setting. Both also accept it as
   `?token=<key>`, but the header is the better of the two: a query string
-  reaches access logs, and packaging refuses an `AIDICT_ENDPOINT` carrying a
-  query string precisely so the key cannot re-enter the package that way.
+  reaches access logs, and packaging refuses an `AIDICT_ENDPOINT` or an
+  `AIDICT_LIBRARY_ENDPOINT` carrying a query string precisely so the key
+  cannot re-enter the package that way.
 * `X-Request-Id` is minted by the device, one per lookup, shaped
   `aidict-<hex seconds>-<hex random>`. The gateway keeps it if it matches
   `[A-Za-z0-9._-]{1,64}`, stamps it onto every log line the request produces,
@@ -227,12 +231,15 @@ subprocess doing the request.
 
 # The library contract
 
-The same gateway, one path along. The plugin does not carry a second address:
-it takes the one baked in at build time and swaps the last path segment, so
-`https://host/koreader-ai` becomes `https://host/koreader-library`. A
-`?token=` riding on the baked-in address is kept at the end, where a query has
-to be. `library_endpoint` in the menu overrides the lot, for the day the two
-mounts are ever split up.
+Still the gateway, and now its own address. `library_endpoint` is baked into
+the package from `AIDICT_LIBRARY_ENDPOINT` and can be changed in the menu; a
+`?token=` riding on it is kept at the end, where a query has to be. Empty
+means the device has not been told, and the sync says so rather than guessing.
+
+The plugin used to carry one address and swap the last path segment —
+`https://host/koreader-ai` became `https://host/koreader-library`. That day
+came on 2026-09-22: the dictionary moved to a Cloudflare Worker and the
+library stayed here, and a Worker address has no path segment to swap.
 
 ## GET `<library>/manifest`
 

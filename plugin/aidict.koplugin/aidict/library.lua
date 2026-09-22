@@ -19,9 +19,6 @@ local Version = require("aidict.version")
 local Library = {}
 Library.__index = Library
 
---- The mount the gateway serves the library from.
-Library.PATH = "koreader-library"
-
 -- A book is not a definition: a 30 MB file over a Kindle's radio needs room
 -- that would be an absurd wait for a word lookup, so these are the library's
 -- own rather than the settings the dictionary uses.
@@ -29,36 +26,32 @@ local DOWNLOAD_BLOCK_TIMEOUT = 30
 local DOWNLOAD_TOTAL_TIMEOUT = 600
 
 --[[--
-Where the library lives, given where the dictionary lives.
+Where the library lives.
 
-The package is built with one address baked in (`AIDICT_ENDPOINT`), and both
-mounts sit side by side on the same gateway — so the library's address is the
-dictionary's with the last path segment swapped. Deriving it means the public
-repository still carries no address, and a device that moves to a new gateway
-moves both halves at once.
+It used to be worked out from the dictionary's address by swapping the last
+path segment, because both mounts sat side by side on the same gateway. They
+do not any more: `/koreader-ai` moved to a Cloudflare Worker on 2026-09-22 and
+the library stayed on the gateway with the books. A Worker address has no path
+segment to swap, so the old rule produced `https://koreader-library` — an
+address that is not one, failing at the fetch rather than here.
 
-An explicit `override` wins, for the case where they are ever split up.
+So it is its own setting now, baked into the package the same way the
+dictionary's is. Empty means the device has not been told, and the caller says
+so rather than guessing.
 --]]--
-function Library.endpoint_from(endpoint, override)
-    if type(override) == "string" and override:match("^https?://") then
-        return override
-    end
-    if type(endpoint) ~= "string" or not endpoint:match("^https?://") then
-        return nil
-    end
+function Library.endpoint_from(library_endpoint)
+    if type(library_endpoint) ~= "string" then return nil end
+    if not library_endpoint:match("^https?://[^%s]+$") then return nil end
 
-    -- The query has to stay at the end: the gateway accepts its key as
+    -- The query has to stay at the end: the mount takes its key as
     -- `?token=…`, so the baked-in address may carry one.
-    local base, query = endpoint, ""
+    local base, query = library_endpoint, ""
     local mark = base:find("?", 1, true)
     if mark then
         query = base:sub(mark)
         base = base:sub(1, mark - 1)
     end
-
-    base = base:gsub("/+$", "")
-    local parent = base:match("^(.*)/[^/]*$") or base
-    return parent .. "/" .. Library.PATH .. query
+    return base:gsub("/+$", "") .. query
 end
 
 function Library.new(opts)

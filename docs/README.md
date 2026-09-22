@@ -97,7 +97,9 @@ published package is world-readable and the gateway's key now opens the codex
 proxy and the Words data endpoint too, so it is typed once into the plugin's
 own "API key" field on the device.
 
-The library lives on the same gateway, one path along: `GET
-<endpoint>/../koreader-library/manifest`. The plugin derives that address from
-the one it was built with rather than carrying a second, so there is still one
-secret and one thing to change when the gateway moves.
+The library lives on the gateway, at `GET <library endpoint>/manifest`, and it
+is its own baked-in address from the `AIDICT_LIBRARY_ENDPOINT` secret. It used
+to be derived from the dictionary's by swapping the last path segment, which
+held while both mounts sat on the same gateway. `/koreader-ai` moved to a
+Cloudflare Worker on 2026-09-22 and the library stayed with the books, so the
+two addresses have nothing to do with each other and each is set on its own.

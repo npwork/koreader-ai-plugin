@@ -60,58 +60,84 @@ def parse_version(text: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
-def config_lua(endpoint: str) -> bytes:
-    """config.lua with the gateway address baked in.
-
-    The address does not belong in the source tree, so it lives in a CI
-    secret and is injected here. It ends up inside the published .kpkg, which
-    anyone can download: this keeps it out of the repository, not out of the
-    world.
-
-    The KEY IS NOT INJECTED, and there is deliberately no way to inject one.
-    The gateway now answers to a single token that also opens the codex proxy
-    and the Words data endpoint, and a value baked into a package on a public
-    site is a published value. The key is typed once into the plugin's own
-    "API key" field on the device.
-    """
+def _bake_address(flag: str, value: str) -> str:
+    """Check one address that will be published inside the package."""
     # A secret pasted into CI usually carries a trailing newline, and that
     # newline inside a Lua string literal is a syntax error that would only
     # show up on the device. Anything that cannot sit inside "..." is refused
     # outright rather than escaped, because none of it belongs in the value.
-    endpoint = endpoint.strip()
-    if not re.match(r"^https?://[^\s\"\\\\]+\Z", endpoint):
-        raise SystemExit(f"--endpoint wants a plain http(s) URL, got {endpoint!r}")
+    value = value.strip()
+    if not re.match(r"^https?://[^\s\"\\\\]+\Z", value):
+        raise SystemExit(f"{flag} wants a plain http(s) URL, got {value!r}")
 
-    # The address is baked in and the key is not — but the gateway also accepts
+    # The address is baked in and the key is not — but both mounts also accept
     # the key as `?token=`, and userinfo is a password in a URL, so an address
     # carrying either would put the credential straight back into a package
     # anyone can download. Refuse rather than strip: a CI secret set to such a
     # URL is a mistake to fix at the source, not to paper over silently.
     #
-    # None of these belong in this address anyway. The plugin appends `/define`
-    # and derives the library mount from it, so a query string or a fragment
-    # would land in the middle of the path and break both.
-    rest = endpoint.split("://", 1)[1]
+    # None of these belong in these addresses anyway. The plugin appends
+    # `/define` to one and a book's path to the other, so a query string or a
+    # fragment would land in the middle of the path and break both.
+    rest = value.split("://", 1)[1]
     authority = re.split(r"[/?#]", rest, maxsplit=1)[0]
     if "@" in authority:
         raise SystemExit(
-            "--endpoint must not carry userinfo: it would be published inside the package"
+            f"{flag} must not carry userinfo: it would be published inside the package"
         )
     for mark, what in (("?", "a query string"), ("#", "a fragment")):
         if mark in rest:
             raise SystemExit(
-                f"--endpoint must not carry {what}: the gateway takes its key as "
+                f"{flag} must not carry {what}: the mount takes its key as "
                 "?token=, and this address is published inside the package. Set the "
                 "bare address here and the key on the device."
             )
+    return value
 
-    path = PLUGIN_DIR / "aidict" / "config.lua"
-    text = path.read_text()
-    patched, count = re.subn(r'endpoint\s*=\s*"[^"]*",', f'endpoint = "{endpoint}",', text, count=1)
-    if count != 1:
-        raise SystemExit("could not find the endpoint default in config.lua")
 
-    return patched.encode()
+def config_lua(endpoint: str | None, library_endpoint: str | None) -> bytes:
+    """config.lua with the two addresses baked in.
+
+    Neither belongs in the source tree, so each lives in a CI secret and is
+    injected here. They end up inside the published .kpkg, which anyone can
+    download: this keeps them out of the repository, not out of the world.
+
+    There are two because there used to be one. The library's address was
+    worked out from the dictionary's by swapping the last path segment, which
+    held while both mounts sat on the same gateway. `/koreader-ai` moved to a
+    Cloudflare Worker on 2026-09-22 and the library stayed with the books, so
+    the two are now unrelated addresses and each is set on its own.
+
+    The KEY IS NOT INJECTED, and there is deliberately no way to inject one.
+    The gateway answers to a single token that also opens the codex proxy and
+    the Words data endpoint, and a value baked into a package on a public site
+    is a published value. The key is typed once into the plugin's own
+    "API key" field on the device.
+    """
+    text = (PLUGIN_DIR / "aidict" / "config.lua").read_text()
+
+    for flag, key, value in (
+        ("--endpoint", "endpoint", endpoint),
+        ("--library-endpoint", "library_endpoint", library_endpoint),
+    ):
+        if value is None:
+            continue
+        value = _bake_address(flag, value)
+        # Anchored on the line: `endpoint = "…"` is a substring of
+        # `library_endpoint = "…"`, and patching the wrong one would ship a
+        # package that looks right and talks to the wrong mount.
+        patched, count = re.subn(
+            rf'^(\s*){key}\s*=\s*"[^"]*",',
+            lambda match: f'{match.group(1)}{key} = "{value}",',
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise SystemExit(f"could not find the {key} default in config.lua")
+        text = patched
+
+    return text.encode()
 
 
 def version_lua(version: tuple[int, int, int]) -> bytes:
@@ -147,18 +173,18 @@ def build_package(
     output_dir: Path,
     version: tuple[int, int, int] | None = None,
     endpoint: str | None = None,
+    library_endpoint: str | None = None,
 ) -> Path:
     """Build the .kpkg.
 
-    `version` overrides version.lua, for testing upgrades. `endpoint` bakes
-    the gateway address into config.lua, which the source tree leaves empty.
+    `version` overrides version.lua, for testing upgrades. `endpoint` and
+    `library_endpoint` bake the two addresses into config.lua, which the
+    source tree leaves empty. Either may be omitted; the device can be told.
     """
     override = version is not None
     version = version or read_version()
-    if endpoint is not None:
-        endpoint = endpoint.strip()
-        if not endpoint:
-            endpoint = None
+    endpoint = (endpoint or "").strip() or None
+    library_endpoint = (library_endpoint or "").strip() or None
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "id": PACKAGE_ID,
@@ -209,8 +235,10 @@ def build_package(
                 patched = version_lua(version)
                 info.size = len(patched)
                 archive.addfile(entry(info), __import__("io").BytesIO(patched))
-            elif endpoint and relative == Path("aidict/config.lua"):
-                patched = config_lua(endpoint)
+            elif (endpoint or library_endpoint) and relative == Path(
+                "aidict/config.lua"
+            ):
+                patched = config_lua(endpoint, library_endpoint)
                 info.size = len(patched)
                 archive.addfile(entry(info), __import__("io").BytesIO(patched))
             else:
@@ -218,7 +246,9 @@ def build_package(
                     archive.addfile(entry(info), handle)
 
     print(f"built {display(package_path)} ({package_path.stat().st_size} bytes)")
-    print(f"endpoint {endpoint if endpoint else 'not set — configure it on the device'}")
+    unset = "not set — configure it on the device"
+    print(f"endpoint {endpoint or unset}")
+    print(f"library endpoint {library_endpoint or unset}")
     print("key never packaged — set it on the device (Settings > API key)")
     print(f"sha256 {sha256(package_path)}")
     return package_path
@@ -330,7 +360,16 @@ def main(argv: list[str]) -> int:
     package_parser.add_argument(
         "--endpoint",
         default=os.environ.get("AIDICT_ENDPOINT") or None,
-        help="bake the gateway address into the package (default: $AIDICT_ENDPOINT)",
+        help="bake the dictionary address into the package (default: $AIDICT_ENDPOINT)",
+    )
+    package_parser.add_argument(
+        "--library-endpoint",
+        default=os.environ.get("AIDICT_LIBRARY_ENDPOINT") or None,
+        help=(
+            "bake the library address into the package "
+            "(default: $AIDICT_LIBRARY_ENDPOINT). Its own address since the "
+            "dictionary moved to a Worker and the library stayed on the gateway."
+        ),
     )
 
     repo_parser = sub.add_parser("repo", help="build the KPM repository around built packages")
@@ -346,6 +385,7 @@ def main(argv: list[str]) -> int:
             Path(args.output),
             parse_version(args.version) if args.version else None,
             args.endpoint,
+            args.library_endpoint,
         )
         return 0
 

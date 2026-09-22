@@ -35,16 +35,36 @@ test ! -f "${WORK}/koreader/plugins/aidict.koplugin/stale.lua"
 KOREADER_DIR="${WORK}/koreader" sh uninstall.sh >/dev/null
 test ! -d "${WORK}/koreader/plugins/aidict.koplugin"
 
-# The gateway address is injected at build time, never committed.
-AIDICT_ENDPOINT="https://gateway.test/koreader-ai" \
+# Both addresses are injected at build time, never committed. They are greped
+# for with the leading spaces of the default's own line: `endpoint = "…"` is a
+# substring of `library_endpoint = "…"`, so an unanchored check would call one
+# baked address two.
+AIDICT_ENDPOINT="https://koreader-ai.test" \
+AIDICT_LIBRARY_ENDPOINT="https://gateway.test/koreader-library" \
     python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-ep" >/dev/null
 mkdir -p "${WORK}/pkg-ep"
 tar xzf "${WORK}"/dist-ep/*.kpkg -C "${WORK}/pkg-ep"
-grep -q 'endpoint = "https://gateway.test/koreader-ai"' \
+grep -q '^    endpoint = "https://koreader-ai.test",$' \
     "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
     || { echo "the endpoint was not baked into the package"; exit 1; }
-grep -q 'endpoint = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
+grep -q '^    library_endpoint = "https://gateway.test/koreader-library",$' \
+    "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
+    || { echo "the library endpoint was not baked into the package"; exit 1; }
+grep -q '^    endpoint = "",$' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "an endpoint leaked into the committed config.lua"; exit 1; }
+grep -q '^    library_endpoint = "",$' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
+    || { echo "a library endpoint leaked into the committed config.lua"; exit 1; }
+
+# One without the other. The library no longer lives at a path off the
+# dictionary's host, so baking one must leave the other empty rather than
+# inventing an address that would 404 on a device.
+AIDICT_ENDPOINT="https://koreader-ai.test" \
+    python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-one" >/dev/null
+mkdir -p "${WORK}/pkg-one"
+tar xzf "${WORK}"/dist-one/*.kpkg -C "${WORK}/pkg-one"
+grep -q '^    library_endpoint = "",$' \
+    "${WORK}/pkg-one/aidict.koplugin/aidict/config.lua" \
+    || { echo "packaging invented a library address"; exit 1; }
 grep -q 'api_key = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "a key leaked into the committed config.lua"; exit 1; }
 
@@ -53,7 +73,7 @@ grep -q 'api_key = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
 # environment. This is the check that keeps it that way.
 grep -q 'api_key = ""' "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
     || { echo "a key was baked into the package"; exit 1; }
-AIDICT_TOKEN="must-be-ignored" AIDICT_ENDPOINT="https://gateway.test/koreader-ai" \
+AIDICT_TOKEN="must-be-ignored" AIDICT_ENDPOINT="https://koreader-ai.test" \
     python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-nokey" >/dev/null
 mkdir -p "${WORK}/pkg-nokey"
 tar xzf "${WORK}"/dist-nokey/*.kpkg -C "${WORK}/pkg-nokey"
@@ -64,12 +84,18 @@ grep -q 'api_key = ""' "${WORK}/pkg-nokey/aidict.koplugin/aidict/config.lua" \
 # endpoint carrying a query string, a fragment or userinfo would publish the
 # credential by the back door. Each must be refused, not quietly packaged.
 for bad in \
-        "https://gateway.test/koreader-ai?token=leaked" \
-        "https://gateway.test/koreader-ai#leaked" \
-        "https://someone:leaked@gateway.test/koreader-ai"; do
+        "https://koreader-ai.test?token=leaked" \
+        "https://koreader-ai.test#leaked" \
+        "https://someone:leaked@koreader-ai.test"; do
     if AIDICT_ENDPOINT="$bad" python3 "${ROOT}/scripts/kpmrepo.py" package \
             --output "${WORK}/dist-bad" >/dev/null 2>&1; then
         echo "packaging accepted an endpoint that can carry a credential: $bad"; exit 1
+    fi
+    # The library mount takes the same key the same way, so its address is
+    # held to the same rule.
+    if AIDICT_LIBRARY_ENDPOINT="$bad" python3 "${ROOT}/scripts/kpmrepo.py" package \
+            --output "${WORK}/dist-bad" >/dev/null 2>&1; then
+        echo "packaging accepted a library endpoint that can carry a credential: $bad"; exit 1
     fi
 done
 
