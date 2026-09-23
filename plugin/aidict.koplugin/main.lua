@@ -35,6 +35,7 @@ local Reqid = require("aidict.reqid")
 local Library = require("aidict.library")
 local Kpm = require("aidict.kpm")
 local Lookup = require("aidict.lookup")
+local Page = require("aidict.page")
 local Prefetch = require("aidict.prefetch")
 local Settings = require("aidict.settings")
 local Updater = require("aidict.updater")
@@ -116,6 +117,8 @@ function AiDict:init()
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
     self.prefetch = Prefetch.new({ settings = self.settings })
     self.prefetch_jobs = {}
+    -- AI pages in dictionary popups still waiting for their answer.
+    self.ai_pages = {}
     -- Named rather than called directly so a spec can move it: the give-up
     -- branch below is otherwise half a minute away.
     self.now = os.time
@@ -141,8 +144,8 @@ function AiDict:init()
     if self.ui and self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
     end
-    if self.ui and self.ui.dictionary and self.ui.dictionary.addToDictButtons then
-        self:registerDictButton()
+    if self.ui and self.ui.dictionary then
+        self:joinDictionaryPopup()
     end
     if self.document and self.ui and self.ui.highlight then
         self:registerHighlightButton()
@@ -157,9 +160,9 @@ end
 
 --[[--
 KOReader announces every dictionary lookup, before it has even searched. That
-is the earliest the word is known, and the reader is about to spend a few
-seconds on the dictionary entry — so it is the moment to start asking, if the
-reader wants that.
+is the earliest the word is known, so it is the moment to start asking: the
+popup that opens a moment later shows the AI page first, and every
+millisecond spent here is one the reader does not spend looking at "Asking".
 
 Nothing here may block: the dictionary window is opening behind it.
 --]]--
@@ -174,9 +177,9 @@ function AiDict:onWordLookedUp(word)
     })
     if not wanted then
         -- dbg, not info: this fires on every dictionary lookup, and the
-        -- commonest answer is "prefetch is off".
+        -- commonest answer is "already cached".
         logger.dbg("aidict: not fetching ahead:", why)
-        return
+        return false
     end
     self:startPrefetch(request, key)
     -- Never swallow the event: the dictionary is the one that wanted it.
@@ -186,9 +189,9 @@ end
 --[[--
 Fork, ask, and let it finish on its own.
 
-This is the same work the button does, minus everything that waits or draws:
-`Trapper` exists to show a dismissable progress window, and here there is
-nobody to show it to.
+This is the same work the highlight menu's Explain does, minus everything that
+waits or draws: `Trapper` exists to show a dismissable progress window, and
+here the popup's AI page is what the reader watches instead.
 --]]--
 function AiDict:startPrefetch(request, key)
     local ffiutil = require("ffi/util")
@@ -261,7 +264,12 @@ function AiDict:pollPrefetch(job)
     end)
 end
 
---- Put what came back into the cache, so the button finds it already there.
+--[[--
+Put what came back into the cache, and onto any AI page waiting for it.
+
+Every way out of here fills the pages, the failures included: a page left
+saying "Asking" is a page that lies.
+--]]--
 function AiDict:finishPrefetch(job, raw, why)
     self.prefetch_jobs[job.key] = nil
     self.prefetch:ended(job.key)
@@ -269,26 +277,33 @@ function AiDict:finishPrefetch(job, raw, why)
     if not raw or raw == "" then
         logger.warn(string.format("aidict: fetching %s ahead came to nothing (%s)",
             job.request.word, why or "no data"))
+        self:fillPages(job.key, nil)
         return
     end
 
     local ok, outcome = pcall(json.decode, raw)
     if not (ok and type(outcome) == "table") then
         logger.warn("aidict: fetching", job.request.word, "ahead returned junk")
+        self:fillPages(job.key, nil)
         return
     end
     if not outcome.ok then
         local err = outcome.err or {}
         logger.warn(string.format("aidict: fetching %s ahead failed (%s: %s)",
             job.request.word, tostring(err.code), tostring(err.message)))
+        self:fillPages(job.key, outcome)
         return
     end
 
     self.lookup:remember(job.request, outcome.result)
     self:saveCache()
+    -- So a popup that opens after this does not call it "cached": it was
+    -- asked for this very lookup, only quicker than the dictionary.
+    self.just_landed = job.key
     logger.info(string.format("aidict: %s fetched ahead in %sms, waiting in the cache [%s]",
         job.request.word, tostring(outcome.result.elapsed_ms or "?"),
         marks(outcome.result, job.request)))
+    self:fillPages(job.key, outcome)
 end
 
 --- Kill anything still in the air. A closed document has nowhere to put it.
@@ -301,6 +316,7 @@ function AiDict:stopPrefetching()
         self.prefetch_jobs[key] = nil
     end
     self.prefetch:clear()
+    self.ai_pages = {}
 end
 
 function AiDict:onCloseDocument()
@@ -316,22 +332,117 @@ end
 -- Entry points
 ----------------------------------------------------------------------------
 
-function AiDict:registerDictButton()
-    self.ui.dictionary:addToDictButtons({
-        id = "aidict_explain",
-        menu_text = _("Explain with AI"),
-        text = _("AI"),
-        -- Without Wi-Fi the button is not there at all, rather than there and
-        -- failing.
-        show_func = function() return canAsk() end,
-        callback = function(dict_popup)
-            -- Built before the popup closes: closing can clear the selection
-            -- the passage is read from.
-            local request = self:requestFor(dict_popup.word, dict_popup.highlight)
-            dict_popup:onClose()
-            self:explain(request)
-        end,
-    })
+--[[--
+Put the AI page first in KOReader's dictionary popup.
+
+KOReader has no hook for adding a result, so this wraps the dictionary's
+`showDict`, which is handed the results just before it builds the popup. Only
+this reader's dictionary is wrapped, not the class: Wikipedia shares the class
+and should stay as it is.
+
+Anything unexpected in there — a KOReader that has moved things around — must
+cost the AI page and nothing else, so the plugin's own part is guarded and the
+dictionary always gets its call.
+--]]--
+function AiDict:joinDictionaryPopup()
+    local dictionary = self.ui.dictionary
+    local show = dictionary.showDict
+    if type(show) ~= "function" then
+        logger.warn("aidict: this KOReader's dictionary has no showDict; no AI page")
+        return
+    end
+    dictionary.showDict = function(this, word, results, ...)
+        local ok, page, with_page = pcall(self.openPage, self, word, results)
+        if not ok then
+            logger.warn("aidict: could not add the AI page:", tostring(page))
+            page, with_page = nil, nil
+        end
+        show(this, word, with_page or results, ...)
+        if page then
+            local tracked, err = pcall(self.trackPage, self, page, this.dict_window)
+            if not tracked then logger.warn("aidict: lost track of the AI page:", tostring(err)) end
+        end
+    end
+end
+
+--[[--
+Decide the AI page for a popup about to open, and put it first in its results.
+
+The request normally went out a moment ago, from `onWordLookedUp`; this starts
+it only when that did not happen.
+
+@treturn table|nil the page to keep an eye on, when it is still waiting
+@treturn table|nil the results with the page in them, when there is a page
+--]]--
+function AiDict:openPage(word, results)
+    local request = self:requestFor(word, self.ui and self.ui.highlight)
+    if not request then return nil end
+    local key = Lookup.key(request)
+
+    local cached = self.lookup:peek(request)
+    local fresh = cached ~= nil and self.just_landed == key
+    local wanted, why = false, nil
+    if not cached then
+        wanted, why = self.prefetch:wanted(key, { offline = not canAsk() })
+        if wanted then
+            wanted = self:startPrefetch(request, key)
+            -- It can land before this line, where the scheduler runs things
+            -- at once; a page that says "Asking" over a cached answer would
+            -- wait for an update that already happened.
+            cached = self.lookup:peek(request)
+            fresh = cached ~= nil
+        end
+    end
+    self.just_landed = nil
+
+    local state = Page.opening({ cached = cached, fresh = fresh, wanted = wanted, why = why })
+    if not state then
+        logger.dbg("aidict: no AI page for", request.word, why)
+        return nil
+    end
+
+    if type(results) ~= "table" then results = {} end
+    table.insert(results, 1, Page.entry(request.word, state))
+    if state.kind ~= "asking" then return nil, results end
+    return { key = key, word = request.word }, results
+end
+
+--- Remember the popup a waiting page ended up in, so the answer can find it.
+function AiDict:trackPage(page, popup)
+    if not (popup and Page.index_in(popup.results)) then
+        -- The page would say "Asking" forever; the log is where that shows.
+        logger.warn("aidict: the popup for", page.word, "is not where it was expected")
+        return
+    end
+    page.popup = popup
+    self.ai_pages[#self.ai_pages + 1] = page
+end
+
+--[[--
+Give every page waiting on `key` what came back, and redraw the one the
+reader is looking at.
+
+A page the reader has paged away from is only rewritten: the popup reads its
+results again when it pages back.
+--]]--
+function AiDict:fillPages(key, outcome)
+    local still = {}
+    for _, page in ipairs(self.ai_pages) do
+        if page.key ~= key then
+            still[#still + 1] = page
+        else
+            local popup = page.popup
+            local shown = not UIManager.isWidgetShown or UIManager:isWidgetShown(popup)
+            local index = shown and Page.index_in(popup.results)
+            if index then
+                popup.results[index] = Page.entry(page.word, Page.landed(outcome))
+                if popup.dict_index == index and popup.changeDictionary then
+                    popup:changeDictionary(index)
+                end
+            end
+        end
+    end
+    self.ai_pages = still
 end
 
 function AiDict:registerHighlightButton()
@@ -414,10 +525,10 @@ end
 --[[--
 Everything the gateway is asked, in one place.
 
-Both the button and the prefetch build their request here, and that is not
-tidiness: the cache key is the word plus its passage, so an answer fetched
-ahead is only ever found again if the two agree character for character on
-what the passage was.
+The lookup announcement, the popup's AI page and the highlight menu all build
+their request here, and that is not tidiness: the cache key is the word plus
+its passage, so an answer fetched ahead is only ever found again if they agree
+character for character on what the passage was.
 
 @treturn table the request, or nil when there is nothing to look up
 --]]--
@@ -463,7 +574,7 @@ function AiDict:explain(request)
     end
 
     -- This exact question is already in the air: the dictionary opened a
-    -- moment ago and the prefetch went out then. Waiting for that answer beats
+    -- moment ago and the request went out then. Waiting for that answer beats
     -- asking again — it is most of the way here, and a second identical
     -- request would cost twice over and arrive no sooner.
     local pending = Lookup.key(request)
@@ -1112,15 +1223,6 @@ function AiDict:addToMainMenu(menu_items)
                 callback = function()
                     local next_channel = self.settings:get("channel") == "stable" and "dev" or "stable"
                     self.settings:set("channel", next_channel)
-                    self.settings:flush()
-                end,
-            },
-            {
-                text = _("Look words up before I ask"),
-                help_text = _("Start asking when the dictionary opens, so the answer is already there when you press AI. Costs a request for every dictionary lookup, not only the ones you press AI on."),
-                checked_func = function() return self.settings:get("prefetch") end,
-                callback = function()
-                    self.settings:set("prefetch", not self.settings:get("prefetch"))
                     self.settings:flush()
                 end,
             },

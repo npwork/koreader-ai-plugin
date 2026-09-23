@@ -1,0 +1,169 @@
+name: Review
+
+# AI code review of every pull request, on the Claude subscription rather than
+# an API key: Claude Code runs headless with CLAUDE_CODE_OAUTH_TOKEN (made by
+# `claude setup-token`). .github/review/src/run.ts builds the prompt with
+# the diff and the CLAUDE.md rules already in it and runs two passes in
+# parallel, the general one and a security one (lenses/security.md), then one
+# low-effort verification call (verify.md) that checks every finding against
+# the code and drops what it refutes or calls a nit. The reviewer only reads. It returns its findings as JSON, and src/publish.ts
+# checks each one against the diff and posts what survives as one review plus
+# one summary comment that later runs edit in place.
+#
+# The reviewer is a copy of ai-small-projects' apps/cli/pr-review, where its
+# tests and bench live: tune it there, not here (see .github/review/README.md).
+#
+# It posts as github-actions[bot], not as claude[bot], on purpose. The PRs
+# here are opened by Claude sessions through the Claude GitHub App, so they
+# are claude[bot]'s; a review under the same name would read to the authoring
+# session as its own comments echoed back.
+#
+# It runs once per PR, not on every push: CLAUDE.md has no second review
+# round. Dispatch it with a PR number to review again, or to try it on an old
+# PR.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+      dry_run:
+        description: Print the review in the job log and summary instead of posting it
+        type: boolean
+        default: false
+      model:
+        description: Model for this run
+        default: claude-opus-5-5
+      effort:
+        description: Effort level (empty = the model's default)
+        default: ""
+
+jobs:
+  review:
+    # Drafts wait for ready_for_review. A fork gets no secrets, so it is not
+    # attempted at all.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!github.event.pull_request.draft &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    env:
+      # Pinned, and cached below. 2.1.280 is the first to know Opus 5.5.
+      CLAUDE_CODE_VERSION: 2.1.280
+    # A review takes about a minute. Docs-only PRs are reviewed too, on
+    # purpose: the docs here are mostly CLAUDE.md rules. 15 is the ceiling
+    # for a hung run.
+    timeout-minutes: 15
+    # A dry run never cancels, and is never cancelled by, another run.
+    concurrency:
+      group: review-${{ github.event.pull_request.number || inputs.pr }}${{ inputs.dry_run && format('-{0}', github.run_id) || '' }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Resolve the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" > pr.json
+          # The job condition keeps forks out of pull_request runs; a
+          # dispatch names the PR by number, so the same check goes here.
+          head_repo=$(jq -r '.head.repo.full_name' pr.json)
+          if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::error::PR #$PR comes from $head_repo, not this repository; not reviewing it."
+            exit 1
+          fi
+          jq -r '"number=\(.number)\nhead=\(.head.sha)\nbase=\(.base.ref)"' pr.json >> "$GITHUB_OUTPUT"
+          mv pr.json "$RUNNER_TEMP/pr.json"
+
+      # The head itself, not the merge commit pull_request checks out by
+      # default: the line numbers the reviewer reports, and the "before" text
+      # of a suggestion, must be those of the commit the review is posted on.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head }}
+          fetch-depth: 0
+
+      # The reviewer's own code (prompt, scripts) from the commit this
+      # workflow runs from, not from the PR head: a dispatch from a branch
+      # tries that branch's reviewer on any PR.
+      - uses: actions/checkout@v4
+        with:
+          path: .review-tooling
+          sparse-checkout: .github/review
+      - name: Move the reviewer out of the reviewed tree
+        run: mv .review-tooling "$RUNNER_TEMP/tooling"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      # From the Actions cache after the first run: installing it takes
+      # about 10 s of a review that takes about a minute.
+      - name: Restore Claude Code
+        id: claude-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/claude-code/${{ env.CLAUDE_CODE_VERSION }}
+          key: claude-code-${{ env.CLAUDE_CODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      # Like the Review step, a failed install must not turn the PR red; the
+      # Review step then fails too, and publish says so on the PR.
+      - name: Install Claude Code
+        id: claude
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          dir="$HOME/.cache/claude-code/$CLAUDE_CODE_VERSION"
+          if [[ ! -x "$dir/claude" ]]; then
+            curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION"
+            mkdir -p "$dir"
+            cp "$(readlink -f "$HOME/.local/bin/claude")" "$dir/claude"
+          fi
+          "$dir/claude" --version
+          echo "path=$dir/claude" >> "$GITHUB_OUTPUT"
+
+      # A failed or limited review must not turn the PR red: CLAUDE.md never
+      # merges red, and a spent subscription window is not a defect of the
+      # change. The publish step says in the PR that it did not complete.
+      - name: Review
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_BIN: ${{ steps.claude.outputs.path }}
+          PR: ${{ steps.pr.outputs.number }}
+          BASE: ${{ steps.pr.outputs.base }}
+          PR_JSON: ${{ runner.temp }}/pr.json
+          TOOLING: ${{ runner.temp }}/tooling/.github/review
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        run: |
+          set -euo pipefail
+          bun "$TOOLING/src/run.ts" \
+            --base "origin/$BASE" \
+            --out "$RUNNER_TEMP/review" \
+            --number "$PR" \
+            --title="$(jq -r .title "$PR_JSON")" \
+            --body="$(jq -r '.body // ""' "$PR_JSON")" \
+            --lenses "$TOOLING/lenses/security.md" \
+            --verify "$TOOLING/verify.md" \
+            --verify-effort low \
+            --restore-rules \
+            ${MODEL:+--model "$MODEL"} \
+            ${EFFORT:+--effort "$EFFORT"}
+
+      - name: Publish the review
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVIEW_FILE: ${{ runner.temp }}/review/review.json
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: bun "$RUNNER_TEMP/tooling/.github/review/src/publish.ts"

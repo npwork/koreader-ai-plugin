@@ -26,11 +26,12 @@ assert on what was shown.
 
 It covers what the emulator would otherwise be the only way to reach:
 
-* the dictionary popup button and the highlight-dialog entry are registered,
-  with the right labels, and the highlight entry stays away when no document
-  is open,
-* pressing either one closes the popup, sends the word *and the sentence
-  around it*, and shows the answer in a TextViewer,
+* the dictionary popup opens on the AI page: asking while the request is out,
+  the answer once it lands, the error when it fails, and no page at all
+  offline — with KOReader's own results still behind it,
+* the highlight-dialog entry is registered and stays away when no document is
+  open; pressing it sends the word *and the sentence around it*, and shows the
+  answer in a TextViewer,
 * the second tap on the same word is served from the cache, marked as cached,
   without a request,
 * gateway errors and timeouts become an InfoMessage, not an answer,
@@ -87,8 +88,10 @@ KOReader release, drops the plugin into it, and starts it headlessly under
 and says nothing about it erroring.
 
 This is the check that keeps the stubs in layer 2 honest: if KOReader renames
-`addToDictButtons` or changes how plugins are loaded, this goes red even
-though every stub-based test still passes.
+`showDict` — the dictionary call the AI page hooks into — or changes how
+plugins are loaded, this goes red even though every stub-based test still
+passes. It does not open a popup, so the popup's insides (`results`,
+`dict_index`, `changeDictionary`) are checked on the Kindle.
 
 It lives in CI rather than in a cloud session because a session cannot
 download a KOReader build — see [emulator.md](emulator.md).
