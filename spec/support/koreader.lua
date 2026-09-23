@@ -185,6 +185,37 @@ function koreader.install(opts)
     }
 
     --[[--
+    lua-ljsqlite3, over `recorder.vocab_rows`: the rows the query returns, as
+    positional tables. It honours the one bound value the way the query's
+    `timestamp >= ?` does, and records how the file was opened.
+    --]]--
+    recorder.vocab_rows = {}
+    package.loaded["lua-ljsqlite3/init"] = {
+        open = function(path, mode)
+            recorder.vocab_opened = { path = path, mode = mode }
+            if recorder.vocab_error then error(recorder.vocab_error) end
+            return {
+                prepare = function()
+                    local since, index = 0, 0
+                    return {
+                        bind1 = function(self, _, value) since = value; return self end,
+                        step = function()
+                            while true do
+                                index = index + 1
+                                local row = recorder.vocab_rows[index]
+                                if not row then return nil end
+                                if row[4] >= since then return row end
+                            end
+                        end,
+                        close = function() end,
+                    }
+                end,
+                close = function() recorder.vocab_closed = true end,
+            }
+        end,
+    }
+
+    --[[--
     KPM, which is a real binary on a Kindle and nothing at all here. A spec
     says what it printed and whether it exited cleanly; the command itself is
     recorded so the spec can assert on what would have run.
@@ -391,7 +422,7 @@ function koreader.uninstall()
         "ui/widget/inputdialog", "ui/widget/confirmbox", "ui/uimanager", "ui/trapper",
         "ui/network/manager", "ui/event",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
-        "libs/libkoreader-lfs", "dispatcher",
+        "libs/libkoreader-lfs", "lua-ljsqlite3/init", "dispatcher",
         "ui/elements/reader_menu_order", "ui/elements/filemanager_menu_order",
         "ui/widget/pathchooser",
         "aidict.http_transport", "aidict.json", "main",

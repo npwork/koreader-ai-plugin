@@ -49,6 +49,7 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     settings.lua          typed access over a LuaSettings-shaped store
     updater.lua           "is there a newer build on my channel?"
     version.lua           major.minor; patch = branch commit count, set at build
+    vocab.lua             the Kindle's own vocab.db, sent to the word inbox since the last upload
 spec/                     busted suite, runs under plain lua5.1 (support/ holds stubs and a fake gateway)
 packaging/                install.sh / uninstall.sh, KPM hooks
 scripts/                  package/repo builder, verification and emulator helpers

@@ -229,6 +229,40 @@ subprocess doing the request.
   44 deliberately nasty words that took the model from 41 right to 44; the
   settings and the numbers behind them are in the gateway's own source.
 
+## POST `<endpoint>/vocab`
+
+The lookups the Kindle's own reader recorded in
+`/mnt/us/system/vocabulary/vocab.db`, sent from the menu's "Send Kindle
+lookups" or its gesture. The device reads the file read-only and sends the
+English-to-English lookups at or after `vocab_uploaded_through`, oldest first,
+at most 100 per request:
+
+```json
+{
+  "request_id": "0f8b5c1e-3a2d-4c6e-9b1f-2d4e6a8c0b1d",
+  "rows": [{
+    "lookup_id": "CR!…:6032", "position": "6032",
+    "usage": "He was strapped into the seat.", "timestamp": 1760000000000,
+    "word": "strapped", "stem": "strap", "lang": "en",
+    "book_asin": "B000FC1PJI", "book_title": "A Book", "book_authors": "An Author"
+  }]
+}
+```
+
+`request_id` is a UUID v4, fresh per request. A NULL column is `""`. The
+server passes the batch to the Words inbox's `POST /api/inbox/kindle`, which
+keys each row on its lookup id, so a row sent twice is written once.
+
+Answer, 200: `{ "created": 1, "existing": 0, "skipped": 0 }`. Errors come as
+`{ "error": { "message": "…" } }`, as for `/define`: 401 for the key, 503 when
+the server has no inbox configured, 502 when the inbox did not answer or
+failed.
+
+After each 2xx the device moves `vocab_uploaded_through` to the newest
+timestamp that batch carried, and keeps it when a later batch fails. The
+query is `>=`, so the last lookup is sent again next time and counted as
+`existing`.
+
 # The library contract
 
 Still the gateway, and now its own address. `library_endpoint` is baked into

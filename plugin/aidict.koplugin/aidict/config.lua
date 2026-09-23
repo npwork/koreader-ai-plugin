@@ -43,6 +43,12 @@ Config.DEFAULTS = {
     -- EPUB in there becomes an entry in the native library that opens badly.
     library_dir = "/mnt/us/AI_Books",
 
+    -- The newest `vocab.db` lookup the server has acknowledged, epoch ms.
+    -- Not a choice, a place kept: 0 sends the whole archive once, and the
+    -- server writes a lookup it already has as nothing, so losing this only
+    -- makes the next upload longer.
+    vocab_uploaded_through = 0,
+
     channel = "stable",
     -- Root of the KPM repository, without the channel.
     repo_url = "https://npwork.github.io/koreader-ai-plugin",
@@ -127,6 +133,12 @@ Config.VALIDATORS = {
     channel = function(value)
         if not Config.CHANNELS[value] then
             return false, "channel must be 'stable' or 'dev'"
+        end
+        return true
+    end,
+    vocab_uploaded_through = function(value)
+        if type(value) ~= "number" or value < 0 then
+            return false, "vocab_uploaded_through must be a time in milliseconds"
         end
         return true
     end,

@@ -38,6 +38,7 @@ local Lookup = require("aidict.lookup")
 local Prefetch = require("aidict.prefetch")
 local Settings = require("aidict.settings")
 local Updater = require("aidict.updater")
+local Vocab = require("aidict.vocab")
 local Version = require("aidict.version")
 local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
@@ -126,6 +127,13 @@ function AiDict:init()
         category = "none",
         event = "AiDictSyncLibrary",
         title = _("Sync library"),
+        general = true,
+    })
+
+    Dispatcher:registerAction("aidict_send_vocab", {
+        category = "none",
+        event = "AiDictSendVocab",
+        title = _("Send Kindle lookups"),
         general = true,
     })
 
@@ -728,6 +736,124 @@ function AiDict:syncLibrary()
 end
 
 --[[--
+`vocab.db`, read the way `Vocab.upload` asks: every lookup since `since`, as
+positional rows. Here and not in `aidict/` because it is the one place that
+opens SQLite, which only KOReader has.
+
+Read-only, because the Kindle's own reader owns the file and may be writing
+to it; a read never takes a lock that could make that fail.
+--]]--
+local function readVocab(since)
+    local lfs = require("libs/libkoreader-lfs")
+    if lfs.attributes(Vocab.PATH, "mode") ~= "file" then
+        return nil, "there is no vocab.db on this device"
+    end
+    local SQ3 = require("lua-ljsqlite3/init")
+    local opened, conn = pcall(SQ3.open, Vocab.PATH, "ro")
+    if not opened then return nil, tostring(conn) end
+    local rows = {}
+    local ok, err = pcall(function()
+        local stmt = conn:prepare(Vocab.QUERY)
+        stmt:bind1(1, since)
+        while true do
+            local row = stmt:step()
+            if not row then break end
+            -- Copied: the driver may hand back the same table each step.
+            local copy = {}
+            for i = 1, #Vocab.COLUMNS do copy[i] = row[i] end
+            rows[#rows + 1] = copy
+        end
+        stmt:close()
+    end)
+    conn:close()
+    if not ok then return nil, tostring(err) end
+    return rows
+end
+
+--[[--
+Four bytes of the kernel's randomness, for seeding a forked child.
+
+A child starts from the parent's random state, and the parent's does not move
+when the child draws: two uploads in one session would mint the same request
+ids, and the inbox would answer the second with the first's receipt.
+--]]--
+local function freshSeed()
+    local file = io.open("/dev/urandom", "rb")
+    if file then
+        local bytes = file:read(4)
+        file:close()
+        if bytes and #bytes == 4 then
+            local a, b, c, d = bytes:byte(1, 4)
+            return ((a * 256 + b) * 256 + c) * 256 + d
+        end
+    end
+    return os.time()
+end
+
+--- Send the lookups the Kindle's own reader recorded since the last upload.
+function AiDict:sendVocab()
+    local vocab = Vocab.new({
+        endpoint = self.settings:get("endpoint"),
+        api_key = self.settings:get("api_key"),
+        transport = http_transport,
+        json = json,
+        random = math.random,
+    })
+    local since = self.settings:get("vocab_uploaded_through")
+
+    NetworkMgr:runWhenConnected(function()
+        Trapper:wrap(function()
+            -- In a subprocess so the reader can give up on it: the first
+            -- upload is the whole archive, a few dozen requests over the
+            -- Kindle's radio. What already arrived stays arrived; the next
+            -- upload sends it again and the server writes nothing.
+            local completed, outcome = Trapper:dismissableRunInSubprocess(function()
+                math.randomseed(freshSeed())
+                local report, err = vocab:upload(readVocab, since)
+                return { report = report, err = err }
+            end, _("Sending Kindle lookups…"))
+
+            if not completed then return end
+            if type(outcome) ~= "table" or type(outcome.report) ~= "table" then
+                UIManager:show(InfoMessage:new{ text = _("Sending the lookups failed.") })
+                return
+            end
+
+            local report = outcome.report
+            -- Also after a failure: the batches that arrived need not go again.
+            if (tonumber(report.cursor) or 0) > since then
+                self.settings:set("vocab_uploaded_through", report.cursor)
+                self.settings:flush()
+            end
+            logger.info(string.format(
+                "aidict: vocab upload — %d rows in %d batches, %d new, %d already there, %d skipped%s",
+                report.rows, report.batches, report.created, report.existing, report.skipped,
+                outcome.err and (", failed: " .. tostring(outcome.err.message)) or ""))
+
+            local text
+            if outcome.err then
+                text = Format.error(outcome.err, _("Sending the lookups failed."))
+                if report.batches > 0 then
+                    text = text .. "\n\n" .. T(_("%1 new lookups arrived before it stopped."), report.created)
+                end
+            elseif report.rows == 0 then
+                text = _("Nothing new since the last upload.")
+            else
+                text = T(_("Sent %1 lookups: %2 new, %3 already there."),
+                    report.rows, report.created, report.existing)
+            end
+            UIManager:show(InfoMessage:new{ text = text })
+        end)
+    end)
+end
+
+--- The gesture, if the reader bound one.
+function AiDict:onAiDictSendVocab()
+    self:sendVocab()
+    return true
+end
+
+--[[--
 Where synced books go, picked rather than typed.
 
 An absolute path on a Kindle keyboard is a typo waiting to happen, and a typo
@@ -904,6 +1030,12 @@ function AiDict:addToMainMenu(menu_items)
                 text = _("Sync library"),
                 keep_menu_open = true,
                 callback = function() self:syncLibrary() end,
+            },
+            {
+                text = _("Send Kindle lookups"),
+                help_text = _("Send the words looked up in the Kindle's own reader since the last upload to the word inbox. The first time, that is every lookup on the device."),
+                keep_menu_open = true,
+                callback = function() self:sendVocab() end,
             },
             {
                 -- The version is on the label because this is the one entry

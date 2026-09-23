@@ -1108,15 +1108,16 @@ describe("the KOReader layer", function()
             assert.are.equal("AI dictionary", items().aidict.text)
         end)
 
-        it("opens with the two actions, the sync first", function()
+        it("opens with the three actions, the sync first", function()
             build()
             local sub = items().aidict.sub_item_table
 
             assert.are.equal("Sync library", sub[1].text)
+            assert.are.equal("Send Kindle lookups", sub[2].text)
             -- The version rides on the label: after an update and a restart,
             -- the menu itself is the receipt.
-            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[2].text_func())
-            assert.is_true(sub[2].separator)
+            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[3].text_func())
+            assert.is_true(sub[3].separator)
         end)
 
         -- The update line already carries it, second from the top.
@@ -1259,6 +1260,120 @@ describe("the KOReader layer", function()
             plugin:syncLibrary()
 
             assert.are.equal("InfoMessage", last_shown().widget_kind)
+        end)
+    end)
+    describe("sending the Kindle's lookups", function()
+        local Vocab = require("aidict.vocab")
+
+        local function lookup(id, timestamp)
+            return { id, "6032", "He was strapped into the seat.", timestamp,
+                "strapped", "strap", "en", "B000FC1PJI", "A Book", "An Author" }
+        end
+
+        local function receipt(created, existing)
+            return { status = 200, body = helpers.body({ created = created, existing = existing or 0, skipped = 0 }) }
+        end
+
+        local function withVocab(opts, rows)
+            build(opts)
+            kor.files[Vocab.PATH] = 1
+            kor.vocab_rows = rows
+        end
+
+        it("sends what is new since the last upload, and remembers how far it got", function()
+            withVocab({
+                settings = { vocab_uploaded_through = 2000 },
+                responses = { receipt(1, 1) },
+            }, { lookup("lk-1", 1000), lookup("lk-2", 2000), lookup("lk-3", 3000) })
+
+            plugin:sendVocab()
+
+            -- Read-only: the Kindle's own reader owns the file.
+            assert.are.same({ path = Vocab.PATH, mode = "ro" }, kor.vocab_opened)
+            assert.is_true(kor.vocab_closed)
+            assert.are.equal(1, kor.transport.calls)
+            assert.are.equal(helpers.ENDPOINT .. "/vocab", kor.transport.requests[1].url)
+            local body = helpers.json.decode(kor.transport.requests[1].body)
+            assert.are.equal(2, #body.rows)
+            assert.are.equal("lk-2", body.rows[1].lookup_id)
+
+            assert.are.equal(3000, kor.store.data.vocab_uploaded_through)
+            assert.are.equal("Sent 2 lookups: 1 new, 1 already there.", last_shown().text)
+        end)
+
+        it("sends the whole archive the first time", function()
+            withVocab({ responses = { receipt(2) } }, { lookup("lk-1", 1000), lookup("lk-2", 2000) })
+
+            plugin:sendVocab()
+
+            assert.are.equal(2, #helpers.json.decode(kor.transport.requests[1].body).rows)
+            assert.are.equal(2000, kor.store.data.vocab_uploaded_through)
+        end)
+
+        it("says so when there is nothing new, and sends nothing", function()
+            withVocab({ settings = { vocab_uploaded_through = 5000 } }, { lookup("lk-1", 1000) })
+
+            plugin:sendVocab()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.are.equal("Nothing new since the last upload.", last_shown().text)
+        end)
+
+        it("keeps what arrived before a failure", function()
+            local rows = {}
+            for i = 1, Vocab.BATCH + 1 do rows[i] = lookup("lk-" .. i, i) end
+            withVocab({
+                responses = {
+                    receipt(Vocab.BATCH),
+                    { status = 502, body = helpers.body({ error = { message = "the word inbox did not answer (TypeError)" } }) },
+                },
+            }, rows)
+
+            plugin:sendVocab()
+
+            assert.are.equal(Vocab.BATCH, kor.store.data.vocab_uploaded_through)
+            local text = last_shown().text
+            assert.is_truthy(text:find("The word inbox did not answer", 1, true))
+            assert.is_truthy(text:find("100 new lookups arrived", 1, true))
+        end)
+
+        it("says when the device has no vocab.db", function()
+            build()
+
+            plugin:sendVocab()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_nil(kor.vocab_opened)
+            assert.is_truthy(last_shown().text:find("no vocab.db", 1, true))
+        end)
+
+        it("says when vocab.db cannot be opened", function()
+            withVocab({}, {})
+            kor.vocab_error = "database is locked"
+
+            plugin:sendVocab()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_truthy(last_shown().text:find("database is locked", 1, true))
+        end)
+
+        it("waits for Wi-Fi instead of failing on it", function()
+            withVocab({ online = false }, { lookup("lk-1", 1) })
+
+            plugin:sendVocab()
+
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_function(kor.deferred)
+        end)
+
+        it("is an action a gesture can be bound to, and the event runs it", function()
+            withVocab({ responses = { receipt(1) } }, { lookup("lk-1", 1) })
+
+            assert.are.equal("Send Kindle lookups", kor.actions["aidict_send_vocab"].title)
+            assert.are.equal("AiDictSendVocab", kor.actions["aidict_send_vocab"].event)
+
+            plugin:onAiDictSendVocab()
+            assert.are.equal(1, kor.transport.calls)
         end)
     end)
 end)
