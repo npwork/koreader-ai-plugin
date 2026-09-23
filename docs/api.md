@@ -338,7 +338,10 @@ changed against its own index of what earlier syncs placed —
 size and etag it had. Nothing else in the books folder is ever moved or
 deleted, so a file put there by hand stays put. The index belongs to one
 folder: choosing another books folder starts a fresh one. The first sync that
-keeps one takes in every book already at a listed path with the listed size.
+keeps one takes in every book already at a listed path with the listed size —
+that is how books synced before there was an index can move at all — and so
+also a hand-placed file that happens to match one exactly, which the device
+cannot tell apart from the server's copy.
 
 * **Moved.** A listed book missing at its path is looked for among the
   indexed paths the manifest no longer lists: same size, and the same etag —
