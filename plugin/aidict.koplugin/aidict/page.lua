@@ -73,7 +73,8 @@ answer arrives.
 function Page.entry(word, state)
     local definition
     if state.kind == "answer" then
-        definition = Format.result(state.result, { word = word, source = state.source })
+        -- The popup puts the word in its own header, right above the page.
+        definition = Format.result(state.result, { word = word, source = state.source, shown = word })
     elseif state.kind == "asking" then
         definition = note("Asking AI about “" .. word .. "”…")
     elseif state.kind == "busy" then
