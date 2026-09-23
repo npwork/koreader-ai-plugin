@@ -72,9 +72,14 @@ answer arrives.
 --]]--
 function Page.entry(word, state)
     local definition
+    -- The popup's header is the entry's `word`. Once there is an answer it
+    -- is the dictionary form, as a dictionary's header is: "read" over the
+    -- entry, with "as “reading”" under it saying what was tapped. Before,
+    -- the header said "reading" and the entry said "read" again below it.
+    local header = word
     if state.kind == "answer" then
-        -- The popup puts the word in its own header, right above the page.
-        definition = Format.result(state.result, { word = word, source = state.source, shown = word })
+        header = Format.title(state.result, word)
+        definition = Format.result(state.result, { word = word, source = state.source, shown = header })
     elseif state.kind == "asking" then
         definition = note("Asking AI about “" .. word .. "”…")
     elseif state.kind == "busy" then
@@ -84,11 +89,23 @@ function Page.entry(word, state)
     end
     return {
         dict = Page.DICT,
-        word = word,
+        word = header,
         definition = definition,
         is_html = true,
         aidict = true,
     }
+end
+
+--[[--
+Whether KOReader should add its "(query : word)" line to the page on top.
+
+KOReader appends the tapped word to whichever page opens the popup, so the
+reader can see what was selected. The AI page already says it — the header
+and "as “reading”" under it — and the line landed under the footer, repeating
+the word a third time. Other dictionaries' pages keep it.
+--]]--
+function Page.wants_query_line(results)
+    return Page.index_in(results) ~= 1
 end
 
 --- Where the AI page sits in a popup's results, if it has one.

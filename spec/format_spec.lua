@@ -235,6 +235,11 @@ describe("format", function()
             assert.is_truthy(text:find(">120ms</div>", 1, true))
         end)
 
+        it("sets the footer small and well below the entry", function()
+            local text = Format.result({ definition = "d", model = "gpt-test" })
+            assert.is_truthy(text:find('font-size: 0.65em; margin-top: 3em">gpt-test', 1, true))
+        end)
+
         it("has no footer at all when there is nothing to put in it", function()
             local text = Format.result({ definition = "d" })
             assert.is_nil(text:find("—", 1, true))

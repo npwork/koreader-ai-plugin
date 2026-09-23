@@ -79,6 +79,21 @@ describe("the AI page", function()
             assert.is_nil(entry.definition:find("<b>fox</b>", 1, true))
         end)
 
+        it("is headed by the dictionary form once it has an answer", function()
+            local read = { word = "reading", lemma = "read", definition = "To look at and interpret." }
+            local entry = Page.entry("reading", { kind = "answer", result = read })
+            -- The popup's header, which said "reading" over an entry that said
+            -- "read" again.
+            assert.are.equal("read", entry.word)
+            assert.is_nil(entry.definition:find("<b>read</b>", 1, true))
+            assert.is_truthy(entry.definition:find("as “reading”", 1, true))
+        end)
+
+        it("is headed by the tapped word until then", function()
+            assert.are.equal("reading", Page.entry("reading", { kind = "asking" }).word)
+            assert.are.equal("reading", Page.entry("reading", { kind = "failed" }).word)
+        end)
+
         it("says what went wrong", function()
             local entry = Page.entry("fox", { kind = "failed", err = { message = "model is down" } })
             assert.is_truthy(entry.definition:find("Model is down.", 1, true))
@@ -104,6 +119,13 @@ describe("the AI page", function()
         it("finds it wherever it is", function()
             local results = { { dict = "Oxford" }, Page.entry("fox", { kind = "asking" }) }
             assert.are.equal(2, Page.index_in(results))
+        end)
+
+        it("wants KOReader's query line only when it is not the page on top", function()
+            local ai = Page.entry("fox", { kind = "asking" })
+            assert.is_false(Page.wants_query_line({ ai, { dict = "Oxford" } }))
+            assert.is_true(Page.wants_query_line({ { dict = "Oxford" }, ai }))
+            assert.is_true(Page.wants_query_line({ { dict = "Oxford" } }))
         end)
 
         it("finds nothing in a popup it is not in", function()
