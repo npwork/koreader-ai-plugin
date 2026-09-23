@@ -296,11 +296,13 @@ function Format.result(result, opts)
     end
 
     -- Last, and quieter than the rest: where a word came from is worth reading
-    -- once and never the thing the reader opened this for.
+    -- once and never the thing the reader opened this for. Labelled and in
+    -- roman, as the Oxford dictionaries set it: a whole paragraph of italics
+    -- was hard to read, and without the label it passed for another example.
     if type(result.etymology) == "string" and result.etymology ~= "" then
         out[#out + 1] = string.format(
             '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.ASIDE ..
-            '"><i>%s</i></div>', Format.escape(result.etymology)
+            '"><span style="font-size: 0.8em">ORIGIN</span> %s</div>', Format.escape(result.etymology)
         )
     end
 

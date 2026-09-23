@@ -81,6 +81,9 @@ describe("format", function()
             local etym = text:find("From Old Norse", 1, true)
             assert.is_truthy(etym)
             assert.is_true(etym > text:find("</ol>", 1, true))
+            -- Under a label, in roman, as the Oxford dictionaries set it.
+            assert.is_truthy(text:find("ORIGIN</span> From Old Norse", 1, true))
+            assert.is_nil(text:find("<i>From Old Norse", 1, true))
         end)
 
         it("says nothing where the gateway had nothing to say", function()
