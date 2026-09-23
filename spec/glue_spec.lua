@@ -1097,38 +1097,43 @@ describe("the KOReader layer", function()
             return registered
         end
 
-        it("puts itself at the top of Tools, not at the end of it", function()
+        it("puts AI dictionary at the top of Tools, not at the end of it", function()
             build()
 
             -- Appending is what a sorting_hint alone would do, and Tools is
-            -- already two pages long — so the entries have to claim the top,
-            -- the sync first because it is the one pressed often.
+            -- already two pages long — so the entry has to claim the top.
             for _, order in pairs(kor.menu_order) do
-                assert.are.equal("aidict_sync_library", order.tools[1])
-                assert.are.equal("aidict_check_updates", order.tools[2])
+                assert.are.equal("aidict", order.tools[1])
             end
-            assert.are.equal("Sync library", items()["aidict_sync_library"].text)
+            assert.are.equal("AI dictionary", items().aidict.text)
+        end)
+
+        it("opens with the two actions, the sync first", function()
+            build()
+            local sub = items().aidict.sub_item_table
+
+            assert.are.equal("Sync library", sub[1].text)
             -- The version rides on the label: after an update and a restart,
             -- the menu itself is the receipt.
-            assert.are.equal("Update the plugin (" .. Version.string .. ")",
-                items()["aidict_check_updates"].text_func())
+            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[2].text_func())
+            assert.is_true(sub[2].separator)
         end)
 
-        it("does not leave a second copy behind in its own submenu", function()
+        it("registers nothing else in the main menu", function()
             build()
-            assert.is_nil(menu_item("Check for updates"))
-            assert.is_nil(menu_item("Update the plugin"))
+            local ids = {}
+            for id in pairs(items()) do ids[#ids + 1] = id end
+            assert.are.same({ "aidict" }, ids)
         end)
 
-        it("claims those places once, however many times it is built", function()
+        it("claims that place once, however many times it is built", function()
             -- init runs once for the FileManager and once for the Reader.
             build()
             local first = #kor.menu_order.reader.tools
             kor.plugin_class:new({ ui = reader.ui, document = reader.document })
 
             assert.are.equal(first, #kor.menu_order.reader.tools)
-            assert.are.equal("aidict_sync_library", kor.menu_order.reader.tools[1])
-            assert.are.equal("aidict_check_updates", kor.menu_order.reader.tools[2])
+            assert.are.equal("aidict", kor.menu_order.reader.tools[1])
         end)
 
         it("keeps the folder in the plugin's own settings, and picks it", function()

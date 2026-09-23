@@ -44,22 +44,18 @@ local json = require("aidict.json")
 
 local CACHE_KEY = "cache_entries"
 
---- The menu ids registered outside the plugin's own submenu.
-local SYNC_MENU_ID = "aidict_sync_library"
-local UPDATE_MENU_ID = "aidict_check_updates"
-
---- Both actions, in the order they should sit at the top of Tools.
-local TOP_MENU_IDS = { SYNC_MENU_ID, UPDATE_MENU_ID }
+--- The plugin's one entry in the main menu; everything else is inside it.
+local MENU_ID = "aidict"
 
 --[[--
-Put "Sync library" at the top of the Tools tab rather than three taps deep.
+Put "AI dictionary" at the top of the Tools tab rather than three taps deep.
 
 A plugin's menu item is *appended* to whatever section its `sorting_hint`
 names (see `MenuSorter:sort`), and Tools is already two pages long — so the
-hint alone would land it on the second page, next to the More tools it was
-meant to escape. The order tables are cached by `require`, though, and
-KOReader's own `ui/plugin/insert_menu` edits them the same way. Inserting at
-index 1 is the difference between one tap and four.
+hint alone would land it on the second page, inside More tools. The order
+tables are cached by `require`, though, and KOReader's own
+`ui/plugin/insert_menu` edits them the same way. Inserting at index 1 puts
+Sync library, the first line inside, two taps from the reader.
 
 Idempotent on purpose: `init` runs once per FileManager and once per Reader,
 and this must not add the entry twice.
@@ -69,16 +65,11 @@ local function claimMenuPosition()
         require("ui/elements/reader_menu_order"),
         require("ui/elements/filemanager_menu_order"),
     }) do
-        -- Backwards, because each one goes in at index 1 and the last one in
-        -- ends up first.
-        for i = #TOP_MENU_IDS, 1, -1 do
-            local wanted = TOP_MENU_IDS[i]
-            local placed = false
-            for _, id in ipairs(order.tools) do
-                if id == wanted then placed = true break end
-            end
-            if not placed then table.insert(order.tools, 1, wanted) end
+        local placed = false
+        for _, id in ipairs(order.tools) do
+            if id == MENU_ID then placed = true break end
         end
+        if not placed then table.insert(order.tools, 1, MENU_ID) end
     end
 end
 
@@ -903,26 +894,26 @@ function AiDict:editSetting(key, title, opts)
 end
 
 function AiDict:addToMainMenu(menu_items)
-    -- Its own entry at the top of Tools; the settings behind it stay in the
-    -- plugin's submenu, where the rest of them are.
-    menu_items[SYNC_MENU_ID] = {
-        text = _("Sync library"),
-        keep_menu_open = true,
-        callback = function() self:syncLibrary() end,
-    }
-    menu_items[UPDATE_MENU_ID] = {
-        -- The version is on the label because this is the one entry that
-        -- changes it: after an update and a restart, the menu itself is the
-        -- receipt.
-        text_func = function() return T(_("Update the plugin (%1)"), Version.string) end,
-        keep_menu_open = true,
-        callback = function() self:checkForUpdates() end,
-    }
-
-    menu_items.aidict = {
+    -- One entry, first in Tools. The two actions open it, because they are
+    -- what gets pressed; the settings follow.
+    menu_items[MENU_ID] = {
         text = _("AI dictionary"),
-        sorting_hint = "more_tools",
+        sorting_hint = "tools",
         sub_item_table = {
+            {
+                text = _("Sync library"),
+                keep_menu_open = true,
+                callback = function() self:syncLibrary() end,
+            },
+            {
+                -- The version is on the label because this is the one entry
+                -- that changes it: after an update and a restart, the menu
+                -- itself is the receipt.
+                text_func = function() return T(_("Update the plugin (%1)"), Version.string) end,
+                keep_menu_open = true,
+                separator = true,
+                callback = function() self:checkForUpdates() end,
+            },
             {
                 text_func = function()
                     return T(_("Endpoint: %1"), self.settings:get("endpoint"))

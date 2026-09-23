@@ -18,12 +18,13 @@ The same plugin also carries the **book library**: *Sync library* in the menu
 asks the gateway what is in the owner's R2 bucket and downloads whatever this
 Kindle does not have, mirroring the bucket's folders under `/mnt/us/AI_Books`.
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
-if one is bound to it. It sits at the top of the **Tools** tab, with the update
-below it, rather than inside the plugin's own submenu: those are actions, and
-only the settings behind them belong in a submenu.
+if one is bound to it. The plugin has one entry in the menu, **AI dictionary**,
+first in the **Tools** tab; the sync is the first line inside it and the update
+the second, above the settings — the two things that get pressed, two taps
+from the page.
 
-Shipped to a Kindle as a KPM package; the gateway's address and key are baked
-in at build time and are not in this repository.
+Shipped to a Kindle as a KPM package; the addresses are baked in at build time
+and are not in this repository, and the key is typed in on the device.
 
 ## Layout
 
@@ -64,7 +65,7 @@ docs/                     api.md (gateway contract), testing.md, emulator.md, di
 
 ## Updating itself
 
-**Update the plugin** — second in the Tools tab, under the sync — asks the
+**Update the plugin** — second in AI dictionary, under the sync — asks the
 channel's `version.json` whether there is something newer, and offers to
 install it. Installing runs the Kindle's own
 package manager — `kpm -y install koreader-aidict`, found at
