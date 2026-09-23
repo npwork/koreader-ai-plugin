@@ -141,6 +141,50 @@ describe("plan", function()
             assert.are.equal(1, plan.have)
         end)
 
+        it("keeps a book whose row this device could not use", function()
+            -- The server still lists it; only this side dropped the row.
+            -- Reading it as deleted would throw away the copy and its pages.
+            local plan = Plan.build(
+                { entry("A.epub", 10, "a") },
+                holding({ ["A.epub"] = 10, ["Odd.epub"] = 20 }),
+                placed({ ["A.epub"] = { 10, "a" }, ["Odd.epub"] = { 20, "o" } }),
+                { ["A.epub"] = true, ["Odd.epub"] = true })
+
+            assert.are.same({}, plan.deletes)
+            assert.are.same({}, plan.moves)
+        end)
+
+        it("never deletes the old path of a rename that only changed case", function()
+            -- FAT, the Kindle's storage: English/x.epub is english/x.epub, so
+            -- the new path is already here and deleting the old one would
+            -- delete the book itself.
+            local fat = function(path)
+                local files = { ["english/x.epub"] = 10 }
+                for name, size in pairs(files) do
+                    if name:lower() == path:lower() then return size end
+                end
+            end
+            local plan = Plan.build(
+                { entry("English/x.epub", 10, "e1") },
+                fat,
+                placed({ ["english/x.epub"] = { 10, "e1" } }))
+
+            assert.are.equal(1, plan.have)
+            assert.are.same({}, plan.deletes)
+            assert.are.same({}, plan.moves)
+            assert.are.same({}, plan.downloads)
+        end)
+
+        it("moves a case-only rename where the disk tells the two apart", function()
+            local plan = Plan.build(
+                { entry("English/x.epub", 10, "e1") },
+                holding({ ["english/x.epub"] = 10 }),
+                placed({ ["english/x.epub"] = { 10, "e1" } }))
+
+            assert.are.same({ "english/x.epub -> English/x.epub" }, move_pairs(plan))
+            assert.are.same({}, plan.deletes)
+        end)
+
         it("never touches a file the owner put there by hand", function()
             -- Not in the index, so neither a thing to delete nor a book to
             -- move — even with the very name the manifest now wants.

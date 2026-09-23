@@ -358,6 +358,22 @@ describe("library", function()
             assert.are.same({ ["A.epub"] = { size = 10, etag = "a" } }, settled.index)
         end)
 
+        it("keeps, and still owns, a book whose row this device dropped", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/A.epub"] = 10, [BOOKS .. "/Odd.epub"] = 20 })
+            local index = { ["A.epub"] = { size = 10, etag = "a" }, ["Odd.epub"] = { size = 20, etag = "o" } }
+            local odd = entry("Odd.epub", 20, "o")
+            odd.url = "ftp://nope/Odd.epub"
+            local lib = library(served(fs, { entry("A.epub", 10, "a"), odd }), fs)
+
+            local report = lib:sync(BOOKS, { index = index })
+            local settled = lib:settle(report, BOOKS, ops(fs, index))
+
+            assert.are.equal(1, report.dropped)
+            assert.are.same({}, report.deletes)
+            assert.are.equal(20, fs.files[BOOKS .. "/Odd.epub"])
+            assert.are.same(index, settled.index)
+        end)
+
         it("never touches what the owner put in the folder", function()
             local fs = helpers.filesystem({
                 [BOOKS .. "/Mine/notes.pdf"] = 3,
