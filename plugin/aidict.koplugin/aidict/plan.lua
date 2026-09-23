@@ -26,6 +26,9 @@ end
 @param size_of  function (relative path) -> bytes on the device, or nil
 @param index    table    { [relative path] = { size, etag } } — what the plugin
                          placed on earlier syncs; nil or empty the first time
+@param named    table    { [path] = true } — every path the manifest named,
+                         including rows this device dropped; nil means
+                         only `entries`
 @treturn table  {
     downloads = { entry, … },
     moves     = { { from = old path, to = entry.path, entry = entry }, … },
@@ -33,13 +36,26 @@ end
     have = n, bytes = n,
 }
 --]]--
-function Plan.build(entries, size_of, index)
+function Plan.build(entries, size_of, index, named)
     entries = entries or {}
     index = index or {}
     local plan = { downloads = {}, moves = {}, deletes = {}, have = 0, bytes = 0 }
 
+    -- A row this device could not use is still a book the server holds: it
+    -- must not read as "gone from the server" and cost the reader the copy
+    -- already here, reading state and all.
     local listed = {}
+    for path in pairs(named or {}) do listed[path] = true end
     for _, entry in ipairs(entries) do listed[entry.path] = true end
+
+    -- The Kindle's storage is FAT: `english/A.epub` and `English/A.epub` are
+    -- one file there. After a rename on the server that only changes case,
+    -- the new path is already "here" and the old one looks abandoned, so
+    -- deleting the old one would delete the book. Such a path may still be
+    -- moved from (on a disk that tells the two apart, that is the rename),
+    -- never deleted.
+    local listed_folded = {}
+    for path in pairs(listed) do listed_folded[path:lower()] = true end
 
     -- Only what this plugin placed is ever moved or deleted, and only while
     -- it is still the file it placed: a path the owner has since filled with
@@ -125,9 +141,13 @@ function Plan.build(entries, size_of, index)
     end
 
     -- Whatever the plugin placed that the server no longer lists, and that
-    -- no book moved out of, has been deleted there.
-    for _, candidate in ipairs(candidates) do
-        if not claimed[candidate.path] then
+    -- no book moved out of, has been deleted there. Unless the manifest named
+    -- nothing at all: an empty library is far likelier to be a gateway
+    -- pointed at the wrong bucket than an owner who deleted every book, and
+    -- only one of those two mistakes can be undone.
+    local deletes = next(listed) ~= nil
+    for _, candidate in ipairs(deletes and candidates or {}) do
+        if not claimed[candidate.path] and not listed_folded[candidate.path:lower()] then
             plan.deletes[#plan.deletes + 1] = candidate.path
         end
     end

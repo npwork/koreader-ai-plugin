@@ -226,12 +226,13 @@ is never fetched again at its new path; they come back in the report, for
     downloaded, have, failed = { {path, reason}, … }, bytes, dropped, total,
     moves = { {from, to, entry}, … }, deletes = { path, … },
     listed = { {path, size, etag}, … }  the manifest, for the next index,
+    unusable = { path, … }  rows the manifest named that this device dropped,
 }
 @treturn table err    { code, message } when the manifest never arrived
 --]]--
 function Library:sync(dir, opts)
     opts = opts or {}
-    local entries, dropped = self:manifest()
+    local entries, dropped, named = self:manifest()
     -- Same pair `Manifest.parse` returns, so with no entries the second
     -- value is the failure rather than a count.
     if not entries then return nil, dropped end
@@ -239,14 +240,22 @@ function Library:sync(dir, opts)
     dir = tostring(dir or ""):gsub("/+$", "")
     local plan = Plan.build(entries, function(path)
         return self.fs.size(dir .. "/" .. path)
-    end, opts.index)
+    end, opts.index, named)
 
     -- Without the URLs: the report crosses a pipe out of the subprocess, and
     -- a presigned link is no use to the next sync anyway.
-    local listed = {}
+    local listed, usable = {}, {}
     for _, entry in ipairs(entries) do
         listed[#listed + 1] = { path = entry.path, size = entry.size, etag = entry.etag }
+        usable[entry.path] = true
     end
+    -- Rows this device dropped: still the server's books, so what the
+    -- plugin placed at those paths stays its own to move or delete later.
+    local unusable = {}
+    for path in pairs(named or {}) do
+        if not usable[path] then unusable[#unusable + 1] = path end
+    end
+    table.sort(unusable)
 
     local report = {
         downloaded = 0,
@@ -258,6 +267,7 @@ function Library:sync(dir, opts)
         moves = plan.moves,
         deletes = plan.deletes,
         listed = listed,
+        unusable = unusable,
     }
 
     for position, entry in ipairs(plan.downloads) do
@@ -371,6 +381,22 @@ function Library:settle(report, dir, ops)
     for _, entry in ipairs(report.listed or {}) do
         if self.fs.size(dir .. "/" .. entry.path) == entry.size then
             result.index[entry.path] = { size = entry.size, etag = entry.etag }
+        end
+    end
+
+    -- Still the plugin's own, for a later sync to move or delete: a book
+    -- whose row this device dropped, and — when the manifest named nothing,
+    -- so nothing was deleted — every book already placed.
+    local keep = report.unusable or {}
+    if #(report.listed or {}) == 0 and #keep == 0 then
+        keep = {}
+        for path in pairs(previous) do keep[#keep + 1] = path end
+    end
+    for _, path in ipairs(keep) do
+        local record = previous[path]
+        if type(record) == "table" and not result.index[path]
+                and self.fs.size(dir .. "/" .. path) == record.size then
+            result.index[path] = record
         end
     end
 

@@ -351,7 +351,15 @@ cannot tell apart from the server's copy.
   on the server is that, book by book.
 * **Deleted.** An indexed path the manifest no longer lists, that no book
   moved out of, is deleted the way KOReader's file manager deletes: the file,
-  its sidecar, its History entry and its collections.
+  its sidecar, its History entry and its collections. "No longer lists"
+  counts every row the manifest carried, including one this device dropped
+  as unusable: the server still has that book, so the copy here stays. Nor is
+  a path deleted when a listed path differs from it only in case — on the
+  Kindle's FAT storage the two are one file, and deleting the old name would
+  delete the book. A rename that only changes case therefore leaves the
+  folder's old spelling on the device. And a manifest that names nothing at
+  all deletes nothing: an empty library is likelier a gateway pointed at the
+  wrong bucket than every book deleted on purpose.
 * A folder a move or delete leaves empty is removed; the books folder itself
   never is.
 * **The open book is left alone.** The reader writes its sidecar to the path

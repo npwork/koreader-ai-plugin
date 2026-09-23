@@ -44,14 +44,20 @@ end
 @treturn table  entries { { path, size, etag, url }, … }
 @treturn number how many entries were dropped, or an err table when the
                 manifest itself was unusable
+@treturn table  { [path] = true } for every row that named a path, usable or
+                not — what the server still holds, even where this device
+                could not take it
 --]]--
 function Manifest.parse(decoded)
     if type(decoded) ~= "table" or type(decoded.files) ~= "table" then
         return nil, { code = "bad_response", message = "the gateway sent no file list" }
     end
 
-    local entries, dropped = {}, 0
+    local entries, dropped, named = {}, 0, {}
     for _, entry in ipairs(decoded.files) do
+        if type(entry) == "table" and type(entry.path) == "string" then
+            named[entry.path] = true
+        end
         if usable(entry) then
             entries[#entries + 1] = {
                 path = entry.path,
@@ -66,7 +72,7 @@ function Manifest.parse(decoded)
         end
     end
 
-    return entries, dropped
+    return entries, dropped, named
 end
 
 return Manifest

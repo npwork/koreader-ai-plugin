@@ -63,6 +63,22 @@ describe("manifest", function()
             assert.are.equal(3, dropped)
         end)
 
+        it("names every path it was given, the dropped rows too", function()
+            local _, _, named = Manifest.parse({
+                files = {
+                    entry(),
+                    entry({ path = "Borges/Ficciones.epub", size = 0 }),
+                    entry({ path = 42 }),
+                    "not a row",
+                },
+            })
+
+            assert.are.same({
+                ["Lem/Solaris.epub"] = true,
+                ["Borges/Ficciones.epub"] = true,
+            }, named)
+        end)
+
         it("treats a body with no file list as a failure", function()
             local entries, err = Manifest.parse({ version = 1 })
             assert.is_nil(entries)
