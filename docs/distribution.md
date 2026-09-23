@@ -99,8 +99,10 @@ an address that is not one. They are set separately now, and they are not
 set the same way on the device: the dictionary's lands in the settings as a
 default the reader can overwrite, while the library's is read straight from the
 package and only shown. Changing `AIDICT_LIBRARY_ENDPOINT` takes effect on the
-Kindle after the next Pages build and `;kpm upgrade` — dispatch `pages.yml` on
-`main` to rebuild without a commit.
+Kindle after the next release and `;kpm upgrade`. Dispatching `pages.yml` on
+`main` rebuilds with the new value but not with a new version — the patch is
+the commit count — so a Kindle already on that version has nothing to upgrade
+to. The change reaches it with the next merged PR.
 
 Neither address is protected by this — the package is public and can be
 unpacked. They are kept out of the repository so they are not searchable, and
