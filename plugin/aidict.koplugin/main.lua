@@ -832,7 +832,16 @@ local function bookOps(ui)
             if isOpen(ui, from) then return false, "open" end
             local ok, err = os.rename(from, to)
             if not ok then return false, tostring(err or "could not move the file") end
-            bookkeep("sidecar move", DocSettings.updateLocation, from, to)
+            -- The sidecar is the reading position itself, so it is the one
+            -- step that must not fail quietly: put the file back and report
+            -- the move failed, and the index keeps the old path for the next
+            -- sync to try again, sidecar and all.
+            local moved, sidecar_err = pcall(DocSettings.updateLocation, from, to)
+            if not moved then
+                logger.warn("aidict: library sidecar move failed:", tostring(sidecar_err))
+                os.rename(to, from)
+                return false, "could not move the reading state: " .. tostring(sidecar_err)
+            end
             bookkeep("history move", ReadHistory.updateItem, ReadHistory, from, to)
             bookkeep("collection move", ReadCollection.updateItem, ReadCollection, from, to)
             return true

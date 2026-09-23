@@ -1494,17 +1494,18 @@ describe("the KOReader layer", function()
                 assert.are.equal(BOOKS, saved_index().data.dir)
             end)
 
-            it("still moves the book when KOReader's bookkeeping throws", function()
+            it("puts the book back when its reading state cannot follow, for the next sync to retry", function()
                 synced_before({ ["English/Fiction/x.epub"] = 10 }, { book("English/Business/x.epub", 10) })
                 kor.docsettings_error = "sidecar unreadable"
 
                 plugin:syncLibrary()
 
-                assert.are.equal(10, kor.files[TO])
-                -- The history and collections still follow it.
-                assert.are.equal("ReadCollection:updateItem " .. FROM .. " -> " .. TO, kor.book_calls[3])
+                assert.are.equal(10, kor.files[FROM])
+                assert.is_nil(kor.files[TO])
                 assert.is_truthy(kor.warn_lines[1]:find("sidecar unreadable", 1, true))
-                assert.is_truthy(last_shown().text:find("Moved 1", 1, true))
+                assert.is_truthy(last_shown().text:find("could not be moved", 1, true))
+                -- Still indexed where it is, so the next sync plans the move again.
+                assert.is_not_nil(saved_index().data.books["English/Fiction/x.epub"])
             end)
 
             it("takes the file browser up to the library when its folder is gone", function()

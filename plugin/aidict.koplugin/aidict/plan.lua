@@ -80,14 +80,26 @@ function Plan.build(entries, size_of, index)
     -- the size check keeps it from pairing two different books that happen
     -- to share a file name.
     local claimed, moved = {}, {}
-    local function claim(entry, matches)
+    -- `unique` is for the name match: two books of one name and size are
+    -- two books the name cannot tell apart, and picking one could hand the
+    -- new path the wrong book's pages and reading state. Downloading afresh
+    -- is the safe answer to "which one?".
+    local function claim(entry, matches, unique)
+        local found
         for _, candidate in ipairs(candidates) do
             if not claimed[candidate.path] and candidate.size == entry.size
                     and matches(candidate) then
-                claimed[candidate.path] = true
-                moved[entry] = candidate.path
-                return
+                if not unique then
+                    found = candidate
+                    break
+                end
+                if found then return end
+                found = candidate
             end
+        end
+        if found then
+            claimed[found.path] = true
+            moved[entry] = found.path
         end
     end
 
@@ -99,7 +111,7 @@ function Plan.build(entries, size_of, index)
     for _, entry in ipairs(wanted) do
         if not moved[entry] then
             local name = basename(entry.path)
-            claim(entry, function(candidate) return basename(candidate.path) == name end)
+            claim(entry, function(candidate) return basename(candidate.path) == name end, true)
         end
     end
 

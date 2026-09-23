@@ -239,5 +239,30 @@ describe("plan", function()
             assert.are.equal(1, plan.have)
             assert.are.equal("B/x.epub", plan.downloads[1].path)
         end)
+
+        -- Two placed books of one name and size, neither with a matching
+        -- etag: the name cannot say which one moved, and guessing could put
+        -- the wrong book's pages and reading state at the new path.
+        it("downloads rather than guess between two books the name cannot tell apart", function()
+            local plan = Plan.build(
+                { entry("C/Notes.epub", 10, "new") },
+                holding({ ["A/Notes.epub"] = 10, ["B/Notes.epub"] = 10 }),
+                placed({ ["A/Notes.epub"] = { 10, "ea" }, ["B/Notes.epub"] = { 10, "eb" } }))
+
+            assert.are.equal(0, #plan.moves)
+            assert.are.equal("C/Notes.epub", plan.downloads[1].path)
+            table.sort(plan.deletes)
+            assert.are.same({ "A/Notes.epub", "B/Notes.epub" }, plan.deletes)
+        end)
+
+        it("still moves by etag when two placed books share a name", function()
+            local plan = Plan.build(
+                { entry("C/Notes.epub", 10, "eb") },
+                holding({ ["A/Notes.epub"] = 10, ["B/Notes.epub"] = 10 }),
+                placed({ ["A/Notes.epub"] = { 10, "ea" }, ["B/Notes.epub"] = { 10, "eb" } }))
+
+            assert.are.same({ "B/Notes.epub -> C/Notes.epub" }, move_pairs(plan))
+            assert.are.same({ "A/Notes.epub" }, plan.deletes)
+        end)
     end)
 end)
