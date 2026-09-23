@@ -1,0 +1,66 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tldr", "verdict", "files", "notReviewed"],
+      "properties": {
+        "tldr": {
+          "type": "string",
+          "description": "One or two sentences: what the PR does and whether it is safe to merge."
+        },
+        "verdict": {
+          "type": "string",
+          "enum": ["looks_good", "minor_issues", "needs_changes"]
+        },
+        "files": {
+          "type": "array",
+          "description": "Every changed file with its role. drift = changes the PR goal does not need; critical = auth, secrets, data migrations, deploy, CI.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "role"],
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "type": "string", "enum": ["core", "support", "drift", "critical"] },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "notReviewed": {
+          "type": "array",
+          "description": "Changed files you did not actually read, with the reason. Empty when you covered everything.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "startLine", "endLine", "severity", "score", "category", "title", "body", "evidence"],
+        "properties": {
+          "path": { "type": "string", "description": "Repository-relative path of a file changed by the PR." },
+          "startLine": { "type": "integer", "minimum": 1, "description": "First line in the HEAD version of the file. Must be an added or context line of the diff." },
+          "endLine": { "type": "integer", "minimum": 1, "description": "Last line in the HEAD version, same hunk as startLine. Equal to startLine for a one-line finding." },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"],
+            "description": "critical: data loss, security hole, broken deploy or prod outage. high: broken feature, wrong result, race. medium: works in the common case, fails in a real edge case. low: minor."
+          },
+          "score": { "type": "integer", "minimum": 0, "maximum": 10, "description": "Confidence that this is real and worth the time of the author, after verification." },
+          "category": { "type": "string", "enum": ["bug", "security", "convention", "tests", "performance", "drift"] },
+          "title": { "type": "string", "description": "Short noun phrase naming the defect, at most ten words." },
+          "body": { "type": "string", "description": "Markdown. What is wrong, the concrete input or path that triggers it, and what to do. At most five sentences." },
+          "evidence": { "type": "string", "description": "Premise, path, verdict: what you read (file:line) that proves it, and what you searched for when claiming something is missing." },
+          "existingCode": { "type": "string", "description": "Exact text of lines startLine..endLine at HEAD. Only together with improvedCode." },
+          "improvedCode": { "type": "string", "description": "Complete replacement for existingCode, no ellipsis. Omit unless the fix is certain and at most 15 lines." }
+        }
+      }
+    }
+  }
+}

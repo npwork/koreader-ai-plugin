@@ -20,9 +20,11 @@ The whole loop is the agent's work, not Nick's:
 3. **Push the branch and open the PR.** `ci` runs on it, and `koreader smoke`
    too when `plugin/` changed, so a broken plugin is visible before it is a
    release.
-4. **Wait for the reviews.** Whatever reviewer is connected to this repository
-   posts on its own a few minutes after the push. If it says its free credits
-   for the month are spent, or none shows up at all, that is not a blocker:
+4. **Wait for the review.** The `Review` workflow (`.github/workflows/review.yml`,
+   a copy of the reviewer in `ai-small-projects`: Claude Code on Nick's
+   subscription) posts as `github-actions[bot]` when the PR is opened, about a
+   minute later: one review with inline comments and one "AI review" summary.
+   If the summary says the review did not complete, that is not a blocker:
    say so in the thread and go on to the merge.
 5. **Answer every comment, in one round.** Fix the ones you agree with **and
    can confirm**: reproduced, or traced to the line that proves it. A comment
