@@ -74,6 +74,11 @@ describe("the AI page", function()
             assert.is_truthy(entry.definition:find("cached", 1, true))
         end)
 
+        it("does not repeat the word the popup already heads it with", function()
+            local entry = Page.entry("fox", { kind = "answer", result = ANSWER })
+            assert.is_nil(entry.definition:find("<b>fox</b>", 1, true))
+        end)
+
         it("says what went wrong", function()
             local entry = Page.entry("fox", { kind = "failed", err = { message = "model is down" } })
             assert.is_truthy(entry.definition:find("Model is down.", 1, true))

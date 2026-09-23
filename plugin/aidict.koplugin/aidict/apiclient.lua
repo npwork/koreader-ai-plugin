@@ -124,8 +124,8 @@ Ask the gateway to explain a word.
   title        string optional book title, for disambiguation
   author       string optional
   request_id   string optional, sent as X-Request-Id so both logs agree
-@treturn table result { word, definition, translation, examples, forms, part_of_speech,
-                        model, timings, review }
+@treturn table result { word, lemma, pronunciation, etymology, definition, translation,
+                        examples, forms, part_of_speech, model, timings, review }
 @treturn table err    { code, message, status, elapsed_ms, request_id, cf_ray }
 --]]--
 function ApiClient:define(request)
@@ -283,8 +283,19 @@ function ApiClient:define(request)
         }
     end
 
+    local function text(value)
+        if type(value) == "string" and value ~= "" then return value end
+        return nil
+    end
+
     return {
         word = type(decoded.word) == "string" and decoded.word or request.word,
+        -- The headword, its IPA and its origin. The entry is laid out around
+        -- them; dropping them here is what left every entry filed under the
+        -- tapped form, with no pronunciation and no etymology.
+        lemma = text(decoded.lemma),
+        pronunciation = text(decoded.pronunciation),
+        etymology = text(decoded.etymology),
         definition = decoded.definition,
         translation = type(decoded.translation) == "string" and decoded.translation or nil,
         part_of_speech = type(decoded.part_of_speech) == "string" and decoded.part_of_speech or nil,

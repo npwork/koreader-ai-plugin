@@ -50,6 +50,28 @@ describe("format", function()
             assert.is_true(pron < text:find("</div>", head, true))
         end)
 
+        it("leaves out a headword the window already shows above it", function()
+            -- KOReader's popup puts the word in its own header; the same word
+            -- again, big and bold, right under it is only a repeat.
+            local text = Format.result({
+                lemma = "sync", word = "sync", part_of_speech = "verb",
+                pronunciation = "/sɪŋk/", definition = "To synchronize.",
+            }, { shown = "Sync" })
+            assert.is_nil(text:find("<b>sync</b>", 1, true))
+            -- The pronunciation is not lost with it: it leads the line below.
+            local pron = text:find("/sɪŋk/", 1, true)
+            assert.is_truthy(pron)
+            assert.is_true(pron < text:find("<i>verb</i>", 1, true))
+        end)
+
+        it("still leads with a headword that differs from the word shown", function()
+            local text = Format.result({
+                lemma = "strap", word = "strapped", definition = "To fasten with straps.",
+            }, { shown = "strapped" })
+            assert.is_truthy(text:find("<b>strap</b>", 1, true))
+            assert.is_truthy(text:find("as “strapped”", 1, true))
+        end)
+
         it("puts the etymology last and quieter, after the examples", function()
             local text = Format.result({
                 word = "want", definition = "A lack.",
