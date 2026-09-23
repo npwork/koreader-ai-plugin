@@ -206,7 +206,13 @@ Sizes are relative, never absolute — the reader has already chosen a comfortab
 size for this screen and the entry should move with it, not argue.
 
 @param result table  an `ApiClient:define` result
-@param opts   table  { word = string, source = "cached"|"prefetch"|nil }
+@param opts   table  { word = string, source = "cached"|"prefetch"|nil,
+                       shown = string|nil }
+
+`shown` is a word the window already displays above the entry, as KOReader's
+dictionary popup does. A headword that only repeats it is left out, and its
+pronunciation moves down onto the part-of-speech line; a headword that differs
+("strap" under a popup for "strapped") still leads.
 @treturn string
 --]]--
 function Format.result(result, opts)
@@ -215,39 +221,41 @@ function Format.result(result, opts)
 
     local out = {}
     local headword, tapped = headwords(result, opts)
+    local repeats = type(opts.shown) == "string" and opts.shown ~= ""
+        and headword:lower() == opts.shown:lower()
+    local pronunciation = type(result.pronunciation) == "string" and result.pronunciation ~= ""
+        and Format.escape(result.pronunciation) or nil
 
-    if headword ~= "" then
+    if headword ~= "" and not repeats then
         -- The pronunciation rides on the headword's line, where a dictionary
         -- puts it: it is how to say *this* word, not a fact about it.
         local head = "<b>" .. Format.escape(headword) .. "</b>"
-        if type(result.pronunciation) == "string" and result.pronunciation ~= "" then
-            head = head .. string.format(
-                ' <span style="font-size: 0.7em">%s</span>',
-                Format.escape(result.pronunciation)
-            )
+        if pronunciation then
+            head = head .. string.format(' <span style="font-size: 0.7em">%s</span>', pronunciation)
         end
         out[#out + 1] = string.format(
             '<div style="font-size: 1.35em; margin-bottom: ' .. GAP.HEADWORD ..
             '">%s</div>', head
         )
+    end
 
-        -- The part of speech and the tapped form answer the same question —
-        -- "why am I looking at this word?" — so they share a line under it.
-        local under = {}
-        if result.part_of_speech and result.part_of_speech ~= "" then
-            under[#under + 1] = "<i>" .. Format.escape(result.part_of_speech) .. "</i>"
-        end
-        -- Only worth saying when the entry is filed elsewhere than the reader
-        -- tapped: "strap" for "strapped" needs the bridge, "fell" does not.
-        if tapped ~= "" and tapped:lower() ~= headword:lower() then
-            under[#under + 1] = "as “" .. Format.escape(tapped) .. "”"
-        end
-        if #under > 0 then
-            out[#out + 1] = string.format(
-                '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.OPENING ..
-                '">%s</div>', table.concat(under, " · ")
-            )
-        end
+    -- The part of speech and the tapped form answer the same question —
+    -- "why am I looking at this word?" — so they share a line under it.
+    local under = {}
+    if repeats and pronunciation then under[#under + 1] = pronunciation end
+    if result.part_of_speech and result.part_of_speech ~= "" then
+        under[#under + 1] = "<i>" .. Format.escape(result.part_of_speech) .. "</i>"
+    end
+    -- Only worth saying when the entry is filed elsewhere than the reader
+    -- tapped: "strap" for "strapped" needs the bridge, "fell" does not.
+    if headword ~= "" and tapped ~= "" and tapped:lower() ~= headword:lower() then
+        under[#under + 1] = "as “" .. Format.escape(tapped) .. "”"
+    end
+    if #under > 0 then
+        out[#out + 1] = string.format(
+            '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.OPENING ..
+            '">%s</div>', table.concat(under, " · ")
+        )
     end
 
     -- `result.translation` is fetched and cached but deliberately not shown:
