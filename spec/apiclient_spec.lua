@@ -384,6 +384,27 @@ describe("api client", function()
             assert.are.same({ "went", "goes" }, client(tr):define({ word = "went" }).forms)
         end)
 
+        it("carries the headword, its pronunciation and its origin", function()
+            local tr = helpers.transport({ { status = 200, body = helpers.body({
+                word = "reading", lemma = "read", pronunciation = "/ɹiːd/",
+                etymology = "From Old English rǣdan.", definition = "d",
+            }) } })
+            local result = client(tr):define({ word = "reading" })
+            assert.are.equal("read", result.lemma)
+            assert.are.equal("/ɹiːd/", result.pronunciation)
+            assert.are.equal("From Old English rǣdan.", result.etymology)
+        end)
+
+        it("leaves them out when the gateway sent none, or sent them empty", function()
+            local tr = helpers.transport({ { status = 200, body = helpers.body({
+                definition = "d", lemma = "", pronunciation = 7,
+            }) } })
+            local result = client(tr):define({ word = "fox" })
+            assert.is_nil(result.lemma)
+            assert.is_nil(result.pronunciation)
+            assert.is_nil(result.etymology)
+        end)
+
         it("has an empty list when the gateway named none", function()
             -- The gateway may legitimately send none, and the device then
             -- falls back to what it can work out from the headword.

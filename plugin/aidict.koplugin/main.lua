@@ -44,7 +44,11 @@ local Version = require("aidict.version")
 local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
 
-local CACHE_KEY = "cache_entries"
+-- Renamed when the answers kept under it changed shape: the old key holds
+-- entries without their headword, pronunciation and etymology, which the
+-- cache would otherwise serve for a month.
+local CACHE_KEY = "answers"
+local DEAD_CACHE_KEY = "cache_entries"
 
 --- The plugin's one entry in the main menu; everything else is inside it.
 local MENU_ID = "aidict"
@@ -115,6 +119,9 @@ function AiDict:init()
         monotonic = function() return time.to_ms(time.now()) end,
     })
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
+    if self.store:readSetting(DEAD_CACHE_KEY) ~= nil then
+        self.store:saveSetting(DEAD_CACHE_KEY, nil)
+    end
     self.prefetch = Prefetch.new({ settings = self.settings })
     self.prefetch_jobs = {}
     -- AI pages in dictionary popups still waiting for their answer.

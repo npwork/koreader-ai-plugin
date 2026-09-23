@@ -523,7 +523,7 @@ describe("the KOReader layer", function()
             assert.is_truthy(popup.results[1].definition:find("Asking AI", 1, true))
             assert.are.equal(0, popup.redraws)
             -- It still landed in the cache, for the next time.
-            assert.is_table(kor.store.data["cache_entries"])
+            assert.is_table(kor.store.data["answers"])
         end)
 
         it("shows the gateway's error where the answer would be", function()
@@ -647,10 +647,10 @@ describe("the KOReader layer", function()
         it("still shows an answer it already has", function()
             build()
             tap_highlight_button()
-            local saved = kor.store.data["cache_entries"]
+            local saved = kor.store.data["answers"]
             koreader.uninstall()
 
-            build({ online = false, settings = { cache_entries = saved } })
+            build({ online = false, settings = { answers = saved } })
             tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
@@ -704,7 +704,7 @@ describe("the KOReader layer", function()
             prefetching()
             plugin:onWordLookedUp("fox")
 
-            local saved = kor.store.data["cache_entries"]
+            local saved = kor.store.data["answers"]
             assert.is_table(saved)
             assert.is_true(#saved > 0)
         end)
@@ -933,11 +933,16 @@ describe("the KOReader layer", function()
     end)
 
     describe("the cache on disk", function()
+        it("throws away answers kept under the old key, which lack the headword", function()
+            build({ settings = { cache_entries = { { key = "x", value = {} } } } })
+            assert.is_nil(kor.store.data["cache_entries"])
+        end)
+
         it("is written after a successful lookup", function()
             build()
             tap_highlight_button()
 
-            local saved = kor.store.data["cache_entries"]
+            local saved = kor.store.data["answers"]
             assert.is_table(saved)
             assert.are.equal(1, #saved)
             assert.are.equal("A wild animal of the dog family.", saved[1].value.definition)
@@ -946,10 +951,10 @@ describe("the KOReader layer", function()
         it("is read back by the next reader session", function()
             build()
             tap_highlight_button()
-            local saved = kor.store.data["cache_entries"]
+            local saved = kor.store.data["answers"]
             koreader.uninstall()
 
-            build({ settings = { cache_entries = saved } })
+            build({ settings = { answers = saved } })
             tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
@@ -967,7 +972,7 @@ describe("the KOReader layer", function()
                 if label:find("Clear cache") then item.callback() end
             end
 
-            assert.are.same({}, kor.store.data["cache_entries"])
+            assert.are.same({}, kor.store.data["answers"])
             assert.are.equal("Cached answers cleared.", last_shown().text)
         end)
     end)
