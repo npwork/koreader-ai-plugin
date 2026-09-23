@@ -1288,6 +1288,14 @@ describe("the KOReader layer", function()
 
             plugin:sendVocab()
 
+            -- Asked first, with the number that is actually new: the lookup
+            -- at the cursor comes back from `>=` and has already been sent.
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
+            assert.are.equal("New lookups since the last upload: 1\n\nSend them to the word inbox?", last_shown().text)
+            assert.are.equal("Send", last_shown().ok_text)
+            assert.are.equal(0, kor.transport.calls)
+            last_shown().ok_callback()
+
             -- Read-only: the Kindle's own reader owns the file.
             assert.are.same({ path = Vocab.PATH, mode = "ro" }, kor.vocab_opened)
             assert.is_true(kor.vocab_closed)
@@ -1305,6 +1313,8 @@ describe("the KOReader layer", function()
             withVocab({ responses = { receipt(2) } }, { lookup("lk-1", 1000), lookup("lk-2", 2000) })
 
             plugin:sendVocab()
+            assert.is_truthy(last_shown().text:find("Lookups on this Kindle: 2", 1, true))
+            last_shown().ok_callback()
 
             assert.are.equal(2, #helpers.json.decode(kor.transport.requests[1].body).rows)
             assert.are.equal(2000, kor.store.data.vocab_uploaded_through)
@@ -1319,6 +1329,25 @@ describe("the KOReader layer", function()
             assert.are.equal("Nothing new since the last upload.", last_shown().text)
         end)
 
+        it("sends nothing when the reader says no", function()
+            withVocab({ responses = { receipt(1) } }, { lookup("lk-1", 1000) })
+
+            plugin:sendVocab()
+
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_nil(kor.store.data.vocab_uploaded_through)
+        end)
+
+        it("does not ask about the one lookup it sent last time", function()
+            withVocab({ settings = { vocab_uploaded_through = 2000 } }, { lookup("lk-1", 2000) })
+
+            plugin:sendVocab()
+
+            assert.are.equal("Nothing new since the last upload.", last_shown().text)
+            assert.are.equal(0, kor.transport.calls)
+        end)
+
         it("keeps what arrived before a failure", function()
             local rows = {}
             for i = 1, Vocab.BATCH + 1 do rows[i] = lookup("lk-" .. i, i) end
@@ -1330,6 +1359,7 @@ describe("the KOReader layer", function()
             }, rows)
 
             plugin:sendVocab()
+            last_shown().ok_callback()
 
             assert.are.equal(Vocab.BATCH, kor.store.data.vocab_uploaded_through)
             local text = last_shown().text
@@ -1361,6 +1391,7 @@ describe("the KOReader layer", function()
             withVocab({ online = false }, { lookup("lk-1", 1) })
 
             plugin:sendVocab()
+            last_shown().ok_callback()
 
             assert.are.equal(0, kor.transport.calls)
             assert.is_function(kor.deferred)
@@ -1373,6 +1404,8 @@ describe("the KOReader layer", function()
             assert.are.equal("AiDictSendVocab", kor.actions["aidict_send_vocab"].event)
 
             plugin:onAiDictSendVocab()
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
+            last_shown().ok_callback()
             assert.are.equal(1, kor.transport.calls)
         end)
     end)

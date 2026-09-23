@@ -165,6 +165,22 @@ describe("vocab upload", function()
     end)
 end)
 
+describe("vocab pending", function()
+    it("counts only what is after the cursor", function()
+        local rows = { lookup("lk-1", 2000), lookup("lk-2", 3000), lookup("lk-3", 4000) }
+        assert.are.equal(2, Vocab.pending(rows, 2000))
+        assert.are.equal(0, Vocab.pending({ lookup("lk-1", 2000) }, 2000))
+    end)
+
+    it("counts everything the first time", function()
+        assert.are.equal(2, Vocab.pending({ lookup("lk-1", 0), lookup("lk-2", 5) }, 0))
+    end)
+
+    it("is zero for nothing", function()
+        assert.are.equal(0, Vocab.pending({}, 0))
+    end)
+end)
+
 describe("vocab row", function()
     it("turns NULLs into empty strings", function()
         -- The driver hands a NULL back as a hole in the row.

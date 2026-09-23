@@ -84,6 +84,22 @@ function Vocab.row(values)
 end
 
 --[[--
+How many of `rows` the server has not had yet: the ones strictly after the
+cursor. The query takes `>=` so a shared millisecond is not lost, which means
+the lookup the cursor points at comes back every time — it is overlap, not
+news, and it must not turn "nothing new" into "1 new".
+--]]--
+function Vocab.pending(rows, since_ms)
+    since_ms = tonumber(since_ms) or 0
+    local count = 0
+    for _, values in ipairs(rows or {}) do
+        local timestamp = tonumber(values[4]) or -1
+        if since_ms == 0 or timestamp > since_ms then count = count + 1 end
+    end
+    return count
+end
+
+--[[--
 A UUID v4, because that is the only request id the inbox accepts. Random
 rather than derived: the rows carry their own identity, and this only lets a
 retried request replay its answer.

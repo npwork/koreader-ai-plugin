@@ -233,7 +233,8 @@ subprocess doing the request.
 
 The lookups the Kindle's own reader recorded in
 `/mnt/us/system/vocabulary/vocab.db`, sent from the menu's "Send Kindle
-lookups" or its gesture. The device reads the file read-only and sends the
+lookups" or its gesture, after a confirmation that says how many lookups are
+new; nothing new asks nothing. The device reads the file read-only and sends the
 English-to-English lookups at or after `vocab_uploaded_through`, oldest first,
 at most 100 per request:
 

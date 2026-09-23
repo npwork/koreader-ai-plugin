@@ -790,8 +790,45 @@ local function freshSeed()
     return os.time()
 end
 
---- Send the lookups the Kindle's own reader recorded since the last upload.
+--[[--
+Ask before sending: count what is new, and send only once the reader agrees.
+
+The count is read here, before any network, because the question is only
+worth asking with a number in it — and "nothing new" needs no question at
+all. `vocab.db` is a local file; reading it is quick next to a single
+request over the Kindle's radio.
+--]]--
 function AiDict:sendVocab()
+    local since = self.settings:get("vocab_uploaded_through")
+    local rows, err = readVocab(since)
+    if not rows then
+        UIManager:show(InfoMessage:new{
+            text = Format.error({ message = err }, _("vocab.db could not be read.")),
+        })
+        return
+    end
+
+    local pending = Vocab.pending(rows, since)
+    if pending == 0 then
+        UIManager:show(InfoMessage:new{ text = _("Nothing new since the last upload.") })
+        return
+    end
+
+    local text
+    if since == 0 then
+        text = T(_("Lookups on this Kindle: %1\n\nThis is the first upload, so all of them go to the word inbox. Send them?"), pending)
+    else
+        text = T(_("New lookups since the last upload: %1\n\nSend them to the word inbox?"), pending)
+    end
+    UIManager:show(ConfirmBox:new{
+        text = text,
+        ok_text = _("Send"),
+        ok_callback = function() self:uploadVocab(rows, since) end,
+    })
+end
+
+--- Send what `sendVocab` read and the reader agreed to.
+function AiDict:uploadVocab(rows, since)
     local vocab = Vocab.new({
         endpoint = self.settings:get("endpoint"),
         api_key = self.settings:get("api_key"),
@@ -799,8 +836,6 @@ function AiDict:sendVocab()
         json = json,
         random = math.random,
     })
-    local since = self.settings:get("vocab_uploaded_through")
-
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
             -- In a subprocess so the reader can give up on it: the first
@@ -809,7 +844,7 @@ function AiDict:sendVocab()
             -- upload sends it again and the server writes nothing.
             local completed, outcome = Trapper:dismissableRunInSubprocess(function()
                 math.randomseed(freshSeed())
-                local report, err = vocab:upload(readVocab, since)
+                local report, err = vocab:upload(function() return rows end, since)
                 return { report = report, err = err }
             end, _("Sending Kindle lookups…"))
 
@@ -836,8 +871,6 @@ function AiDict:sendVocab()
                 if report.batches > 0 then
                     text = text .. "\n\n" .. T(_("%1 new lookups arrived before it stopped."), report.created)
                 end
-            elseif report.rows == 0 then
-                text = _("Nothing new since the last upload.")
             else
                 text = T(_("Sent %1 lookups: %2 new, %3 already there."),
                     report.rows, report.created, report.existing)
