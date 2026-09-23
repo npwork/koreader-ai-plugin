@@ -154,7 +154,8 @@ local GAP = {
     OPENING  = "1.0em",   -- the heading block, to the definition
     ANSWER   = "1.8em",   -- the definition, to the evidence for it
     EXAMPLE  = "0.45em",  -- between examples: a list, not a set of paragraphs
-    ASIDE    = "1.5em",   -- the examples, to the etymology and the footer
+    ASIDE    = "1.5em",   -- the examples, to the etymology
+    FOOTER   = "3em",     -- the entry, to the model and timings under it
 }
 
 -- Control characters stand in for the tags while the text is still raw, so the
@@ -295,11 +296,13 @@ function Format.result(result, opts)
     end
 
     -- Last, and quieter than the rest: where a word came from is worth reading
-    -- once and never the thing the reader opened this for.
+    -- once and never the thing the reader opened this for. Labelled and in
+    -- roman, as the Oxford dictionaries set it: a whole paragraph of italics
+    -- was hard to read, and without the label it passed for another example.
     if type(result.etymology) == "string" and result.etymology ~= "" then
         out[#out + 1] = string.format(
             '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.ASIDE ..
-            '"><i>%s</i></div>', Format.escape(result.etymology)
+            '"><span style="font-size: 0.8em">ORIGIN</span> %s</div>', Format.escape(result.etymology)
         )
     end
 
@@ -323,8 +326,10 @@ function Format.result(result, opts)
         footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms)
     end
     if #footer > 0 then
+        -- Bookkeeping, not part of the entry: small, and set well apart from
+        -- it so it reads as a note at the bottom of the page.
         out[#out + 1] = string.format(
-            '<div style="font-size: 0.8em">%s</div>',
+            '<div style="font-size: 0.65em; margin-top: ' .. GAP.FOOTER .. '">%s</div>',
             Format.escape(table.concat(footer, " · "))
         )
     end

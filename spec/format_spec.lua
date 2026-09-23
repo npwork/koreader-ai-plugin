@@ -81,6 +81,9 @@ describe("format", function()
             local etym = text:find("From Old Norse", 1, true)
             assert.is_truthy(etym)
             assert.is_true(etym > text:find("</ol>", 1, true))
+            -- Under a label, in roman, as the Oxford dictionaries set it.
+            assert.is_truthy(text:find("ORIGIN</span> From Old Norse", 1, true))
+            assert.is_nil(text:find("<i>From Old Norse", 1, true))
         end)
 
         it("says nothing where the gateway had nothing to say", function()
@@ -233,6 +236,11 @@ describe("format", function()
         it("keeps the footer to the time when the model is unknown", function()
             local text = Format.result({ definition = "d", elapsed_ms = 120 })
             assert.is_truthy(text:find(">120ms</div>", 1, true))
+        end)
+
+        it("sets the footer small and well below the entry", function()
+            local text = Format.result({ definition = "d", model = "gpt-test" })
+            assert.is_truthy(text:find('font-size: 0.65em; margin-top: 3em">gpt-test', 1, true))
         end)
 
         it("has no footer at all when there is nothing to put in it", function()

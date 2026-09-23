@@ -93,6 +93,15 @@ function koreader.install(opts)
     package.loaded["ui/widget/infomessage"] = recording_widget("InfoMessage")
     package.loaded["ui/widget/textviewer"] = recording_widget("TextViewer")
     package.loaded["ui/widget/confirmbox"] = recording_widget("ConfirmBox")
+    --[[--
+    DictQuickLookup, reduced to the one method the plugin wraps: KOReader's
+    own appends the tapped word to the popup's first page.
+    --]]--
+    package.loaded["ui/widget/dictquicklookup"] = {
+        addQueryWordToResult = function(this)
+            this.definition = (this.definition or "") .. "(query : " .. tostring(this.word) .. ")"
+        end,
+    }
     local InputDialog = recording_widget("InputDialog")
     function InputDialog:onShowKeyboard() self.keyboard_shown = true end
     function InputDialog:getInputText() return self.input end

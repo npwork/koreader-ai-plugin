@@ -9,6 +9,7 @@ behaviour lives in `aidict/`, which is plain Lua and covered by `spec/`.
 --]]--
 
 local DataStorage = require("datastorage")
+local DictQuickLookup = require("ui/widget/dictquicklookup")
 local Device = require("device")
 local Dispatcher = require("dispatcher")
 local DocSettings = require("docsettings")
@@ -47,11 +48,12 @@ local Version = require("aidict.version")
 local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
 
--- Renamed when the answers kept under it changed shape: the old key holds
--- entries without their headword, pronunciation and etymology, which the
--- cache would otherwise serve for a month.
-local CACHE_KEY = "answers"
-local DEAD_CACHE_KEY = "cache_entries"
+-- Renamed whenever the answers kept under it change: the old keys hold
+-- entries without their headword, pronunciation and etymology, and then ones
+-- with Wiktionary's whole etymology and its ɹ, which the cache would
+-- otherwise serve for a month.
+local CACHE_KEY = "entries"
+local DEAD_CACHE_KEYS = { "cache_entries", "answers" }
 
 --- The plugin's one entry in the main menu; everything else is inside it.
 local MENU_ID = "aidict"
@@ -122,8 +124,8 @@ function AiDict:init()
         monotonic = function() return time.to_ms(time.now()) end,
     })
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
-    if self.store:readSetting(DEAD_CACHE_KEY) ~= nil then
-        self.store:saveSetting(DEAD_CACHE_KEY, nil)
+    for _, dead in ipairs(DEAD_CACHE_KEYS) do
+        if self.store:readSetting(dead) ~= nil then self.store:saveSetting(dead, nil) end
     end
     self.prefetch = Prefetch.new({ settings = self.settings })
     self.prefetch_jobs = {}
@@ -343,6 +345,25 @@ end
 ----------------------------------------------------------------------------
 
 --[[--
+Leave KOReader's "(query : word)" line off the AI page.
+
+KOReader adds it to the popup's first page in `addQueryWordToResult`, a
+method kept separate so it can be patched. It runs while the popup is being
+built, before `showDict` hands the popup back, so it is the class that is
+wrapped, once per KOReader run: the plugin is initialised again for every
+book.
+--]]--
+local function keepQueryLineOffAiPage()
+    local add = DictQuickLookup.addQueryWordToResult
+    if type(add) ~= "function" or DictQuickLookup.aidict_query_line then return end
+    DictQuickLookup.aidict_query_line = add
+    DictQuickLookup.addQueryWordToResult = function(this, ...)
+        if not Page.wants_query_line(this.results) then return end
+        return add(this, ...)
+    end
+end
+
+--[[--
 Put the AI page first in KOReader's dictionary popup.
 
 KOReader has no hook for adding a result, so this wraps the dictionary's
@@ -355,6 +376,7 @@ cost the AI page and nothing else, so the plugin's own part is guarded and the
 dictionary always gets its call.
 --]]--
 function AiDict:joinDictionaryPopup()
+    keepQueryLineOffAiPage()
     local dictionary = self.ui.dictionary
     local show = dictionary.showDict
     if type(show) ~= "function" then
