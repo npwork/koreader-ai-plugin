@@ -15,7 +15,8 @@ jobs:
           chmod +x ./*.AppImage && ./*.AppImage --appimage-extract >/dev/null
           F="$(find squashfs-root -name dictquicklookup.lua | head -1)"
           R="$(find squashfs-root -name readerdictionary.lua | head -1)"
-          echo "=== query in dictquicklookup"; grep -n "query" "$F"
+          echo "=== addQueryWordToResult"; awk '/^function DictQuickLookup:addQueryWordToResult/,/^end/' "$F"
+          grep -n "addQueryWordToResult" "$F"
           echo "=== changeDictionary"; awk '/^function DictQuickLookup:changeDictionary/,/^end/' "$F"
           echo "=== lookupword/displayword"; grep -n "lookupword\|displayword" "$F" | head -60
           echo "=== showDict"; awk '/^function ReaderDictionary:showDict/,/^end/' "$R"
