@@ -1,6 +1,6 @@
 --[[--
 The book library: ask the gateway what it has, download what this device does
-not.
+not, and move or delete what the server moved or deleted.
 
 Everything that touches the world is injected — `transport` for HTTP, `fs`
 for the filesystem, `json` for decoding — so the whole sync is exercised in
@@ -10,6 +10,14 @@ for the filesystem, `json` for decoding — so the whole sync is exercised in
     fs.mkdir(path)       -> ok            (one level; "already there" is ok)
     fs.rename(from, to)  -> ok, err
     fs.remove(path)
+    fs.rmdir(path)       -> ok, err       (fails on a folder that is not empty)
+
+It happens in two halves, because the first runs in a forked subprocess.
+`sync` fetches the manifest, plans, and downloads — the slow part, which the
+reader must be able to give up on. `settle` then runs back in KOReader itself
+and does the moves and deletes: they go through KOReader's own history,
+collections and book settings, and a child process's changes to those would
+be lost with it, or overwritten later by the parent's copy in memory.
 --]]--
 
 local Manifest = require("aidict.manifest")
@@ -203,11 +211,22 @@ function Library:fetch(entry, target)
 end
 
 --[[--
-Fetch the manifest, work out what is missing, and get it.
+Fetch the manifest, work out what to do, and do the downloads.
+
+The moves are planned before anything downloads, so a book the server moved
+is never fetched again at its new path; they come back in the report, for
+`settle` to carry out where KOReader's bookkeeping lives.
 
 @param dir     string  where books go; the manifest's folders are mirrored under it
-@param opts    table   { on_progress = function(done, total, path) }
-@treturn table report { downloaded, have, failed = { {path, reason}, … }, bytes, dropped }
+@param opts    table   {
+    on_progress = function(done, total, path),
+    index = { [relative path] = { size, etag } }  what earlier syncs placed,
+}
+@treturn table report {
+    downloaded, have, failed = { {path, reason}, … }, bytes, dropped, total,
+    moves = { {from, to, entry}, … }, deletes = { path, … },
+    listed = { {path, size, etag}, … }  the manifest, for the next index,
+}
 @treturn table err    { code, message } when the manifest never arrived
 --]]--
 function Library:sync(dir, opts)
@@ -220,7 +239,14 @@ function Library:sync(dir, opts)
     dir = tostring(dir or ""):gsub("/+$", "")
     local plan = Plan.build(entries, function(path)
         return self.fs.size(dir .. "/" .. path)
-    end)
+    end, opts.index)
+
+    -- Without the URLs: the report crosses a pipe out of the subprocess, and
+    -- a presigned link is no use to the next sync anyway.
+    local listed = {}
+    for _, entry in ipairs(entries) do
+        listed[#listed + 1] = { path = entry.path, size = entry.size, etag = entry.etag }
+    end
 
     local report = {
         downloaded = 0,
@@ -229,10 +255,13 @@ function Library:sync(dir, opts)
         bytes = 0,
         dropped = dropped,
         total = #plan.downloads,
+        moves = plan.moves,
+        deletes = plan.deletes,
+        listed = listed,
     }
 
-    for index, entry in ipairs(plan.downloads) do
-        if opts.on_progress then opts.on_progress(index, report.total, entry.path) end
+    for position, entry in ipairs(plan.downloads) do
+        if opts.on_progress then opts.on_progress(position, report.total, entry.path) end
         local ok, reason = self:fetch(entry, dir .. "/" .. entry.path)
         if ok then
             report.downloaded = report.downloaded + 1
@@ -243,6 +272,111 @@ function Library:sync(dir, opts)
     end
 
     return report
+end
+
+--[[--
+Remove the folders a move or a delete left empty, from the deepest up.
+
+Never `dir` itself: the reader picked that folder, and an empty library is
+still where the next sync puts books. A folder that is not empty refuses the
+`rmdir`, which is exactly the check wanted — the owner's own files, or a
+sidecar KOReader kept, keep their folder.
+--]]--
+function Library:_prune(dir, folders)
+    local tried = {}
+    local order = {}
+    for folder in pairs(folders) do order[#order + 1] = folder end
+    table.sort(order, function(a, b) return #a > #b end)
+
+    for _, folder in ipairs(order) do
+        while folder and folder ~= "" and not tried[folder] do
+            tried[folder] = true
+            if not self.fs.rmdir(dir .. "/" .. folder) then break end
+            folder = parent_of(folder)
+        end
+    end
+end
+
+--[[--
+Carry out the moves and deletes `sync` planned, and work out the next index.
+
+Runs in KOReader rather than the subprocess, with the two acts that touch its
+bookkeeping injected:
+
+    ops.relocate(from, to) -> ok, reason   absolute paths; the parent exists
+    ops.discard(path)      -> ok, reason
+
+A `reason` of "open" means the book is the one being read: it stays where it
+is, and the next sync tries again once it is closed.
+
+@param report table  from `sync`
+@param dir    string the same books folder
+@param ops    table  { relocate, discard, index = the index `sync` was given }
+@treturn table { moved = n, deleted = n,
+                 deferred = { {action, from, to}, … },         the open book
+                 failed = { {action, from, to, reason}, … },
+                 index = { [relative path] = { size, etag } } }
+--]]--
+function Library:settle(report, dir, ops)
+    assert(type(ops) == "table" and type(ops.relocate) == "function"
+        and type(ops.discard) == "function", "settle needs relocate and discard")
+    dir = tostring(dir or ""):gsub("/+$", "")
+    local previous = ops.index or {}
+    local result = { moved = 0, deleted = 0, deferred = {}, failed = {}, index = {} }
+    local emptied = {}
+
+    -- A move or delete that did not happen keeps its old path in the index,
+    -- so the next sync still knows the file is the plugin's to move or
+    -- delete; without that it would look like the owner's, and stay for ever.
+    local function hold(action, from, to, reason, record)
+        result.index[from] = previous[from] or record
+        local left = { action = action, from = from, to = to, reason = reason }
+        if reason == "open" then
+            result.deferred[#result.deferred + 1] = left
+        else
+            result.failed[#result.failed + 1] = left
+        end
+    end
+
+    for _, move in ipairs(report.moves or {}) do
+        local target = dir .. "/" .. move.to
+        local parent = parent_of(target)
+        if parent then self:_ensure_dir(parent) end
+        local ok, reason = ops.relocate(dir .. "/" .. move.from, target)
+        if ok then
+            result.moved = result.moved + 1
+            emptied[parent_of(move.from) or ""] = true
+        else
+            hold("move", move.from, move.to, reason,
+                { size = move.entry.size, etag = move.entry.etag })
+        end
+    end
+
+    for _, path in ipairs(report.deletes or {}) do
+        local ok, reason = ops.discard(dir .. "/" .. path)
+        if ok then
+            result.deleted = result.deleted + 1
+            emptied[parent_of(path) or ""] = true
+        else
+            hold("delete", path, nil, reason, { size = self.fs.size(dir .. "/" .. path) })
+        end
+    end
+
+    -- Checked on disk rather than added up from the report: what is at its
+    -- path with the right size now is what this plugin can vouch for, which
+    -- covers what was already here, what downloaded and what moved, and
+    -- leaves out a download that failed. It also takes in, on the first sync
+    -- that keeps an index, the books earlier syncs placed before there was
+    -- one.
+    for _, entry in ipairs(report.listed or {}) do
+        if self.fs.size(dir .. "/" .. entry.path) == entry.size then
+            result.index[entry.path] = { size = entry.size, etag = entry.etag }
+        end
+    end
+
+    emptied[""] = nil
+    self:_prune(dir, emptied)
+    return result
 end
 
 return Library

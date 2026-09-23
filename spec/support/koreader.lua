@@ -63,6 +63,9 @@ function koreader.install(opts)
         files = {},          -- fake filesystem: path -> size
         dirs = {},           -- folders the sync created
         removed = {},        -- what the sync threw away
+        rmdirs = {},         -- folders it removed
+        book_calls = {},     -- renames, removes and KOReader's bookkeeping, in order
+        stores = {},         -- every other LuaSettings file, by name
         actions = {},        -- what the plugin registered with Dispatcher
         warn_lines = {},
         forks = 0,
@@ -171,13 +174,31 @@ function koreader.install(opts)
     KOReader's lfs, backed by `recorder.files` — a path-to-size table the
     library sync reads and the fake transport writes.
     --]]--
+    local function holds_anything(path)
+        local prefix = path .. "/"
+        for held in pairs(recorder.files) do
+            if held:sub(1, #prefix) == prefix then return true end
+        end
+        for held in pairs(recorder.dirs) do
+            if held:sub(1, #prefix) == prefix then return true end
+        end
+        return false
+    end
+
     package.loaded["libs/libkoreader-lfs"] = {
         -- The real one answers a single field when asked for one by name,
-        -- and the whole table otherwise; callers use both.
+        -- and the whole table otherwise; callers use both. A folder is one
+        -- `mkdir` made or one with a file under it.
         attributes = function(path, request)
+            local all
             local size = recorder.files[path]
-            if size == nil then return nil end
-            local all = { mode = "file", size = size }
+            if size ~= nil then
+                all = { mode = "file", size = size }
+            elseif recorder.dirs[path] or holds_anything(path) then
+                all = { mode = "directory", size = 0 }
+            else
+                return nil
+            end
             if request then return all[request] end
             return all
         end,
@@ -185,7 +206,46 @@ function koreader.install(opts)
             recorder.dirs[path] = true
             return true
         end,
+        -- Refuses a folder with anything left in it, as the real one does.
+        rmdir = function(path)
+            if holds_anything(path) then return nil, "Directory not empty" end
+            recorder.dirs[path] = nil
+            recorder.rmdirs[#recorder.rmdirs + 1] = path
+            return true
+        end,
     }
+
+    --[[--
+    What KOReader's file manager calls when it moves or deletes a book:
+    the sidecar, History, collections and the cover browser's cache. Each
+    records itself in `book_calls` beside the renames and removes, so a spec
+    can assert the order — the file first, then its bookkeeping, as the file
+    manager does it.
+    --]]--
+    local function log_call(line)
+        recorder.book_calls[#recorder.book_calls + 1] = line
+    end
+    package.loaded["docsettings"] = {
+        updateLocation = function(from, to)
+            if recorder.docsettings_error then error(recorder.docsettings_error) end
+            log_call(to and ("DocSettings.updateLocation " .. from .. " -> " .. to)
+                or ("DocSettings.updateLocation " .. from))
+        end,
+    }
+    package.loaded["readhistory"] = {
+        updateItem = function(_, from, to) log_call("ReadHistory:updateItem " .. from .. " -> " .. to) end,
+        fileDeleted = function(_, path) log_call("ReadHistory:fileDeleted " .. path) end,
+    }
+    package.loaded["readcollection"] = {
+        updateItem = function(_, from, to) log_call("ReadCollection:updateItem " .. from .. " -> " .. to) end,
+        removeItem = function(_, path) log_call("ReadCollection:removeItem " .. path) end,
+    }
+    package.loaded["ui/widget/booklist"] = {
+        resetBookInfoCache = function(path) log_call("BookList.resetBookInfoCache " .. path) end,
+    }
+    -- No book open unless a spec opens one: `kor.reader_ui.instance = {…}`.
+    recorder.reader_ui = { instance = nil }
+    package.loaded["apps/reader/readerui"] = recorder.reader_ui
 
     --[[--
     lua-ljsqlite3, over `recorder.vocab_rows`: the rows the query returns, as
@@ -239,20 +299,31 @@ function koreader.install(opts)
     -- are swapped for the fake filesystem and put back by `uninstall`.
     os.rename = function(from, to)
         if recorder.files[from] == nil then return nil, "no such file" end
+        log_call("rename " .. from .. " -> " .. to)
         recorder.files[to] = recorder.files[from]
         recorder.files[from] = nil
         return true
     end
     os.remove = function(path)
         if recorder.files[path] ~= nil then
+            log_call("remove " .. path)
             recorder.removed[#recorder.removed + 1] = path
             recorder.files[path] = nil
         end
         return true
     end
 
+    -- `aidict.lua` is the plugin's settings, `recorder.store`; any other file
+    -- gets a store of its own, kept by name and seeded from `opts.stores`.
     package.loaded["luasettings"] = {
-        open = function(_, _) return recorder.store end,
+        open = function(_, path)
+            local name = path:match("([^/]*)$")
+            if name == "aidict.lua" then return recorder.store end
+            if not recorder.stores[name] then
+                recorder.stores[name] = helpers.store(opts.stores and opts.stores[name])
+            end
+            return recorder.stores[name]
+        end,
     }
 
     package.loaded["datastorage"] = {
@@ -334,6 +405,8 @@ function koreader.install(opts)
     drive the two ways it can come to nothing.
     --]]--
     package.loaded["ffi/util"] = {
+        -- No symlinks in a table of files.
+        realpath = function(path) return path end,
         template = function(text, ...)
             local args = { ... }
             return (text:gsub("%%(%d)", function(index)
@@ -426,6 +499,8 @@ function koreader.uninstall()
         "ui/network/manager", "ui/event",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
         "libs/libkoreader-lfs", "lua-ljsqlite3/init", "dispatcher",
+        "docsettings", "readhistory", "readcollection", "ui/widget/booklist",
+        "apps/reader/readerui",
         "ui/elements/reader_menu_order", "ui/elements/filemanager_menu_order",
         "ui/widget/pathchooser",
         "aidict.http_transport", "aidict.json", "main",

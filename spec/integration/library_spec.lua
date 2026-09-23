@@ -3,8 +3,9 @@ The book sync over a real socket, writing real files.
 
 `spec/library_spec.lua` proves the decisions; this proves the plumbing —
 `ltn12.sink.file` streaming a body to disk through the same
-`http_transport.lua` that runs on the Kindle, and the `.part` rename that
-keeps a half-arrived book from looking like a finished one.
+`http_transport.lua` that runs on the Kindle, the `.part` rename that keeps a
+half-arrived book from looking like a finished one, and a move and a delete
+that leave no empty folder behind.
 --]]--
 
 local gateway = require("support.gateway")
@@ -26,7 +27,24 @@ local function filesystem()
         mkdir = function(path) os.execute("mkdir -p '" .. path .. "' 2>/dev/null") end,
         rename = function(from, to) return os.rename(from, to) end,
         remove = function(path) os.remove(path) end,
+        -- Lua 5.1 hands back the exit status; `rmdir` itself is what refuses
+        -- a folder that is not empty.
+        rmdir = function(path)
+            local status = os.execute("rmdir '" .. path .. "' 2>/dev/null")
+            return status == 0 or status == true
+        end,
     }
+end
+
+local function exists(path)
+    return os.execute("test -e '" .. path .. "'") == 0
+end
+
+local function put(path, text)
+    os.execute("mkdir -p \"$(dirname '" .. path .. "')\"")
+    local file = io.open(path, "wb")
+    file:write(text)
+    file:close()
 end
 
 local function contents(path)
@@ -105,5 +123,39 @@ describe("library sync, end to end", function()
 
         assert.are.equal(2, report.downloaded)
         assert.are.equal("FICCIONES", contents(dir .. "/Borges/Ficciones.epub"))
+    end)
+
+    it("moves a book the server moved and deletes one it dropped, on disk", function()
+        -- An earlier sync put Ficciones under Old/ and a book the gateway no
+        -- longer lists under Gone/; the owner's own file sits beside it.
+        put(dir .. "/Old/Ficciones.epub", "FICCIONES")
+        put(dir .. "/Gone/Dropped.epub", "DROPPED")
+        put(dir .. "/Gone/mine.txt", "MINE")
+        local index = {
+            ["Old/Ficciones.epub"] = { size = 9, etag = "etag-1" },
+            ["Gone/Dropped.epub"] = { size = 7, etag = "etag-9" },
+        }
+
+        local lib = library()
+        local report = lib:sync(dir, { index = index })
+        local settled = lib:settle(report, dir, {
+            index = index,
+            relocate = function(from, to) return os.rename(from, to) end,
+            discard = function(path) return os.remove(path) end,
+        })
+
+        -- Solaris arrives; Ficciones is moved, not fetched again.
+        assert.are.equal(1, report.downloaded)
+        assert.are.equal(1, settled.moved)
+        assert.are.equal(1, settled.deleted)
+        assert.are.equal("FICCIONES", contents(dir .. "/Borges/Ficciones.epub"))
+        assert.is_false(exists(dir .. "/Old"))
+        assert.is_false(exists(dir .. "/Gone/Dropped.epub"))
+        assert.are.equal("MINE", contents(dir .. "/Gone/mine.txt"))
+        assert.is_true(exists(dir))
+        assert.are.same({
+            ["Lem/Solaris.epub"] = { size = 70, etag = "etag-0" },
+            ["Borges/Ficciones.epub"] = { size = 9, etag = "etag-1" },
+        }, settled.index)
     end)
 end)

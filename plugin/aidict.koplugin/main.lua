@@ -11,11 +11,14 @@ behaviour lives in `aidict/`, which is plain Lua and covered by `spec/`.
 local DataStorage = require("datastorage")
 local Device = require("device")
 local Dispatcher = require("dispatcher")
+local DocSettings = require("docsettings")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
 local NetworkMgr = require("ui/network/manager")
 local PathChooser = require("ui/widget/pathchooser")
+local ReadCollection = require("readcollection")
+local ReadHistory = require("readhistory")
 local TextViewer = require("ui/widget/textviewer")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
@@ -751,7 +754,7 @@ function AiDict:checkForUpdates()
 end
 
 --[[--
-The real filesystem, in the four calls `library.lua` asks for.
+The real filesystem, in the five calls `library.lua` asks for.
 
 KOReader bundles lfs; `spec/` passes a table of fake files instead, which is
 the whole reason the library module never requires it.
@@ -767,10 +770,169 @@ local function deviceFilesystem()
         mkdir = function(path) return lfs.mkdir(path) end,
         rename = function(from, to) return os.rename(from, to) end,
         remove = function(path) os.remove(path) end,
+        rmdir = function(path) return lfs.rmdir(path) end,
     }
 end
 
---- Pull the books the gateway has and this device does not.
+--[[--
+The book being read, if any.
+
+`ReaderUI.instance` is the open reader wherever the sync was started from;
+the plugin's own `ui` is the same reader when the sync was started inside a
+book, and is asked too, so the check does not rest on one field alone.
+Required when asked rather than at the top, the way KOReader's own file
+manager reaches the reader: the two modules load each other's worlds, and a
+plugin loaded by both should not be what ties them together.
+--]]--
+local function openBookIn(ui)
+    local loaded, ReaderUI = pcall(require, "apps/reader/readerui")
+    local reader = loaded and type(ReaderUI) == "table" and ReaderUI.instance or nil
+    for _, candidate in ipairs({ reader or false, ui or false }) do
+        local document = candidate and candidate.document
+        if type(document) == "table" and type(document.file) == "string" then
+            return document.file
+        end
+    end
+    return nil
+end
+
+local function isOpen(ui, path)
+    local open = openBookIn(ui)
+    if not open then return false end
+    if open == path then return true end
+    -- The reader may hold the path through a symlink the books folder does
+    -- not, or the other way round.
+    local realpath = require("ffi/util").realpath
+    if type(realpath) ~= "function" then return false end
+    return (realpath(open) or open) == (realpath(path) or path)
+end
+
+--- One piece of KOReader's bookkeeping. The file itself has already moved
+--- or gone by the time this runs, so a failure here is logged rather than
+--- turned into a failed move: undoing the file would only lose more.
+local function bookkeep(what, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then logger.warn("aidict: library", what, "failed:", tostring(err)) end
+end
+
+--[[--
+Move and delete a book the way KOReader's own file manager does, so what goes
+with the book goes with it: the `.sdr` beside it (page, bookmarks,
+highlights), its line in History and its place in any collection.
+
+The book that is open is refused with "open", for `Library:settle` to leave
+for the next sync. The reader writes its sidecar when it closes, to the path
+it opened — so moving the file under it would leave the reading state behind
+at the old path, and deleting it would bring a sidecar back for a book that
+is gone.
+--]]--
+local function bookOps(ui)
+    return {
+        relocate = function(from, to)
+            if isOpen(ui, from) then return false, "open" end
+            local ok, err = os.rename(from, to)
+            if not ok then return false, tostring(err or "could not move the file") end
+            bookkeep("sidecar move", DocSettings.updateLocation, from, to)
+            bookkeep("history move", ReadHistory.updateItem, ReadHistory, from, to)
+            bookkeep("collection move", ReadCollection.updateItem, ReadCollection, from, to)
+            return true
+        end,
+        discard = function(path)
+            if isOpen(ui, path) then return false, "open" end
+            local ok, err = os.remove(path)
+            if not ok then return false, tostring(err or "could not delete the file") end
+            -- The cover-browser cache, where the KOReader in use has one.
+            local has_booklist, BookList = pcall(require, "ui/widget/booklist")
+            if has_booklist and type(BookList) == "table" and BookList.resetBookInfoCache then
+                bookkeep("book info reset", BookList.resetBookInfoCache, path)
+            end
+            bookkeep("sidecar purge", DocSettings.updateLocation, path)
+            bookkeep("history delete", ReadHistory.fileDeleted, ReadHistory, path)
+            bookkeep("collection delete", ReadCollection.removeItem, ReadCollection, path)
+            return true
+        end,
+    }
+end
+
+--[[--
+What earlier syncs placed in the books folder: the only files a sync will
+ever move or delete.
+
+Its own file rather than a key in `aidict.lua`: it is a few hundred rows the
+settings have no use for. It belongs to one folder — pointing the sync at
+another starts a fresh index, so the books left in the old folder are never
+taken for books this one lost.
+--]]--
+local LIBRARY_INDEX = "aidict_library.lua"
+
+function AiDict:libraryIndexStore()
+    if not self.library_store then
+        self.library_store = LuaSettings:open(DataStorage:getSettingsDir() .. "/" .. LIBRARY_INDEX)
+    end
+    return self.library_store
+end
+
+function AiDict:libraryIndex(dir)
+    local store = self:libraryIndexStore()
+    if store:readSetting("dir") ~= dir then return {} end
+    return store:readSetting("books") or {}
+end
+
+function AiDict:saveLibraryIndex(dir, books)
+    local store = self:libraryIndexStore()
+    store:saveSetting("dir", dir)
+    store:saveSetting("books", books)
+    store:flush()
+end
+
+local function basename(path)
+    return path:match("([^/]*)$")
+end
+
+--- What the sync did, in the words the InfoMessage uses.
+local function describeSync(report, settled)
+    local lines = {}
+    if report.downloaded == 0 and #report.failed == 0 and settled.moved == 0 and settled.deleted == 0 then
+        lines[1] = T(_("Nothing new. %1 books are already here."), report.have)
+    else
+        local done = {}
+        if report.total > 0 then
+            done[#done + 1] = T(_("Downloaded %1 of %2 (%3 MB)."),
+                report.downloaded, report.total,
+                string.format("%.1f", report.bytes / 1024 / 1024))
+        end
+        if settled.moved > 0 then
+            done[#done + 1] = T(_("Moved %1 to their new folders."), settled.moved)
+        end
+        if settled.deleted > 0 then
+            done[#done + 1] = T(_("Deleted %1 the library no longer has."), settled.deleted)
+        end
+        done[#done + 1] = T(_("%1 were already here."), report.have)
+        lines[1] = table.concat(done, " ")
+    end
+    if #report.failed > 0 then
+        lines[#lines + 1] = T(_("%1 failed: %2"),
+            #report.failed, report.failed[1].path .. " — " .. tostring(report.failed[1].reason))
+    end
+    -- Only one book can be open, so there is one of these at most.
+    local open = settled.deferred[1]
+    if open and open.action == "move" then
+        lines[#lines + 1] = T(_("%1 is open, so it moves on the next sync."), basename(open.from))
+    elseif open then
+        lines[#lines + 1] = T(_("%1 is open, so it is deleted on the next sync."), basename(open.from))
+    end
+    if #settled.failed > 0 then
+        local first = settled.failed[1]
+        lines[#lines + 1] = T(_("%1 could not be moved or deleted: %2"),
+            #settled.failed, first.from .. " — " .. tostring(first.reason))
+    end
+    return table.concat(lines, "\n\n")
+end
+
+--[[--
+Mirror the gateway's library: pull the books this device does not have, and
+move or delete the ones the server moved or deleted.
+--]]--
 function AiDict:syncLibrary()
     local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
     if not endpoint then
@@ -778,7 +940,7 @@ function AiDict:syncLibrary()
         return
     end
 
-    local dir = self.settings:get("library_dir")
+    local dir = tostring(self.settings:get("library_dir")):gsub("/+$", "")
     local library = Library.new({
         endpoint = endpoint,
         api_key = self.settings:get("api_key"),
@@ -789,11 +951,13 @@ function AiDict:syncLibrary()
 
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
+            local index = self:libraryIndex(dir)
             -- In a subprocess so the reader can give up on it: a first sync
             -- over a Kindle's radio is minutes, and the files it has already
-            -- written stay written when they do.
+            -- written stay written when they do. Only the downloads happen
+            -- there; see `Library:settle` for why the moves cannot.
             local completed, outcome = Trapper:dismissableRunInSubprocess(function()
-                local report, err = library:sync(dir)
+                local report, err = library:sync(dir, { index = index })
                 return { ok = report ~= nil, report = report, err = err }
             end, T(_("Syncing %1…"), dir))
 
@@ -805,29 +969,29 @@ function AiDict:syncLibrary()
             end
 
             local report = outcome.report
+            local ops = bookOps(self.ui)
+            ops.index = index
+            local settled = library:settle(report, dir, ops)
+            self:saveLibraryIndex(dir, settled.index)
+
             logger.info(string.format(
-                "aidict: library sync — %d downloaded, %d already here, %d failed, %d dropped",
-                report.downloaded, report.have, #report.failed, report.dropped or 0))
+                "aidict: library sync — %d downloaded, %d moved, %d deleted, %d already here, " ..
+                "%d failed, %d dropped, %d left for the next sync",
+                report.downloaded, settled.moved, settled.deleted, report.have, #report.failed,
+                report.dropped or 0, #settled.deferred + #settled.failed))
 
-            local text
-            if report.downloaded == 0 and #report.failed == 0 then
-                text = T(_("Nothing new. %1 books are already here."), report.have)
-            else
-                text = T(_("Downloaded %1 of %2 (%3 MB). %4 were already here."),
-                    report.downloaded, report.total,
-                    string.format("%.1f", report.bytes / 1024 / 1024), report.have)
-            end
-            if #report.failed > 0 then
-                text = text .. "\n\n" .. T(_("%1 failed: %2"),
-                    #report.failed, report.failed[1].path .. " — " .. tostring(report.failed[1].reason))
-            end
-
-            UIManager:show(InfoMessage:new{ text = text })
+            UIManager:show(InfoMessage:new{ text = describeSync(report, settled) })
             -- The file browser is very likely sitting on the folder that just
-            -- gained ten books.
+            -- gained ten books — or on one a move just emptied and removed,
+            -- which has nothing left to show but the library above it.
             local browser = self.ui and self.ui.file_chooser
             if browser and browser.path and browser.path:find(dir, 1, true) == 1 then
-                browser:refreshPath()
+                local lfs = require("libs/libkoreader-lfs")
+                if lfs.attributes(browser.path, "mode") == "directory" then
+                    browser:refreshPath()
+                else
+                    browser:changeToPath(dir)
+                end
             end
         end)
     end)

@@ -39,6 +39,7 @@ describe("the KOReader layer", function()
             online = opts.online,
             can_restart = opts.can_restart,
             settings = settings,
+            stores = opts.stores,
         })
         local selected_text = opts.selected_text or { text = "fox", pos0 = "p1", pos1 = "p2" }
         if opts.no_selection then selected_text = nil end
@@ -1368,6 +1369,174 @@ describe("the KOReader layer", function()
             plugin:syncLibrary()
 
             assert.are.equal("InfoMessage", last_shown().widget_kind)
+        end)
+
+        describe("when the server moved or deleted a book", function()
+            local FROM = BOOKS .. "/English/Fiction/x.epub"
+            local TO = BOOKS .. "/English/Business/x.epub"
+
+            --- A device where an earlier sync put `placed` (path -> size),
+            --- and a gateway that now lists `listed`.
+            local function synced_before(placed, listed, extra)
+                extra = extra or {}
+                local books = {}
+                for path, size in pairs(placed) do
+                    books[path] = { size = size, etag = "e-" .. path:match("([^/]*)$") }
+                end
+                local files = {}
+                for _, file in ipairs(listed) do
+                    file.etag = "e-" .. file.path:match("([^/]*)$")
+                    files[#files + 1] = file
+                end
+                build({
+                    settings = { library_dir = BOOKS },
+                    stores = { ["aidict_library.lua"] = { dir = extra.index_dir or BOOKS, books = books } },
+                    responses = { { status = 200, body = manifest(files) } },
+                })
+                for path, size in pairs(placed) do kor.files[BOOKS .. "/" .. path] = size end
+            end
+
+            local function saved_index()
+                return kor.stores["aidict_library.lua"]
+            end
+
+            it("moves the book with its reading state, the way the file manager does", function()
+                synced_before({ ["English/Fiction/x.epub"] = 10 }, { book("English/Business/x.epub", 10) })
+
+                plugin:syncLibrary()
+
+                -- No download: the manifest was the only request.
+                assert.are.equal(1, kor.transport.calls)
+                assert.are.same({
+                    "rename " .. FROM .. " -> " .. TO,
+                    "DocSettings.updateLocation " .. FROM .. " -> " .. TO,
+                    "ReadHistory:updateItem " .. FROM .. " -> " .. TO,
+                    "ReadCollection:updateItem " .. FROM .. " -> " .. TO,
+                }, kor.book_calls)
+                assert.are.equal(10, kor.files[TO])
+                assert.is_true(kor.dirs[BOOKS .. "/English/Business"])
+                assert.are.same({ BOOKS .. "/English/Fiction" }, kor.rmdirs)
+                assert.is_truthy(last_shown().text:find("Moved 1", 1, true))
+            end)
+
+            it("remembers where the book is now", function()
+                synced_before({ ["English/Fiction/x.epub"] = 10 }, { book("English/Business/x.epub", 10) })
+
+                plugin:syncLibrary()
+
+                local store = saved_index()
+                assert.are.equal(BOOKS, store.data.dir)
+                assert.are.same({ ["English/Business/x.epub"] = { size = 10, etag = "e-x.epub" } },
+                    store.data.books)
+                assert.are.equal(1, store.flushed)
+            end)
+
+            it("deletes the book and what KOReader kept about it, the way the file manager does", function()
+                synced_before({ ["Gone.epub"] = 20 }, {})
+
+                plugin:syncLibrary()
+
+                local gone = BOOKS .. "/Gone.epub"
+                assert.are.same({
+                    "remove " .. gone,
+                    "BookList.resetBookInfoCache " .. gone,
+                    "DocSettings.updateLocation " .. gone,
+                    "ReadHistory:fileDeleted " .. gone,
+                    "ReadCollection:removeItem " .. gone,
+                }, kor.book_calls)
+                assert.is_nil(kor.files[gone])
+                assert.are.same({}, saved_index().data.books)
+                assert.is_truthy(last_shown().text:find("Deleted 1", 1, true))
+            end)
+
+            it("leaves the book that is open, and says it will move next time", function()
+                synced_before({ ["English/Fiction/x.epub"] = 10 }, { book("English/Business/x.epub", 10) })
+                kor.reader_ui.instance = { document = { file = FROM } }
+
+                plugin:syncLibrary()
+
+                assert.are.same({}, kor.book_calls)
+                assert.are.equal(10, kor.files[FROM])
+                assert.are.same({ ["English/Fiction/x.epub"] = { size = 10, etag = "e-x.epub" } },
+                    saved_index().data.books)
+                assert.is_truthy(last_shown().text:find("x.epub is open, so it moves on the next sync.", 1, true))
+            end)
+
+            it("knows the open book from its own reader too", function()
+                synced_before({ ["Gone.epub"] = 20 }, {})
+                reader.ui.document = { file = BOOKS .. "/Gone.epub" }
+
+                plugin:syncLibrary()
+
+                assert.are.equal(20, kor.files[BOOKS .. "/Gone.epub"])
+                assert.is_truthy(last_shown().text:find("Gone.epub is open, so it is deleted on the next sync.", 1, true))
+            end)
+
+            it("never deletes a file it did not put there", function()
+                synced_before({}, {})
+                kor.files[BOOKS .. "/Mine.pdf"] = 3
+
+                plugin:syncLibrary()
+
+                assert.are.equal(3, kor.files[BOOKS .. "/Mine.pdf"])
+                assert.are.same({}, kor.book_calls)
+            end)
+
+            -- The reader pointed the sync at another folder: what the old
+            -- index lists is not this folder's to delete.
+            it("starts a fresh index when the books folder changed", function()
+                synced_before({ ["Gone.epub"] = 20 }, {}, { index_dir = "/mnt/us/Old_Books" })
+
+                plugin:syncLibrary()
+
+                assert.are.equal(20, kor.files[BOOKS .. "/Gone.epub"])
+                assert.are.same({}, kor.book_calls)
+                assert.are.equal(BOOKS, saved_index().data.dir)
+            end)
+
+            it("still moves the book when KOReader's bookkeeping throws", function()
+                synced_before({ ["English/Fiction/x.epub"] = 10 }, { book("English/Business/x.epub", 10) })
+                kor.docsettings_error = "sidecar unreadable"
+
+                plugin:syncLibrary()
+
+                assert.are.equal(10, kor.files[TO])
+                -- The history and collections still follow it.
+                assert.are.equal("ReadCollection:updateItem " .. FROM .. " -> " .. TO, kor.book_calls[3])
+                assert.is_truthy(kor.warn_lines[1]:find("sidecar unreadable", 1, true))
+                assert.is_truthy(last_shown().text:find("Moved 1", 1, true))
+            end)
+
+            it("takes the file browser up to the library when its folder is gone", function()
+                synced_before({ ["English/Fiction/x.epub"] = 10 }, { book("English/Business/x.epub", 10) })
+                local went
+                reader.ui.file_chooser = {
+                    path = BOOKS .. "/English/Fiction",
+                    refreshPath = function() went = "refresh" end,
+                    changeToPath = function(_, path) went = path end,
+                }
+
+                plugin:syncLibrary()
+
+                assert.are.equal(BOOKS, went)
+            end)
+        end)
+
+        it("indexes the books a first sync finds and fetches", function()
+            build({
+                settings = { library_dir = BOOKS },
+                responses = {
+                    { status = 200, body = manifest({ book("A.epub", 10), book("B.epub", 5) }) },
+                    { status = 200, bytes = 5 },
+                },
+            })
+            kor.files[BOOKS .. "/A.epub"] = 10
+
+            plugin:syncLibrary()
+
+            assert.are.same({ ["A.epub"] = { size = 10, etag = "e" }, ["B.epub"] = { size = 5, etag = "e" } },
+                kor.stores["aidict_library.lua"].data.books)
+            assert.are.equal(BOOKS, kor.stores["aidict_library.lua"].data.dir)
         end)
     end)
     describe("sending the Kindle's lookups", function()

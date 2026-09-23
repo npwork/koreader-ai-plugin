@@ -19,6 +19,9 @@ opens the answer in a window of its own.
 The same plugin also carries the **book library**: *Sync library* in the menu
 asks the gateway what is in the owner's R2 bucket and downloads whatever this
 Kindle does not have, mirroring the bucket's folders under `/mnt/us/AI_Books`.
+A book moved to another folder on the server is moved on the Kindle, with its
+reading position, highlights, history and collections; one deleted there is
+deleted here. Only books the sync itself placed are ever moved or deleted.
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
 if one is bound to it. The plugin has one entry in the menu, **AI dictionary**,
 first in the **Tools** tab; the sync is the first line inside it and the update
@@ -42,11 +45,11 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     http_transport.lua    the one file that uses luasocket
     json.lua              rapidjson if present, else KOReader's json
     kpm.lua               driving the Kindle package manager to update this package
-    library.lua           the book sync: manifest, plan, download
+    library.lua           the book sync: manifest, plan, download, then move and delete
     lookup.lua            settings + cache + client wired together
     manifest.lua          the library manifest, and which paths may be written
     page.lua              the AI page in the dictionary popup: what it says, and when
-    plan.lua              manifest vs what is on the device -> what to download
+    plan.lua              manifest vs the device and what it placed -> download, move, delete
     prefetch.lua          whether to start asking about a word, and what is in the air
     reqid.lua             one id per lookup, so both sides log under the same one
     settings.lua          typed access over a LuaSettings-shaped store

@@ -13,9 +13,10 @@ version comparison, formatting.
 Nothing here touches a socket, a file or KOReader. Milliseconds.
 
 The library sync is here too: `manifest_spec` on which paths may be
-written, `plan_spec` on new/half-written/already-here, and `library_spec`
-on the whole sync against a filesystem that is a table — including the
-truncated download that must not become a book.
+written, `plan_spec` on new/half-written/already-here and on which placed
+books were moved or deleted, and `library_spec` on the whole sync against a
+filesystem that is a table — including the truncated download that must not
+become a book, and the open book that must not move.
 
 ## 2. The KOReader layer — `spec/glue_spec.lua`
 
