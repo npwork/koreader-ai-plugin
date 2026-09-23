@@ -112,6 +112,9 @@ function koreader.install(opts)
         close = function(_, widget)
             widget.closed = true
         end,
+        isWidgetShown = function(_, widget)
+            return widget ~= nil and not widget.closed
+        end,
         -- Immediate by default, which is what every existing spec wants: the
         -- prefetch poll then runs to completion inside onWordLookedUp.
         --
@@ -437,7 +440,6 @@ A reader with a document open: the objects the plugin registers against.
 function koreader.reader(opts)
     opts = opts or {}
     local reader = {
-        dict_buttons = {},
         highlight_buttons = {},
         menu_items = nil,
     }
@@ -452,8 +454,27 @@ function koreader.reader(opts)
         menu = {
             registerToMainMenu = function(_, plugin) reader.registered_plugin = plugin end,
         },
+        --[[--
+        ReaderDictionary, reduced to the call the AI page rides on: `showDict`
+        is handed the results, builds the popup from them and keeps it as
+        `dict_window`. The popup keeps the results table it was given, opens
+        on the first of them, and redraws on `changeDictionary` — the three
+        things the plugin relies on.
+        --]]--
         dictionary = {
-            addToDictButtons = function(_, spec) reader.dict_buttons[spec.id] = spec end,
+            showDict = function(this, word, results)
+                this.dict_window = {
+                    widget_kind = "DictQuickLookup",
+                    word = word,
+                    results = results,
+                    dict_index = 1,
+                    redraws = 0,
+                    changeDictionary = function(popup, index)
+                        popup.dict_index = index
+                        popup.redraws = popup.redraws + 1
+                    end,
+                }
+            end,
         },
         highlight = {
             selected_text = opts.selected_text,

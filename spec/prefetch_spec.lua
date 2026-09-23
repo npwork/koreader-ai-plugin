@@ -4,7 +4,7 @@ local helpers = require("support.helpers")
 local function prefetch(settings, max)
     return Prefetch.new({
         settings = settings or helpers.settings({
-            endpoint = helpers.ENDPOINT, prefetch = true,
+            endpoint = helpers.ENDPOINT,
         }),
         max_in_flight = max,
     })
@@ -12,21 +12,12 @@ end
 
 describe("prefetch", function()
     describe("whether to fetch ahead at all", function()
-        it("does not once it is switched off", function()
-            local p = prefetch(helpers.settings({
-                endpoint = helpers.ENDPOINT, prefetch = false,
-            }))
-            local ok, why = p:wanted("fox\1a sentence")
-            assert.is_false(ok)
-            assert.are.equal(Prefetch.SKIP.DISABLED, why)
-        end)
-
-        it("fetches while it is on", function()
+        it("fetches a word it has not got", function()
             assert.is_true(prefetch():wanted("fox\1a sentence"))
         end)
 
         it("does not without an endpoint to ask", function()
-            local p = prefetch(helpers.settings({ prefetch = true }))
+            local p = prefetch(helpers.settings({}))
             local ok, why = p:wanted("fox\1a sentence")
             assert.is_false(ok)
             assert.are.equal(Prefetch.SKIP.NOT_CONFIGURED, why)
@@ -50,16 +41,6 @@ describe("prefetch", function()
             local ok, why = prefetch():wanted("fox\1a sentence", { cached = true })
             assert.is_false(ok)
             assert.are.equal(Prefetch.SKIP.CACHED, why)
-        end)
-
-        it("reports the settings before the state of one word", function()
-            -- A log full of "already cached" hides the fact that the whole
-            -- feature is off.
-            local p = prefetch(helpers.settings({
-                endpoint = helpers.ENDPOINT, prefetch = false,
-            }))
-            local _, why = p:wanted("fox\1a sentence", { cached = true, offline = true })
-            assert.are.equal(Prefetch.SKIP.DISABLED, why)
         end)
     end)
 

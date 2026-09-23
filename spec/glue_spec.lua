@@ -66,17 +66,6 @@ describe("the KOReader layer", function()
         return kor.shown[#kor.shown]
     end
 
-    local function tap_dict_button()
-        local spec = reader.dict_buttons["aidict_explain"]
-        local popup = {
-            word = "fox",
-            highlight = reader.ui.highlight,
-            onClose = function(this) this.closed = true end,
-        }
-        spec.callback(popup)
-        return popup
-    end
-
     --- A request the way the plugin builds one, for the paths that bypass a
     --- button. The word and passage are what the cache key is made of.
     local function ask(word, passage)
@@ -101,15 +90,6 @@ describe("the KOReader layer", function()
     end)
 
     describe("registration", function()
-        it("adds a button to the dictionary popup", function()
-            build()
-            local spec = reader.dict_buttons["aidict_explain"]
-            assert.is_table(spec)
-            assert.are.equal("AI", spec.text)
-            assert.are.equal("Explain with AI", spec.menu_text)
-            assert.is_function(spec.callback)
-        end)
-
         it("adds an entry to the highlight dialog, sorted after the built-ins", function()
             build()
             local builder = reader.highlight_buttons["13_aidict_explain"]
@@ -131,16 +111,15 @@ describe("the KOReader layer", function()
         it("stays out of the highlight dialog when no document is open", function()
             build({ no_document = true })
             assert.is_nil(reader.highlight_buttons["13_aidict_explain"])
-            assert.is_table(reader.dict_buttons["aidict_explain"])
         end)
     end)
 
-    describe("pressing the dictionary button", function()
-        it("closes the popup, asks the gateway and shows the answer", function()
+    describe("explaining from the highlight menu", function()
+        it("closes the dialog, asks the gateway and shows the answer", function()
             build()
-            local popup = tap_dict_button()
+            tap_highlight_button()
 
-            assert.is_true(popup.closed)
+            assert.is_true(reader.ui.highlight.closed)
             assert.are.equal(1, kor.transport.calls)
 
             local shown = last_shown()
@@ -151,7 +130,7 @@ describe("the KOReader layer", function()
 
         it("sends the whole paragraph as context, stripped of its markup", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("fox", sent.word)
@@ -163,7 +142,7 @@ describe("the KOReader layer", function()
 
         it("sends the sentence too, cut out of the paragraph", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("The quick brown fox jumps over the lazy dog.", sent.sentence)
@@ -174,7 +153,7 @@ describe("the KOReader layer", function()
                 paragraph_html = "<p>The quick brown dog naps. A fox, by contrast, " ..
                     "jumps all afternoon.</p>",
             })
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("A fox, by contrast, jumps all afternoon.", sent.sentence)
@@ -182,7 +161,7 @@ describe("the KOReader layer", function()
 
         it("sends neither passage when there is no paragraph", function()
             build({ no_paragraph = true })
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("fox", sent.word)
@@ -192,7 +171,7 @@ describe("the KOReader layer", function()
 
         it("sends the book it was reading", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal("Aesop's Fables", sent.title)
@@ -202,8 +181,8 @@ describe("the KOReader layer", function()
 
         it("serves the second tap from the cache without a request", function()
             build()
-            tap_dict_button()
-            tap_dict_button()
+            tap_highlight_button()
+            tap_highlight_button()
 
             assert.are.equal(1, kor.transport.calls)
             assert.is_truthy(last_shown().text:find("cached", 1, true))
@@ -211,7 +190,7 @@ describe("the KOReader layer", function()
 
         it("shows the gateway's error instead of an answer", function()
             build({ responses = { { status = 500, body = helpers.body({ error = "model is down" }) } } })
-            tap_dict_button()
+            tap_highlight_button()
 
             local shown = last_shown()
             assert.are.equal("InfoMessage", shown.widget_kind)
@@ -220,20 +199,20 @@ describe("the KOReader layer", function()
 
         it("says so when the request times out", function()
             build({ responses = { { err = "timeout" } } })
-            tap_dict_button()
+            tap_highlight_button()
             assert.is_truthy(last_shown().text:find("in time", 1, true))
         end)
 
         it("shows nothing when the reader dismisses the wait", function()
             build()
             kor.dismiss_next = true
-            tap_dict_button()
+            tap_highlight_button()
             assert.are.equal(0, #kor.shown)
         end)
 
         it("asks to be configured when no endpoint was baked in or set", function()
             build({ no_endpoint = true })
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
             assert.are.equal("InfoMessage", last_shown().widget_kind)
@@ -243,7 +222,7 @@ describe("the KOReader layer", function()
         it("shows how long the round trip took", function()
             build()
             kor.request_ms = 1500
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.is_truthy(last_shown().text:find("1.5s", 1, true))
         end)
@@ -251,14 +230,14 @@ describe("the KOReader layer", function()
         it("shows milliseconds when it was quick", function()
             build()
             kor.request_ms = 120
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.is_truthy(last_shown().text:find("120ms", 1, true))
         end)
 
         it("names the word in the progress message", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
             assert.is_truthy(kor.last_progress_message:find("fox", 1, true))
         end)
     end)
@@ -288,7 +267,7 @@ describe("the KOReader layer", function()
         it("records where the time went, not just how much", function()
             build({ responses = { { status = 200, body = TIMED_ANSWER } } })
             kor.request_ms = 1500
-            tap_dict_button()
+            tap_highlight_button()
 
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("fox", 1, true))
@@ -302,7 +281,7 @@ describe("the KOReader layer", function()
 
         it("names no leg the gateway did not run", function()
             build({ responses = { { status = 200, body = TIMED_ANSWER } } })
-            tap_dict_button()
+            tap_highlight_button()
             local line = kor.info_lines[#kor.info_lines]
             assert.is_nil(line:find("retry", 1, true))
             assert.is_nil(line:find("model ", 1, true))
@@ -310,7 +289,7 @@ describe("the KOReader layer", function()
 
         it("says when the gateway doubted its own answer and asked again", function()
             build({ responses = { { status = 200, body = REVIEWED_ANSWER } } })
-            tap_dict_button()
+            tap_highlight_button()
 
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("retry 900ms", 1, true))
@@ -320,7 +299,7 @@ describe("the KOReader layer", function()
 
         it("shows the reader the answer, not the doubts about it", function()
             build({ responses = { { status = 200, body = REVIEWED_ANSWER } } })
-            tap_dict_button()
+            tap_highlight_button()
 
             local shown = last_shown().text
             assert.is_nil(shown:find("sense", 1, true))
@@ -331,7 +310,7 @@ describe("the KOReader layer", function()
         it("logs a question mark rather than crashing on a gateway that sends no timing", function()
             build()
             kor.request_ms = 1500
-            tap_dict_button()
+            tap_highlight_button()
 
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("1500ms", 1, true))
@@ -345,7 +324,7 @@ describe("the KOReader layer", function()
 
         it("names the request id, so the device log and Axiom can be lined up", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = kor.transport.requests[1].headers["X-Request-Id"]
             assert.is_truthy(sent)
@@ -358,7 +337,7 @@ describe("the KOReader layer", function()
                 status = 200, body = ANSWER,
                 headers = { ["cf-ray"] = "a3e2705c8ddcdda5-IAD" },
             } } })
-            tap_dict_button()
+            tap_highlight_button()
 
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("cf=a3e2705c8ddcdda5-IAD", 1, true))
@@ -366,13 +345,13 @@ describe("the KOReader layer", function()
 
         it("says nothing about a ray when there was none", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
             assert.is_nil(kor.info_lines[#kor.info_lines]:find("cf=", 1, true))
         end)
 
         it("names it on a failure too", function()
             build({ responses = { { err = "timeout" } } })
-            tap_dict_button()
+            tap_highlight_button()
 
             local sent = kor.transport.requests[1].headers["X-Request-Id"]
             assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find(sent, 1, true))
@@ -392,7 +371,7 @@ describe("the KOReader layer", function()
 
         it("records the error code when the gateway refuses", function()
             build({ responses = { { status = 429, body = "" } } })
-            tap_dict_button()
+            tap_highlight_button()
 
             local line = kor.warn_lines[#kor.warn_lines]
             assert.is_truthy(line:find("fox", 1, true))
@@ -402,7 +381,7 @@ describe("the KOReader layer", function()
         it("records a lookup the reader dismissed, without calling it a failure", function()
             build()
             kor.dismiss_next = true
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.is_truthy(kor.info_lines[#kor.info_lines]:find("dismissed", 1, true))
             assert.are.equal(0, #kor.warn_lines)
@@ -411,7 +390,7 @@ describe("the KOReader layer", function()
         it("says how long a failure took, so a timeout is not just an error", function()
             build({ responses = { { err = "timeout" } } })
             kor.request_ms = 30000
-            tap_dict_button()
+            tap_highlight_button()
 
             local line = kor.warn_lines[#kor.warn_lines]
             assert.is_truthy(line:find("30000ms", 1, true))
@@ -420,8 +399,8 @@ describe("the KOReader layer", function()
 
         it("records an answer served from the cache, so the log accounts for every tap", function()
             build()
-            tap_dict_button()
-            tap_dict_button()
+            tap_highlight_button()
+            tap_highlight_button()
 
             assert.are.equal(1, kor.transport.calls)
             assert.is_truthy(kor.info_lines[#kor.info_lines]:find("from cache", 1, true))
@@ -437,7 +416,7 @@ describe("the KOReader layer", function()
 
         it("says why it refused to ask with no endpoint", function()
             build({ no_endpoint = true })
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
             assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("no endpoint", 1, true))
@@ -476,12 +455,174 @@ describe("the KOReader layer", function()
         end)
     end)
 
+    --[[--
+    The popup KOReader opens on a lookup, with the AI page put first in it.
+    The order a real lookup goes in: the announcement, then `showDict` with
+    whatever the dictionaries found.
+    --]]--
+    describe("the AI page in the dictionary popup", function()
+        local OXFORD = { dict = "Oxford", word = "fox", definition = "a canid" }
+
+        local function look_up(word, results)
+            plugin:onWordLookedUp(word)
+            reader.ui.dictionary:showDict(word, results or { OXFORD })
+            return reader.ui.dictionary.dict_window
+        end
+
+        it("opens on the AI page, with the dictionaries behind it", function()
+            build()
+            kor.defer_scheduled = true     -- the answer is still out
+            local popup = look_up("fox")
+
+            assert.are.equal(2, #popup.results)
+            assert.are.equal("AI", popup.results[1].dict)
+            assert.are.equal(1, popup.dict_index)
+            assert.is_truthy(popup.results[1].definition:find("Asking AI", 1, true))
+            assert.are.equal(OXFORD, popup.results[2])
+        end)
+
+        it("fills the page in when the answer lands, and redraws it", function()
+            build()
+            kor.defer_scheduled = true
+            local popup = look_up("fox")
+            kor.run_scheduled()
+
+            assert.is_truthy(popup.results[1].definition:find("A wild animal of the dog family.", 1, true))
+            assert.are.equal(1, popup.redraws)
+        end)
+
+        it("asks once, not again when the popup opens", function()
+            build()
+            kor.defer_scheduled = true
+            look_up("fox")
+            kor.run_scheduled()
+
+            assert.are.equal(1, kor.forks)
+            assert.are.equal(1, kor.transport.calls)
+        end)
+
+        it("rewrites a page the reader paged away from, without redrawing it", function()
+            build()
+            kor.defer_scheduled = true
+            local popup = look_up("fox")
+            popup.dict_index = 2           -- reading Oxford
+            kor.run_scheduled()
+
+            assert.is_truthy(popup.results[1].definition:find("A wild animal", 1, true))
+            assert.are.equal(0, popup.redraws)
+            assert.are.equal(2, popup.dict_index)
+        end)
+
+        it("leaves a popup the reader has closed alone", function()
+            build()
+            kor.defer_scheduled = true
+            local popup = look_up("fox")
+            popup.closed = true
+            kor.run_scheduled()
+
+            assert.is_truthy(popup.results[1].definition:find("Asking AI", 1, true))
+            assert.are.equal(0, popup.redraws)
+            -- It still landed in the cache, for the next time.
+            assert.is_table(kor.store.data["cache_entries"])
+        end)
+
+        it("shows the gateway's error where the answer would be", function()
+            build({ responses = { { status = 500, body = helpers.body({ error = "model is down" }) } } })
+            kor.defer_scheduled = true
+            local popup = look_up("fox")
+            kor.run_scheduled()
+
+            assert.is_truthy(popup.results[1].definition:find("Model is down.", 1, true))
+            assert.are.equal(1, popup.redraws)
+            assert.are.equal(OXFORD, popup.results[2])
+        end)
+
+        it("shows an answer it already has at once, marked as cached", function()
+            build()
+            tap_highlight_button()         -- asked some other time
+            local popup = look_up("fox")
+
+            assert.are.equal(1, kor.transport.calls)
+            assert.is_truthy(popup.results[1].definition:find("A wild animal", 1, true))
+            assert.is_truthy(popup.results[1].definition:find("cached", 1, true))
+        end)
+
+        it("does not call an answer cached when it beat the dictionary to the screen", function()
+            build()                        -- the stub's scheduler lands it at once
+            local popup = look_up("fox")
+
+            assert.is_truthy(popup.results[1].definition:find("A wild animal", 1, true))
+            assert.is_nil(popup.results[1].definition:find("cached", 1, true))
+        end)
+
+        it("gives a word the dictionaries do not know a popup of its own", function()
+            build()
+            kor.defer_scheduled = true
+            local popup = look_up("fox", {})
+
+            assert.are.equal(1, #popup.results)
+            assert.are.equal("AI", popup.results[1].dict)
+        end)
+
+        it("starts asking itself if the announcement never came", function()
+            build()
+            kor.defer_scheduled = true
+            reader.ui.dictionary:showDict("fox", { OXFORD })
+            local popup = reader.ui.dictionary.dict_window
+
+            assert.are.equal(1, kor.forks)
+            assert.is_truthy(popup.results[1].definition:find("Asking AI", 1, true))
+        end)
+
+        it("says it is busy rather than asking a third word at once", function()
+            build()
+            kor.defer_scheduled = true
+            look_up("fox")
+            look_up("dog")
+            local popup = look_up("cat")
+
+            assert.are.equal(2, kor.forks)
+            assert.is_truthy(popup.results[1].definition:find("again", 1, true))
+        end)
+
+        it("is not there offline: the popup is KOReader's own", function()
+            build({ online = false })
+            local popup = look_up("fox")
+
+            assert.are.same({ OXFORD }, popup.results)
+            assert.are.equal(0, kor.transport.calls)
+        end)
+
+        it("is not there without an endpoint", function()
+            build({ no_endpoint = true })
+            local popup = look_up("fox")
+
+            assert.are.same({ OXFORD }, popup.results)
+        end)
+
+        it("still opens the popup when its own part breaks", function()
+            build()
+            plugin.requestFor = function() error("KOReader moved something") end
+            reader.ui.dictionary:showDict("fox", { OXFORD })
+            local popup = reader.ui.dictionary.dict_window
+
+            assert.are.same({ OXFORD }, popup.results)
+            assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("could not add the AI page", 1, true))
+        end)
+
+        it("forgets its pages when the document closes", function()
+            build()
+            kor.defer_scheduled = true
+            look_up("fox")
+            plugin:onCloseDocument()
+
+            assert.are.same({}, plugin.ai_pages)
+        end)
+    end)
+
     describe("being offline", function()
         it("does not offer the button at all", function()
             build({ online = false })
-
-            local spec = reader.dict_buttons["aidict_explain"]
-            assert.is_false(spec.show_func())
 
             local button = reader.highlight_buttons["13_aidict_explain"](reader.ui.highlight)
             assert.is_false(button.show_in_highlight_dialog_func())
@@ -490,14 +631,13 @@ describe("the KOReader layer", function()
         it("offers it once Wi-Fi is up", function()
             build()
 
-            assert.is_true(reader.dict_buttons["aidict_explain"].show_func())
             local button = reader.highlight_buttons["13_aidict_explain"](reader.ui.highlight)
             assert.is_true(button.show_in_highlight_dialog_func())
         end)
 
         it("asks nothing and says why, if it is reached anyway", function()
             build({ online = false })
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
             assert.are.equal("InfoMessage", last_shown().widget_kind)
@@ -506,12 +646,12 @@ describe("the KOReader layer", function()
 
         it("still shows an answer it already has", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
             local saved = kor.store.data["cache_entries"]
             koreader.uninstall()
 
             build({ online = false, settings = { cache_entries = saved } })
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
             assert.are.equal("TextViewer", last_shown().widget_kind)
@@ -520,28 +660,14 @@ describe("the KOReader layer", function()
     end)
 
     --[[--
-    The dictionary announces every lookup before it has even searched. With
-    prefetch on, that is when the plugin starts asking — so that by the time
-    the reader has read the dictionary entry and pressed AI, the answer is
-    already in the cache.
+    The dictionary announces every lookup before it has even searched, and
+    that is when the plugin starts asking — so the answer is on its way before
+    the popup has opened, and in the cache for anything that asks again.
     --]]--
     describe("looking a word up before it is asked for", function()
-        local function prefetching(opts)
-            opts = opts or {}
-            opts.settings = opts.settings or {}
-            opts.settings.prefetch = true
-            return build(opts)
-        end
+        local prefetching = build
 
-        it("does nothing at all once it is switched off", function()
-            build({ settings = { prefetch = false } })
-            plugin:onWordLookedUp("fox")
-
-            assert.are.equal(0, kor.forks)
-            assert.are.equal(0, kor.transport.calls)
-        end)
-
-        it("asks as soon as the dictionary opens, once it is on", function()
+        it("asks as soon as the dictionary opens", function()
             prefetching()
             plugin:onWordLookedUp("fox")
 
@@ -549,12 +675,12 @@ describe("the KOReader layer", function()
             assert.are.equal(1, kor.transport.calls)
         end)
 
-        it("puts the answer where the button will find it — the point of the whole thing", function()
+        it("puts the answer in the cache, where anything asking again finds it", function()
             prefetching()
             plugin:onWordLookedUp("fox")
-            tap_dict_button()
+            tap_highlight_button()
 
-            -- Still one request: the button found the answer already there.
+            -- Still one request: the menu found the answer already there.
             assert.are.equal(1, kor.transport.calls)
             local shown = last_shown()
             assert.are.equal("TextViewer", shown.widget_kind)
@@ -598,7 +724,7 @@ describe("the KOReader layer", function()
 
         it("does not ask for an answer it already has", function()
             prefetching()
-            tap_dict_button()          -- fetched and cached the ordinary way
+            tap_highlight_button()          -- fetched and cached the ordinary way
             plugin:onWordLookedUp("fox")
 
             assert.are.equal(0, kor.forks)
@@ -623,7 +749,7 @@ describe("the KOReader layer", function()
         it("marks an answer that was already waiting as cached", function()
             prefetching()
             plugin:onWordLookedUp("fox")   -- prefetch runs and lands
-            tap_dict_button()
+            tap_highlight_button()
 
             local shown = last_shown()
             assert.is_truthy(shown.text:find("cached", 1, true))
@@ -637,7 +763,7 @@ describe("the KOReader layer", function()
             prefetching()
             kor.defer_scheduled = true     -- the prefetch stays in flight
             plugin:onWordLookedUp("fox")
-            tap_dict_button()              -- joins it rather than asking again
+            tap_highlight_button()              -- joins it rather than asking again
             kor.run_scheduled()
 
             local shown = last_shown()
@@ -674,7 +800,7 @@ describe("the KOReader layer", function()
             assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("fork", 1, true))
             -- The button must still work afterwards.
             kor.fork_fails = false
-            tap_dict_button()
+            tap_highlight_button()
             assert.are.equal(1, kor.transport.calls)
         end)
 
@@ -691,7 +817,7 @@ describe("the KOReader layer", function()
             plugin:onWordLookedUp("fox")
 
             assert.is_truthy(kor.warn_lines[#kor.warn_lines]:find("ahead failed", 1, true))
-            tap_dict_button()
+            tap_highlight_button()
             assert.are.equal(2, kor.transport.calls)
         end)
 
@@ -717,7 +843,7 @@ describe("the KOReader layer", function()
 
             assert.is_true(kor.polls > 3)
             -- It still landed: polling is about patience, not about giving up.
-            tap_dict_button()
+            tap_highlight_button()
             assert.are.equal(1, kor.transport.calls)
             assert.is_truthy(last_shown().text:find("cached", 1, true))
         end)
@@ -761,7 +887,7 @@ describe("the KOReader layer", function()
             plugin.prefetch:began(key)
             kor.defer_scheduled = true
 
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
             assert.is_truthy(last_shown().text:find("Asking AI", 1, true))
@@ -773,7 +899,7 @@ describe("the KOReader layer", function()
             local key = require("aidict.lookup").key(request)
             plugin.prefetch:began(key)
             kor.defer_scheduled = true
-            tap_dict_button()
+            tap_highlight_button()
 
             -- The prefetch finishes: its answer goes to the cache and the slot
             -- is freed, exactly as finishPrefetch does it.
@@ -792,7 +918,7 @@ describe("the KOReader layer", function()
             local key = require("aidict.lookup").key(plugin:requestFor("fox", reader.ui.highlight))
             plugin.prefetch:began(key)
             kor.defer_scheduled = true
-            tap_dict_button()
+            tap_highlight_button()
             -- Nothing asked yet: it is waiting on the one already out.
             assert.are.equal(0, kor.transport.calls)
 
@@ -804,29 +930,12 @@ describe("the KOReader layer", function()
             assert.are.equal(1, kor.transport.calls)
             assert.is_truthy(last_shown().text:find("A wild animal", 1, true))
         end)
-
-        it("is a menu entry the reader can see the state of", function()
-            build()
-            local items = {}
-            plugin:addToMainMenu(items)
-
-            local entry
-            for _, item in ipairs(items.aidict.sub_item_table) do
-                if item.text and item.text:find("before I ask", 1, true) then entry = item end
-            end
-            assert.is_table(entry)
-            -- On by default, and the entry both says so and can turn it off.
-            assert.is_true(entry.checked_func())
-            entry.callback()
-            assert.is_false(entry.checked_func())
-            assert.is_false(plugin.settings:get("prefetch"))
-        end)
     end)
 
     describe("the cache on disk", function()
         it("is written after a successful lookup", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
 
             local saved = kor.store.data["cache_entries"]
             assert.is_table(saved)
@@ -836,12 +945,12 @@ describe("the KOReader layer", function()
 
         it("is read back by the next reader session", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
             local saved = kor.store.data["cache_entries"]
             koreader.uninstall()
 
             build({ settings = { cache_entries = saved } })
-            tap_dict_button()
+            tap_highlight_button()
 
             assert.are.equal(0, kor.transport.calls)
             assert.is_truthy(last_shown().text:find("cached", 1, true))
@@ -849,7 +958,7 @@ describe("the KOReader layer", function()
 
         it("is emptied by the menu item", function()
             build()
-            tap_dict_button()
+            tap_highlight_button()
 
             local items = {}
             plugin:addToMainMenu(items)
@@ -900,7 +1009,7 @@ describe("the KOReader layer", function()
 
             assert.are.equal("https://other.test/ai", kor.store.data.endpoint)
 
-            tap_dict_button()
+            tap_highlight_button()
             assert.are.equal("https://other.test/ai/define", kor.transport.requests[1].url)
         end)
 

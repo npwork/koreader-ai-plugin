@@ -26,15 +26,6 @@ Config.DEFAULTS = {
     cache_size = 200,
     -- Seconds an answer stays fresh. 0 means "never expires".
     cache_ttl = 30 * 24 * 60 * 60,
-    -- Update channel used by the update check and by `kpm`.
-    -- Look a word up when the dictionary opens, rather than when AI is
-    -- pressed, so the answer is waiting by the time it is wanted. On, because
-    -- the gateway takes seconds: pressing AI and watching a spinner is most
-    -- of what the feature costs, and this is the only thing that removes it.
-    -- The price is a request per dictionary lookup rather than per AI press,
-    -- and most lookups never reach the button — turn it off in the menu if
-    -- that ever matters more than the wait.
-    prefetch = true,
 
     -- Where synced books land: its own folder beside Audible, Documents and
     -- Screenshots, named to sort above them so it is the first thing in the
@@ -49,6 +40,7 @@ Config.DEFAULTS = {
     -- makes the next upload longer.
     vocab_uploaded_through = 0,
 
+    -- Update channel used by the update check and by `kpm`.
     channel = "stable",
     -- Root of the KPM repository, without the channel.
     repo_url = "https://npwork.github.io/koreader-ai-plugin",
@@ -79,12 +71,6 @@ Config.VALIDATORS = {
     endpoint = function(value)
         if not is_http_url(value) then
             return false, "endpoint must be an http:// or https:// URL"
-        end
-        return true
-    end,
-    prefetch = function(value)
-        if type(value) ~= "boolean" then
-            return false, "prefetch must be true or false"
         end
         return true
     end,

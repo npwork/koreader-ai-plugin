@@ -1,18 +1,20 @@
 # koreader-ai-plugin
 
-KOReader plugin: tap a word (or hold a selection) and an **AI** button sends
-the word, the sentence and the paragraph around it to a remote gateway. The
-answer is a dictionary entry for the sense *this passage* gives the word —
+KOReader plugin: tap a word and the dictionary popup opens on an **AI** page,
+ahead of the ordinary dictionaries, built from the word, the sentence and the
+paragraph around it sent to a remote gateway. The answer is a dictionary entry for the sense *this passage* gives the word —
 headword, IPA, part of speech, a definition, three examples in that same sense
 with the word marked in each, and a line of etymology. A Russian translation
 is fetched and cached but not yet shown. Everything is cached on the device
 for thirty days.
 
-The request does not wait for the button. It goes out when the dictionary
-opens, so by the time **AI** is pressed the answer is usually already there;
-pressing it while the request is still out joins that one rather than starting
-a second. This is on by default and switched off in the menu — it costs a
-request per dictionary lookup rather than per AI press.
+The request goes out the moment KOReader announces the lookup, before it has
+even searched its own dictionaries. Until the answer lands the AI page says it
+is asking; then it is filled in, or says why there is no answer. The ordinary
+dictionaries are one page further on, as always. Without Wi-Fi, or without an
+endpoint, there is no AI page and the popup is KOReader's own. A selection of
+more than one word goes through **Explain with AI** in the highlight menu, which
+opens the answer in a window of its own.
 
 The same plugin also carries the **book library**: *Sync library* in the menu
 asks the gateway what is in the owner's R2 bucket and downloads whatever this
@@ -30,7 +32,7 @@ and are not in this repository, and the key is typed in on the device.
 
 ```
 plugin/aidict.koplugin/   the plugin as it lands on the device
-  main.lua                the only file that requires KOReader modules: buttons, menu, widgets
+  main.lua                the only file that requires KOReader modules: the popup hook, buttons, menu, widgets
   aidict/                 plain Lua, no KOReader imports, dependencies passed as arguments
     apiclient.lua         request/response/error mapping
     cache.lua             LRU + TTL cache
@@ -43,8 +45,9 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     library.lua           the book sync: manifest, plan, download
     lookup.lua            settings + cache + client wired together
     manifest.lua          the library manifest, and which paths may be written
+    page.lua              the AI page in the dictionary popup: what it says, and when
     plan.lua              manifest vs what is on the device -> what to download
-    prefetch.lua          whether to look a word up before the reader asks
+    prefetch.lua          whether to start asking about a word, and what is in the air
     reqid.lua             one id per lookup, so both sides log under the same one
     settings.lua          typed access over a LuaSettings-shaped store
     updater.lua           "is there a newer build on my channel?"

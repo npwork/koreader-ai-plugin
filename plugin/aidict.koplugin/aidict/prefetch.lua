@@ -1,16 +1,10 @@
 --[[--
-Whether to look a word up before the reader has asked for it.
+Whether to start asking about a word now, and what is already in the air.
 
 The gateway takes a second and a half to answer and the Kindle spends nearly
-another on the radio, so pressing **AI** and waiting is most of the feature's
-cost. But the reader does not press it first: they tap a word, the dictionary
-opens, and they read the entry for a few seconds. Starting the lookup at the
-tap turns that wait into nothing — the answer is in the cache by the time the
-button is pressed.
-
-It costs a request per dictionary lookup rather than per AI press, which is
-why it is off until asked for: most taps are the reader checking a word they
-half-know, and those never reach the AI button.
+another on the radio. KOReader announces a lookup before it has even searched
+its dictionaries, so that is when the request goes out: the AI page in the
+dictionary popup says it is asking, and is filled in when the answer lands.
 
 This module is only the decision and the bookkeeping of what is in the air.
 The forking lives in `main.lua`, where KOReader does.
@@ -21,7 +15,6 @@ Prefetch.__index = Prefetch
 
 --- Why a word was not fetched ahead. Only ever logged.
 Prefetch.SKIP = {
-    DISABLED = "prefetch is off",
     NOT_CONFIGURED = "no endpoint",
     OFFLINE = "offline",
     NO_WORD = "nothing to look up",
@@ -63,9 +56,6 @@ this particular one.
 --]]--
 function Prefetch:wanted(key, opts)
     opts = opts or {}
-    if not self.settings:get("prefetch") then
-        return false, Prefetch.SKIP.DISABLED
-    end
     if not self.settings:is_configured() then
         return false, Prefetch.SKIP.NOT_CONFIGURED
     end

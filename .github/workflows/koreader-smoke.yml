@@ -95,6 +95,13 @@ jobs:
             exit 1
           fi
 
+          # The AI page rides on the dictionary's showDict. Without it the
+          # plugin still loads, and the popup silently loses its AI page.
+          if grep -q "aidict: this KOReader's dictionary has no showDict" koreader.log; then
+            echo "::error::KOReader's dictionary has no showDict for the AI page to hook"
+            exit 1
+          fi
+
           # A clean teardown means the plugin's close handlers ran without
           # taking KOReader down with them.
           grep -q "Tearing down UIManager with exit code: 0" koreader.log \
