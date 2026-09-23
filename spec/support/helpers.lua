@@ -67,13 +67,15 @@ function helpers.transport(responses)
 end
 
 --[[--
-A filesystem in a table: the four calls `library.lua` asks the device for.
+A filesystem in a table: the five calls `library.lua` asks the device for.
 
 `files` maps an absolute path to its size, so a spec says "this book is here
-and half-written" by putting a number in it.
+and half-written" by putting a number in it. A folder exists if `mkdir` made
+it or a file is under it, and `rmdir` refuses one that still holds anything —
+the one property of the real call the library leans on.
 --]]--
 function helpers.filesystem(files)
-    local fs = { files = {}, dirs = {}, removed = {} }
+    local fs = { files = {}, dirs = {}, removed = {}, rmdirs = {} }
     for path, size in pairs(files or {}) do fs.files[path] = size end
 
     fs.size = function(path) return fs.files[path] end
@@ -87,6 +89,18 @@ function helpers.filesystem(files)
     fs.remove = function(path)
         if fs.files[path] ~= nil then fs.removed[#fs.removed + 1] = path end
         fs.files[path] = nil
+    end
+    fs.rmdir = function(path)
+        local prefix = path .. "/"
+        for held in pairs(fs.files) do
+            if held:sub(1, #prefix) == prefix then return nil, "not empty" end
+        end
+        for held in pairs(fs.dirs) do
+            if held:sub(1, #prefix) == prefix then return nil, "not empty" end
+        end
+        fs.dirs[path] = nil
+        fs.rmdirs[#fs.rmdirs + 1] = path
+        return true
     end
     return fs
 end

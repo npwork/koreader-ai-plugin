@@ -309,7 +309,8 @@ no listing credential on a Kindle.
 * `url` is fetched with **no Authorization header** — it is presigned, and a
   key beside a signed query is how a signature stops matching. A 401 or 403
   from it means the link expired, and the fix is another manifest.
-* `etag` is carried and logged, never compared.
+* `etag` is how a moved or renamed book is recognised: see below. It is never
+  compared to decide whether a book in place is current — size does that.
 * `Authorization: Bearer <key>` or `?token=` gates the manifest itself, the
   same key the dictionary uses.
 
@@ -328,6 +329,41 @@ show and nothing the next sync will mistake for a finished book.
 Timeouts are the library's own — 30s per block, 600s total — rather than the
 dictionary's: a 30 MB book over a Kindle's radio needs room that would be an
 absurd wait for a word lookup.
+
+## Moves and deletes
+
+The manifest says only where each book is now; the device works out what
+changed against its own index of what earlier syncs placed —
+`aidict_library.lua` in KOReader's settings folder, one row per path with the
+size and etag it had. Nothing else in the books folder is ever moved or
+deleted, so a file put there by hand stays put. The index belongs to one
+folder: choosing another books folder starts a fresh one. The first sync that
+keeps one takes in every book already at a listed path with the listed size —
+that is how books synced before there was an index can move at all — and so
+also a hand-placed file that happens to match one exactly, which the device
+cannot tell apart from the server's copy.
+
+* **Moved.** A listed book missing at its path is looked for among the
+  indexed paths the manifest no longer lists: same size, and the same etag —
+  or, failing any etag match, the same file name. Found, it is moved rather
+  than downloaded again, and its `.sdr`, History entry and collections move
+  with it, exactly as KOReader's own cut-and-paste does. A whole folder moved
+  on the server is that, book by book.
+* **Deleted.** An indexed path the manifest no longer lists, that no book
+  moved out of, is deleted the way KOReader's file manager deletes: the file,
+  its sidecar, its History entry and its collections.
+* A folder a move or delete leaves empty is removed; the books folder itself
+  never is.
+* **The open book is left alone.** The reader writes its sidecar to the path
+  it opened when it closes, so it keeps its old path in the index and is
+  moved or deleted by the next sync after it is closed.
+
+The downloads run in a forked subprocess, so the reader can give up on a long
+sync. The moves and deletes do not: they go through KOReader's History,
+collections and book settings, which a child process would change only in its
+own copy. They run back in KOReader once the downloads finish — but they are
+planned before any download starts, so a moved book is never fetched again at
+its new path.
 
 ## Notes for the gateway implementation
 

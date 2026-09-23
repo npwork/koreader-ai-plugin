@@ -3,11 +3,11 @@ local helpers = require("support.helpers")
 
 local BOOKS = "/mnt/us/books"
 
-local function entry(path, size)
+local function entry(path, size, etag)
     return {
         path = path,
         size = size,
-        etag = "e-" .. path,
+        etag = etag or ("e-" .. path),
         url = "https://r2.test/books/" .. path .. "?sig=x",
     }
 end
@@ -253,6 +253,238 @@ describe("library", function()
             library(tr, fs):sync(BOOKS .. "/")
 
             assert.are.equal(10, fs.files[BOOKS .. "/A.epub"])
+        end)
+    end)
+
+    --[[--
+    The moves and deletes, planned in `sync` and carried out by `settle`.
+
+    `relocate` and `discard` stand in for KOReader's own move and delete;
+    here they move and remove entries in the fake filesystem, and refuse the
+    one path a spec calls open.
+    --]]--
+    describe("mirroring moves and deletes", function()
+        local function ops(fs, index, open)
+            local calls = {}
+            return {
+                index = index,
+                calls = calls,
+                relocate = function(from, to)
+                    calls[#calls + 1] = "relocate " .. from .. " -> " .. to
+                    if from == open then return false, "open" end
+                    return fs.rename(from, to)
+                end,
+                discard = function(path)
+                    calls[#calls + 1] = "discard " .. path
+                    if path == open then return false, "open" end
+                    if fs.files[path] == nil then return false, "no such file" end
+                    fs.remove(path)
+                    return true
+                end,
+            }
+        end
+
+        local function served(fs, entries)
+            return transport(fs, { status = 200, body = manifest_body(entries) })
+        end
+
+        it("plans a move instead of downloading the book again", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/Fiction/x.epub"] = 10 })
+            local tr = served(fs, { entry("Business/x.epub", 10, "e1") })
+
+            local report = library(tr, fs):sync(BOOKS, {
+                index = { ["Fiction/x.epub"] = { size = 10, etag = "e1" } },
+            })
+
+            assert.are.equal(1, #tr.requests)
+            assert.are.equal(0, report.total)
+            assert.are.equal(1, #report.moves)
+            assert.are.equal("Fiction/x.epub", report.moves[1].from)
+            assert.are.equal("Business/x.epub", report.moves[1].to)
+            -- The move is settle's, not the subprocess's.
+            assert.are.equal(10, fs.files[BOOKS .. "/Fiction/x.epub"])
+        end)
+
+        it("reports the manifest without its links", function()
+            local fs = helpers.filesystem()
+            local report = library(served(fs, { entry("A.epub", 10, "a") }), fs):sync(BOOKS)
+
+            assert.are.same({ { path = "A.epub", size = 10, etag = "a" } }, report.listed)
+        end)
+
+        it("moves the book, into folders made for it, and drops the folder it left", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/English/Fiction/x.epub"] = 10 })
+            local index = { ["English/Fiction/x.epub"] = { size = 10, etag = "e1" } }
+            local lib = library(served(fs, { entry("English/Business/x.epub", 10, "e1") }), fs)
+
+            local report = lib:sync(BOOKS, { index = index })
+            local settled = lib:settle(report, BOOKS, ops(fs, index))
+
+            assert.are.equal(1, settled.moved)
+            assert.are.equal(10, fs.files[BOOKS .. "/English/Business/x.epub"])
+            assert.is_nil(fs.files[BOOKS .. "/English/Fiction/x.epub"])
+            assert.is_true(fs.dirs[BOOKS .. "/English/Business"])
+            assert.are.same({ BOOKS .. "/English/Fiction" }, fs.rmdirs)
+            assert.are.same({ ["English/Business/x.epub"] = { size = 10, etag = "e1" } }, settled.index)
+        end)
+
+        it("hands relocate and discard absolute paths", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/A/x.epub"] = 10, [BOOKS .. "/Gone.epub"] = 5 })
+            local index = { ["A/x.epub"] = { size = 10, etag = "e1" }, ["Gone.epub"] = { size = 5 } }
+            local lib = library(served(fs, { entry("B/x.epub", 10, "e1") }), fs)
+            local o = ops(fs, index)
+
+            lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, o)
+
+            assert.are.same({
+                "relocate " .. BOOKS .. "/A/x.epub -> " .. BOOKS .. "/B/x.epub",
+                "discard " .. BOOKS .. "/Gone.epub",
+            }, o.calls)
+        end)
+
+        it("deletes what the server deleted, and forgets it", function()
+            local fs = helpers.filesystem({
+                [BOOKS .. "/Old/Gone.epub"] = 20,
+                [BOOKS .. "/A.epub"] = 10,
+            })
+            local index = { ["Old/Gone.epub"] = { size = 20, etag = "g" }, ["A.epub"] = { size = 10, etag = "a" } }
+            local lib = library(served(fs, { entry("A.epub", 10, "a") }), fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
+
+            assert.are.equal(1, settled.deleted)
+            assert.is_nil(fs.files[BOOKS .. "/Old/Gone.epub"])
+            assert.are.same({ BOOKS .. "/Old" }, fs.rmdirs)
+            assert.are.same({ ["A.epub"] = { size = 10, etag = "a" } }, settled.index)
+        end)
+
+        it("never touches what the owner put in the folder", function()
+            local fs = helpers.filesystem({
+                [BOOKS .. "/Mine/notes.pdf"] = 3,
+                [BOOKS .. "/Mine/Gone.epub"] = 20,
+            })
+            local index = { ["Mine/Gone.epub"] = { size = 20, etag = "g" } }
+            local lib = library(served(fs, {}), fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
+
+            assert.are.equal(1, settled.deleted)
+            assert.are.equal(3, fs.files[BOOKS .. "/Mine/notes.pdf"])
+            -- Its folder is not empty, so it stays.
+            assert.are.same({}, fs.rmdirs)
+            assert.are.same({}, settled.index)
+        end)
+
+        it("removes every folder a whole-folder move emptied, but never the library itself", function()
+            local fs = helpers.filesystem({
+                [BOOKS .. "/Lem/Novels/Solaris.epub"] = 10,
+                [BOOKS .. "/Lem/Novels/Eden.epub"] = 20,
+            })
+            local index = {
+                ["Lem/Novels/Solaris.epub"] = { size = 10, etag = "s" },
+                ["Lem/Novels/Eden.epub"] = { size = 20, etag = "e" },
+            }
+            local lib = library(served(fs, {
+                entry("Archive/Solaris.epub", 10, "s"),
+                entry("Archive/Eden.epub", 20, "e"),
+            }), fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
+
+            assert.are.equal(2, settled.moved)
+            assert.are.same({ BOOKS .. "/Lem/Novels", BOOKS .. "/Lem" }, fs.rmdirs)
+        end)
+
+        it("does not try to remove the library when a book at its top is deleted", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/Gone.epub"] = 20 })
+            local index = { ["Gone.epub"] = { size = 20 } }
+            local lib = library(served(fs, {}), fs)
+
+            lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
+
+            assert.are.same({}, fs.rmdirs)
+        end)
+
+        it("leaves the open book where it is, and keeps it for the next sync", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/Fiction/x.epub"] = 10 })
+            local index = { ["Fiction/x.epub"] = { size = 10, etag = "e1" } }
+            local lib = library(served(fs, { entry("Business/x.epub", 10, "e1") }), fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS,
+                ops(fs, index, BOOKS .. "/Fiction/x.epub"))
+
+            assert.are.equal(0, settled.moved)
+            assert.are.same({ { action = "move", from = "Fiction/x.epub", to = "Business/x.epub", reason = "open" } },
+                settled.deferred)
+            assert.are.same({}, settled.failed)
+            assert.are.equal(10, fs.files[BOOKS .. "/Fiction/x.epub"])
+            assert.are.same({}, fs.rmdirs)
+            assert.are.same({ ["Fiction/x.epub"] = { size = 10, etag = "e1" } }, settled.index)
+
+            -- Closed now: the next sync finds it where it was left, and moves it.
+            local again = library(served(fs, { entry("Business/x.epub", 10, "e1") }), fs)
+            local next_settled = again:settle(again:sync(BOOKS, { index = settled.index }), BOOKS,
+                ops(fs, settled.index))
+            assert.are.equal(1, next_settled.moved)
+            assert.are.equal(10, fs.files[BOOKS .. "/Business/x.epub"])
+        end)
+
+        it("keeps the open book the server deleted until it is closed", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/Gone.epub"] = 20 })
+            local index = { ["Gone.epub"] = { size = 20, etag = "g" } }
+            local lib = library(served(fs, {}), fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS,
+                ops(fs, index, BOOKS .. "/Gone.epub"))
+
+            assert.are.equal(0, settled.deleted)
+            assert.are.equal("delete", settled.deferred[1].action)
+            assert.are.same(index, settled.index)
+        end)
+
+        it("counts a move that failed apart from the open book, and tries it again next time", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/A/x.epub"] = 10 })
+            local index = { ["A/x.epub"] = { size = 10, etag = "e1" } }
+            local lib = library(served(fs, { entry("B/x.epub", 10, "e1") }), fs)
+            local o = ops(fs, index)
+            o.relocate = function() return false, "read-only file system" end
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, o)
+
+            assert.are.same({}, settled.deferred)
+            assert.are.equal("read-only file system", settled.failed[1].reason)
+            assert.are.same(index, settled.index)
+        end)
+
+        it("indexes what is here, what arrived and what moved — not what failed", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/Have.epub"] = 1, [BOOKS .. "/Old/M.epub"] = 2 })
+            local index = { ["Old/M.epub"] = { size = 2, etag = "m" } }
+            local tr = transport(fs,
+                { status = 200, body = manifest_body({
+                    entry("Have.epub", 1, "h"),
+                    entry("New/M.epub", 2, "m"),
+                    entry("Got.epub", 3, "g"),
+                    entry("Lost.epub", 4, "l"),
+                }) },
+                { ["https://r2.test/books/Lost.epub?sig=x"] = { err = "connection reset" } })
+            local lib = library(tr, fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
+
+            assert.are.same({
+                ["Have.epub"] = { size = 1, etag = "h" },
+                ["New/M.epub"] = { size = 2, etag = "m" },
+                ["Got.epub"] = { size = 3, etag = "g" },
+            }, settled.index)
+        end)
+
+        it("adopts, on the first run, the books earlier syncs left without an index", function()
+            local fs = helpers.filesystem({ [BOOKS .. "/A.epub"] = 10 })
+            local lib = library(served(fs, { entry("A.epub", 10, "a") }), fs)
+
+            local settled = lib:settle(lib:sync(BOOKS, { index = nil }), BOOKS, ops(fs, nil))
+
+            assert.are.same({ ["A.epub"] = { size = 10, etag = "a" } }, settled.index)
         end)
     end)
 end)
