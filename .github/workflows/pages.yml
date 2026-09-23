@@ -42,8 +42,10 @@ jobs:
         # path segment — which held while both mounts sat on the same gateway.
         # /koreader-ai moved to a Cloudflare Worker on 2026-09-22 and the
         # library stayed with the books, so neither address says anything
-        # about the other. Either one unset ships without it, and the reader
-        # is asked to set it on the device.
+        # about the other. The dictionary's becomes a default the reader can
+        # change; the library's is read from the package and only shown, so
+        # this secret is the one place it is set. Either one unset ships
+        # without it.
         #
         # The KEY IS DELIBERATELY NOT BAKED IN any more. This site is public,
         # so anyone can download a .kpkg and read what is inside it — and the
@@ -59,7 +61,7 @@ jobs:
             echo "address: AIDICT_ENDPOINT is not set — the reader will be asked for one"
           fi
           if [ -z "${AIDICT_LIBRARY_ENDPOINT}" ]; then
-            echo "library: AIDICT_LIBRARY_ENDPOINT is not set — the reader will be asked for one"
+            echo "library: AIDICT_LIBRARY_ENDPOINT is not set — the package will have no library, and the device cannot set one"
           fi
           echo "key: never packaged — set it on the device (Settings > API key)"
           ./scripts/build-site.sh

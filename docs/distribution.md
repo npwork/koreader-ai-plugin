@@ -95,7 +95,12 @@ There was one until 2026-09-22, because the library's address was the
 dictionary's with the last path segment swapped and both mounts sat on the
 same gateway. `/koreader-ai` moved to a Cloudflare Worker and the library
 stayed with the books, so the old rule produced `https://koreader-library` —
-an address that is not one. They are set separately now.
+an address that is not one. They are set separately now, and they are not
+set the same way on the device: the dictionary's lands in the settings as a
+default the reader can overwrite, while the library's is read straight from the
+package and only shown. Changing `AIDICT_LIBRARY_ENDPOINT` takes effect on the
+Kindle after the next Pages build and `;kpm upgrade` — dispatch `pages.yml` on
+`main` to rebuild without a commit.
 
 Neither address is protected by this — the package is public and can be
 unpacked. They are kept out of the repository so they are not searchable, and

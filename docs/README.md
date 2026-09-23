@@ -97,11 +97,14 @@ published package is world-readable and the gateway's key now opens the codex
 proxy and the Words data endpoint too, so it is typed once into the plugin's
 own "API key" field on the device.
 
-The library lives on the gateway, at `GET <library endpoint>/manifest`, and it
-is its own baked-in address from the `AIDICT_LIBRARY_ENDPOINT` secret. It used
-to be derived from the dictionary's by swapping the last path segment, which
-held while both mounts sat on the same gateway. `/koreader-ai` moved to a
+The library lives on the gateway, at `GET <library endpoint>/manifest`, and its
+address comes only from the `AIDICT_LIBRARY_ENDPOINT` secret, baked into the
+package at build time. It is not a setting: the plugin's menu shows it on the
+"Library" line and cannot change it. A new address reaches the device the way
+a new version does — change the secret, rebuild Pages, `;kpm upgrade`.
+
+It used to be derived from the dictionary's by swapping the last path segment,
+which held while both mounts sat on the same gateway. `/koreader-ai` moved to a
 Cloudflare Worker on 2026-09-22 and the library stayed with the books, so the
-two addresses have nothing to do with each other and each is set on its own —
-from the secret at build time, and from the "Library" line in the plugin's
-menu on a device that is already installed, the way the dictionary's is.
+two addresses have nothing to do with each other. The dictionary's is still a
+setting the reader can change; the library's is not.

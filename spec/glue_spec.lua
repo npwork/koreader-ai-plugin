@@ -9,6 +9,7 @@ the emulator would otherwise be the only way to reach.
 
 local helpers = require("support.helpers")
 local koreader = require("support.koreader")
+local Config = require("aidict.config")
 local Version = require("aidict.version")
 
 local ANSWER = helpers.body({
@@ -24,14 +25,13 @@ describe("the KOReader layer", function()
 
     local function build(opts)
         opts = opts or {}
-        -- The shipped package carries neither address; both are baked in at
-        -- build time. Give the reader them unless the spec is about not
-        -- having one.
+        -- The committed package carries neither address; both are baked in
+        -- at build time. The dictionary's lands in the settings, where the
+        -- reader can change it; the library's is not a setting at all. Give
+        -- the reader both unless the spec is about not having one.
         local settings = {}
         if not opts.no_endpoint then settings.endpoint = helpers.ENDPOINT end
-        if not opts.no_library_endpoint then
-            settings.library_endpoint = helpers.LIBRARY_ENDPOINT
-        end
+        Config.BAKED.library_endpoint = opts.no_library_endpoint and "" or helpers.LIBRARY_ENDPOINT
         for key, value in pairs(opts.settings or {}) do settings[key] = value end
 
         kor = koreader.install({
@@ -101,6 +101,7 @@ describe("the KOReader layer", function()
 
     after_each(function()
         koreader.uninstall()
+        Config.BAKED.library_endpoint = ""
     end)
 
     describe("registration", function()
@@ -917,10 +918,8 @@ describe("the KOReader layer", function()
             assert.is_truthy(last_shown().text:find("URL", 1, true))
         end)
 
-        -- The dictionary moved to a Worker and the library stayed on the
-        -- gateway, so the address cannot be derived from the endpoint any
-        -- more. Without a line of its own, a device already in the field has
-        -- no way to be told where the books are.
+        -- The library's address comes with the package, from a CI secret, so
+        -- the menu shows which one this build carries and nothing more.
         it("shows the library address, and says so when there is none", function()
             build({ no_library_endpoint = true })
             local _, missing = menu_item("Library")
@@ -932,22 +931,24 @@ describe("the KOReader layer", function()
             assert.are.equal("Library: " .. helpers.LIBRARY_ENDPOINT, set)
         end)
 
-        it("saves a library address and syncs against it", function()
+        it("does not let the library address be edited on the device", function()
+            build()
+            local item = menu_item("Library")
+            assert.is_nil(item.callback)
+            assert.is_true(item.keep_menu_open)
+        end)
+
+        -- 0.2.57 let the address be typed in, so a device may still hold one
+        -- in its settings. Only the package's counts.
+        it("syncs against the package's library address, not a saved one", function()
             build({
-                no_library_endpoint = true,
+                settings = { library_endpoint = "https://stale.test/koreader-library" },
                 responses = { { status = 200, body = helpers.body({ version = 1, files = {} }) } },
             })
-            menu_item("Library").callback()
-
-            local dialog = last_shown()
-            dialog.input = "https://books.test/koreader-library"
-            dialog.buttons[1][2].callback()
-
-            assert.are.equal("https://books.test/koreader-library", kor.store.data.library_endpoint)
 
             plugin:syncLibrary()
-            assert.are.equal("https://books.test/koreader-library/manifest",
-                kor.transport.requests[1].url)
+
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/manifest", kor.transport.requests[1].url)
         end)
 
         it("toggles the update channel", function()
@@ -1192,7 +1193,7 @@ describe("the KOReader layer", function()
 
         -- And specifically for its own: the dictionary's address is no route
         -- to it now that one is a Worker and the other is the gateway.
-        it("asks for the library address rather than syncing into nowhere", function()
+        it("says the package has no library address rather than syncing into nowhere", function()
             build({ no_library_endpoint = true })
 
             plugin:syncLibrary()

@@ -28,6 +28,7 @@ local util = require("util")
 local T = require("ffi/util").template
 local _ = require("gettext")
 
+local Config = require("aidict.config")
 local Context = require("aidict.context")
 local Format = require("aidict.format")
 local Reqid = require("aidict.reqid")
@@ -674,9 +675,9 @@ end
 
 --- Pull the books the gateway has and this device does not.
 function AiDict:syncLibrary()
-    local endpoint = Library.endpoint_from(self.settings:get("library_endpoint"))
+    local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
     if not endpoint then
-        UIManager:show(InfoMessage:new{ text = _("Set the library address first, under AI dictionary.") })
+        UIManager:show(InfoMessage:new{ text = _("This package was built without a library address.") })
         return
     end
 
@@ -981,18 +982,14 @@ function AiDict:addToMainMenu(menu_items)
                 end,
             },
             {
-                -- The library's address is not the dictionary's any more, and
-                -- cannot be worked out from it, so a device already in the
-                -- field has no way to be told the new one unless the menu
-                -- carries it the way it carries the dictionary's.
+                -- Shown, never edited: the address comes with the package,
+                -- from the AIDICT_LIBRARY_ENDPOINT secret, and a new one
+                -- arrives the same way.
                 text_func = function()
-                    local address = self.settings:get("library_endpoint")
+                    local address = Config.BAKED.library_endpoint
                     return T(_("Library: %1"), address ~= "" and address or _("not set"))
                 end,
                 keep_menu_open = true,
-                callback = function()
-                    self:editSetting("library_endpoint", _("Library address"))
-                end,
             },
             {
                 text_func = function()

@@ -11,8 +11,8 @@ The address is not written down in this repository: it is injected into the
 package at build time from the `AIDICT_ENDPOINT` secret, and can be changed on
 the device from the plugin's menu. Since 2026-09-22 it is a Cloudflare Worker
 rather than a gateway mount — the same handler, answering at the edge at
-roughly a third of the latency. The library kept its own address, which is
-now `AIDICT_LIBRARY_ENDPOINT`: nothing derives one from the other.
+roughly a third of the latency. The library kept its own address, which comes
+only from `AIDICT_LIBRARY_ENDPOINT`: nothing derives one from the other.
 
 ### Request
 
@@ -232,9 +232,10 @@ subprocess doing the request.
 # The library contract
 
 Still the gateway, and now its own address. `library_endpoint` is baked into
-the package from `AIDICT_LIBRARY_ENDPOINT` and can be changed in the menu; a
-`?token=` riding on it is kept at the end, where a query has to be. Empty
-means the device has not been told, and the sync says so rather than guessing.
+the package from `AIDICT_LIBRARY_ENDPOINT` and is not a setting: the menu shows
+it and cannot change it. A `?token=` riding on it is kept at the end, where a
+query has to be. Empty means the package was built without it, and the sync
+says so rather than guessing.
 
 The plugin used to carry one address and swap the last path segment —
 `https://host/koreader-ai` became `https://host/koreader-library`. That day
