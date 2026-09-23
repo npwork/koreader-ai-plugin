@@ -1119,6 +1119,15 @@ describe("the KOReader layer", function()
             assert.is_true(sub[2].separator)
         end)
 
+        -- The update line already carries it, second from the top.
+        it("does not repeat the version on a line of its own", function()
+            build()
+            for _, item in ipairs(items().aidict.sub_item_table) do
+                local label = item.text_func and item.text_func() or item.text
+                assert.is_nil(label:find("^Version"))
+            end
+        end)
+
         it("registers nothing else in the main menu", function()
             build()
             local ids = {}

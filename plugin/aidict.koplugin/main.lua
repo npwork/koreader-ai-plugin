@@ -987,17 +987,7 @@ function AiDict:addToMainMenu(menu_items)
                     return T(_("Books folder: %1"), self.settings:get("library_dir"))
                 end,
                 keep_menu_open = true,
-                separator = true,
                 callback = function() self:chooseLibraryFolder() end,
-            },
-            {
-                text = T(_("Version %1"), Version.string),
-                keep_menu_open = true,
-                callback = function()
-                    UIManager:show(InfoMessage:new{
-                        text = T(_("AI dictionary %1\nDevice: %2"), Version.string, Device.model),
-                    })
-                end,
             },
         },
     }
