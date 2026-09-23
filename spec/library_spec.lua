@@ -374,13 +374,30 @@ describe("library", function()
             assert.are.same(index, settled.index)
         end)
 
+        it("deletes nothing when the server lists nothing", function()
+            -- A gateway pointed at the wrong bucket, not an owner who deleted
+            -- every book: keep the books, and keep owning them.
+            local fs = helpers.filesystem({ [BOOKS .. "/A.epub"] = 10 })
+            local index = { ["A.epub"] = { size = 10, etag = "a" } }
+            local lib = library(served(fs, {}), fs)
+
+            local report = lib:sync(BOOKS, { index = index })
+            local settled = lib:settle(report, BOOKS, ops(fs, index))
+
+            assert.are.same({}, report.deletes)
+            assert.are.equal(10, fs.files[BOOKS .. "/A.epub"])
+            assert.are.equal(0, settled.deleted)
+            assert.are.same(index, settled.index)
+        end)
+
         it("never touches what the owner put in the folder", function()
             local fs = helpers.filesystem({
                 [BOOKS .. "/Mine/notes.pdf"] = 3,
                 [BOOKS .. "/Mine/Gone.epub"] = 20,
+                [BOOKS .. "/A.epub"] = 10,
             })
             local index = { ["Mine/Gone.epub"] = { size = 20, etag = "g" } }
-            local lib = library(served(fs, {}), fs)
+            local lib = library(served(fs, { entry("A.epub", 10, "a") }), fs)
 
             local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
 
@@ -388,7 +405,7 @@ describe("library", function()
             assert.are.equal(3, fs.files[BOOKS .. "/Mine/notes.pdf"])
             -- Its folder is not empty, so it stays.
             assert.are.same({}, fs.rmdirs)
-            assert.are.same({}, settled.index)
+            assert.are.same({ ["A.epub"] = { size = 10, etag = "a" } }, settled.index)
         end)
 
         it("removes every folder a whole-folder move emptied, but never the library itself", function()
@@ -412,12 +429,13 @@ describe("library", function()
         end)
 
         it("does not try to remove the library when a book at its top is deleted", function()
-            local fs = helpers.filesystem({ [BOOKS .. "/Gone.epub"] = 20 })
+            local fs = helpers.filesystem({ [BOOKS .. "/Gone.epub"] = 20, [BOOKS .. "/A.epub"] = 10 })
             local index = { ["Gone.epub"] = { size = 20 } }
-            local lib = library(served(fs, {}), fs)
+            local lib = library(served(fs, { entry("A.epub", 10, "a") }), fs)
 
-            lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
+            local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS, ops(fs, index))
 
+            assert.are.equal(1, settled.deleted)
             assert.are.same({}, fs.rmdirs)
         end)
 
@@ -446,16 +464,16 @@ describe("library", function()
         end)
 
         it("keeps the open book the server deleted until it is closed", function()
-            local fs = helpers.filesystem({ [BOOKS .. "/Gone.epub"] = 20 })
+            local fs = helpers.filesystem({ [BOOKS .. "/Gone.epub"] = 20, [BOOKS .. "/A.epub"] = 10 })
             local index = { ["Gone.epub"] = { size = 20, etag = "g" } }
-            local lib = library(served(fs, {}), fs)
+            local lib = library(served(fs, { entry("A.epub", 10, "a") }), fs)
 
             local settled = lib:settle(lib:sync(BOOKS, { index = index }), BOOKS,
                 ops(fs, index, BOOKS .. "/Gone.epub"))
 
             assert.are.equal(0, settled.deleted)
             assert.are.equal("delete", settled.deferred[1].action)
-            assert.are.same(index, settled.index)
+            assert.are.same({ size = 20, etag = "g" }, settled.index["Gone.epub"])
         end)
 
         it("counts a move that failed apart from the open book, and tries it again next time", function()

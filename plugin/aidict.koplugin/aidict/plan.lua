@@ -141,8 +141,12 @@ function Plan.build(entries, size_of, index, named)
     end
 
     -- Whatever the plugin placed that the server no longer lists, and that
-    -- no book moved out of, has been deleted there.
-    for _, candidate in ipairs(candidates) do
+    -- no book moved out of, has been deleted there. Unless the manifest named
+    -- nothing at all: an empty library is far likelier to be a gateway
+    -- pointed at the wrong bucket than an owner who deleted every book, and
+    -- only one of those two mistakes can be undone.
+    local deletes = next(listed) ~= nil
+    for _, candidate in ipairs(deletes and candidates or {}) do
         if not claimed[candidate.path] and not listed_folded[candidate.path:lower()] then
             plan.deletes[#plan.deletes + 1] = candidate.path
         end

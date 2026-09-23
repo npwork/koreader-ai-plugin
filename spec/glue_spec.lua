@@ -1465,7 +1465,7 @@ describe("the KOReader layer", function()
             end)
 
             it("deletes the book and what KOReader kept about it, the way the file manager does", function()
-                synced_before({ ["Gone.epub"] = 20 }, {})
+                synced_before({ ["Gone.epub"] = 20, ["A.epub"] = 10 }, { book("A.epub", 10) })
 
                 plugin:syncLibrary()
 
@@ -1478,7 +1478,7 @@ describe("the KOReader layer", function()
                     "ReadCollection:removeItem " .. gone,
                 }, kor.book_calls)
                 assert.is_nil(kor.files[gone])
-                assert.are.same({}, saved_index().data.books)
+                assert.are.same({ ["A.epub"] = { size = 10, etag = "e-A.epub" } }, saved_index().data.books)
                 assert.is_truthy(last_shown().text:find("Deleted 1", 1, true))
             end)
 
@@ -1496,7 +1496,7 @@ describe("the KOReader layer", function()
             end)
 
             it("knows the open book from its own reader too", function()
-                synced_before({ ["Gone.epub"] = 20 }, {})
+                synced_before({ ["Gone.epub"] = 20, ["A.epub"] = 10 }, { book("A.epub", 10) })
                 reader.ui.document = { file = BOOKS .. "/Gone.epub" }
 
                 plugin:syncLibrary()

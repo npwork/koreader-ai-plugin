@@ -384,9 +384,18 @@ function Library:settle(report, dir, ops)
         end
     end
 
-    for _, path in ipairs(report.unusable or {}) do
+    -- Still the plugin's own, for a later sync to move or delete: a book
+    -- whose row this device dropped, and — when the manifest named nothing,
+    -- so nothing was deleted — every book already placed.
+    local keep = report.unusable or {}
+    if #(report.listed or {}) == 0 and #keep == 0 then
+        keep = {}
+        for path in pairs(previous) do keep[#keep + 1] = path end
+    end
+    for _, path in ipairs(keep) do
         local record = previous[path]
-        if type(record) == "table" and self.fs.size(dir .. "/" .. path) == record.size then
+        if type(record) == "table" and not result.index[path]
+                and self.fs.size(dir .. "/" .. path) == record.size then
             result.index[path] = record
         end
     end
