@@ -917,6 +917,39 @@ describe("the KOReader layer", function()
             assert.is_truthy(last_shown().text:find("URL", 1, true))
         end)
 
+        -- The dictionary moved to a Worker and the library stayed on the
+        -- gateway, so the address cannot be derived from the endpoint any
+        -- more. Without a line of its own, a device already in the field has
+        -- no way to be told where the books are.
+        it("shows the library address, and says so when there is none", function()
+            build({ no_library_endpoint = true })
+            local _, missing = menu_item("Library")
+            assert.are.equal("Library: not set", missing)
+
+            koreader.uninstall()
+            build()
+            local _, set = menu_item("Library")
+            assert.are.equal("Library: " .. helpers.LIBRARY_ENDPOINT, set)
+        end)
+
+        it("saves a library address and syncs against it", function()
+            build({
+                no_library_endpoint = true,
+                responses = { { status = 200, body = helpers.body({ version = 1, files = {} }) } },
+            })
+            menu_item("Library").callback()
+
+            local dialog = last_shown()
+            dialog.input = "https://books.test/koreader-library"
+            dialog.buttons[1][2].callback()
+
+            assert.are.equal("https://books.test/koreader-library", kor.store.data.library_endpoint)
+
+            plugin:syncLibrary()
+            assert.are.equal("https://books.test/koreader-library/manifest",
+                kor.transport.requests[1].url)
+        end)
+
         it("toggles the update channel", function()
             build()
             menu_item("Update channel").callback()

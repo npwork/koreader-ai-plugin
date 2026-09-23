@@ -676,7 +676,7 @@ end
 function AiDict:syncLibrary()
     local endpoint = Library.endpoint_from(self.settings:get("library_endpoint"))
     if not endpoint then
-        UIManager:show(InfoMessage:new{ text = _("Set the library address first: it is its own setting now.") })
+        UIManager:show(InfoMessage:new{ text = _("Set the library address first, under AI dictionary.") })
         return
     end
 
@@ -978,6 +978,20 @@ function AiDict:addToMainMenu(menu_items)
                 callback = function()
                     self.settings:set("prefetch", not self.settings:get("prefetch"))
                     self.settings:flush()
+                end,
+            },
+            {
+                -- The library's address is not the dictionary's any more, and
+                -- cannot be worked out from it, so a device already in the
+                -- field has no way to be told the new one unless the menu
+                -- carries it the way it carries the dictionary's.
+                text_func = function()
+                    local address = self.settings:get("library_endpoint")
+                    return T(_("Library: %1"), address ~= "" and address or _("not set"))
+                end,
+                keep_menu_open = true,
+                callback = function()
+                    self:editSetting("library_endpoint", _("Library address"))
                 end,
             },
             {

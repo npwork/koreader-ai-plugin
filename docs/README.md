@@ -102,4 +102,6 @@ is its own baked-in address from the `AIDICT_LIBRARY_ENDPOINT` secret. It used
 to be derived from the dictionary's by swapping the last path segment, which
 held while both mounts sat on the same gateway. `/koreader-ai` moved to a
 Cloudflare Worker on 2026-09-22 and the library stayed with the books, so the
-two addresses have nothing to do with each other and each is set on its own.
+two addresses have nothing to do with each other and each is set on its own —
+from the secret at build time, and from the "Library" line in the plugin's
+menu on a device that is already installed, the way the dictionary's is.
