@@ -466,9 +466,6 @@ function koreader.reader(opts)
     }
 
     reader.document = {
-        extendXPointersToSentenceSegment = function(_, _, _)
-            return { text = opts.sentence }
-        end,
         -- crengine returns the HTML of the block element around a position,
         -- which is the paragraph.
         getHTMLFromXPointer = function(_, _, _, _)

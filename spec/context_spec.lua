@@ -123,4 +123,61 @@ describe("context", function()
             assert.are.equal("", Context.snippet("", "fox", 50))
         end)
     end)
+
+    describe("sentence", function()
+        -- Taken from the book on the Kindle, where every tap came back with
+        -- the word as its own sentence.
+        local paragraph = "Halting the ongoing escalation of AI technology, corralling the " ..
+            "hardware used to create ever more powerful AI models\226\128\148that is not " ..
+            "something that would be easy to do in today\226\128\153s world. But it would " ..
+            "take less than a war. Normality always ends."
+
+        it("cuts the sentence holding the word out of the paragraph", function()
+            assert.are.equal("But it would take less than a war.", Context.sentence(paragraph, "war"))
+            assert.are.equal("Normality always ends.", Context.sentence(paragraph, "Normality"))
+        end)
+
+        it("does not end a sentence at a dash or an apostrophe", function()
+            local s = Context.sentence(paragraph, "hardware")
+            assert.is_truthy(s:find("^Halting"))
+            assert.is_truthy(s:find("world%.$"))
+        end)
+
+        it("finds the word regardless of case", function()
+            assert.are.equal("Normality always ends.", Context.sentence(paragraph, "normality"))
+        end)
+
+        it("prefers the word standing on its own to one inside a longer word", function()
+            assert.are.equal("The fox ran.",
+                Context.sentence("Foxes hide. The fox ran.", "fox"))
+        end)
+
+        it("settles for a longer word when that is all there is", function()
+            assert.are.equal("Foxes hide.", Context.sentence("Foxes hide. It rained.", "fox"))
+        end)
+
+        it("keeps closing quotes and ends at ! ? and an ellipsis", function()
+            local p = "\226\128\156Run!\226\128\157 she said. Why? Because\226\128\166 " ..
+                "the fox was near."
+            assert.are.equal("\226\128\156Run!\226\128\157", Context.sentence(p, "run"))
+            assert.are.equal("Why?", Context.sentence(p, "why"))
+            assert.are.equal("the fox was near.", Context.sentence(p, "fox"))
+        end)
+
+        it("does not split at a title or an initial", function()
+            assert.are.equal("Mr. Darcy met J. Smith at noon.",
+                Context.sentence("It was late. Mr. Darcy met J. Smith at noon.", "Smith"))
+        end)
+
+        it("takes a paragraph with no stop as one sentence", function()
+            assert.are.equal("If you are reading this the sync works",
+                Context.sentence("If you are reading this the sync works", "sync"))
+        end)
+
+        it("returns nothing when the word is not there, or there is no paragraph", function()
+            assert.are.equal("", Context.sentence(paragraph, "aardvark"))
+            assert.are.equal("", Context.sentence("", "fox"))
+            assert.are.equal("", Context.sentence(nil, "fox"))
+        end)
+    end)
 end)

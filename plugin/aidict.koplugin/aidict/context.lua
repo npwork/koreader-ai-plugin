@@ -148,4 +148,85 @@ function Context.snippet(text, word, max_chars)
     return Context.build(before, text:sub(at, at + #word - 1), after, max_chars)
 end
 
+-- Words a full stop follows without ending the sentence. Lower case, without
+-- the stop; a single letter (an initial) is handled on its own.
+local ABBREVIATIONS = {
+    mr = true, mrs = true, ms = true, dr = true, st = true, jr = true, sr = true,
+    prof = true, rev = true, gen = true, col = true, capt = true, lt = true,
+    vs = true, ["e.g"] = true, ["i.e"] = true, cf = true,
+}
+
+--- Byte ranges of the sentences in `text`, in order.
+local function sentence_spans(text)
+    local spans, start, i = {}, 1, 1
+    while i <= #text do
+        -- A stop, any closing quotes or brackets after it, then a space.
+        local s, e = text:find("[%.!?\226][\128-\191]*[%.!?]*[\"')%]\226\128-\191]*%s", i)
+        if not s then break end
+        local stop = text:sub(s, s)
+        local ends = true
+        if stop == "\226" and text:sub(s, s + 2) ~= "\226\128\166" then
+            -- A multi-byte character that is not an ellipsis: a quote or a
+            -- dash, not the end of anything.
+            ends = false
+        elseif stop == "." then
+            local before = text:sub(start, s - 1):match("([%a%.]+)$") or ""
+            if #before == 1 or ABBREVIATIONS[before:lower()] then ends = false end
+        end
+        if ends then
+            spans[#spans + 1] = { start, e - 1 }
+            start = e + 1
+        end
+        i = e + 1
+    end
+    if start <= #text then spans[#spans + 1] = { start, #text } end
+    return spans
+end
+
+--- Is `at` the start of `word` standing on its own, not inside a longer one?
+local function whole_word(lower, word, at)
+    local before = at > 1 and lower:sub(at - 1, at - 1) or " "
+    local after = lower:sub(at + #word, at + #word)
+    return not before:match("[%w\128-\255]") and not after:match("[%w\128-\255]")
+end
+
+--[[--
+The sentence in `paragraph` that holds `word`.
+
+KOReader has nothing that returns it: `extendXPointersToSentenceSegment`, the
+name that promises it, only stretches a selection over the punctuation around
+it, so a tapped word comes back as itself. The paragraph is there already, so
+the sentence is cut out of that.
+
+The first sentence where the word stands on its own wins, then the first that
+merely contains it. A word met twice in one paragraph may get the wrong one of
+the two; the paragraph goes along as the context either way.
+
+@string paragraph  the passage the selection sits in
+@string word       the selection
+@treturn string    the sentence, or "" when the word is not in the paragraph
+--]]--
+function Context.sentence(paragraph, word)
+    paragraph = Context.cleanup(paragraph)
+    word = Context.cleanup(word)
+    if paragraph == "" or word == "" then return "" end
+
+    local lower, needle = paragraph:lower(), word:lower()
+    local spans = sentence_spans(paragraph)
+    local loose
+    local at = lower:find(needle, 1, true)
+    while at do
+        for _, span in ipairs(spans) do
+            if at >= span[1] and at <= span[2] then
+                local text = Context.cleanup(paragraph:sub(span[1], span[2]))
+                if whole_word(lower, needle, at) then return text end
+                loose = loose or text
+                break
+            end
+        end
+        at = lower:find(needle, at + 1, true)
+    end
+    return loose or ""
+end
+
 return Context

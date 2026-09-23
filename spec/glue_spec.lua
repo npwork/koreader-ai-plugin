@@ -43,9 +43,6 @@ describe("the KOReader layer", function()
         local selected_text = opts.selected_text or { text = "fox", pos0 = "p1", pos1 = "p2" }
         if opts.no_selection then selected_text = nil end
 
-        local sentence = opts.sentence or "The quick brown fox jumps over the lazy dog."
-        if opts.no_sentence then sentence = nil end
-
         local paragraph_html = opts.paragraph_html
         if paragraph_html == nil and not opts.no_paragraph then
             paragraph_html = "<p>The quick brown fox jumps over the lazy dog. " ..
@@ -53,7 +50,6 @@ describe("the KOReader layer", function()
         end
 
         reader = koreader.reader({
-            sentence = sentence,
             paragraph_html = paragraph_html,
             selected_text = selected_text,
             doc_props = opts.doc_props,
@@ -165,7 +161,7 @@ describe("the KOReader layer", function()
             assert.is_nil(sent.context:find("<p>", 1, true))
         end)
 
-        it("sends the sentence too, so the right occurrence is known", function()
+        it("sends the sentence too, cut out of the paragraph", function()
             build()
             tap_dict_button()
 
@@ -173,13 +169,25 @@ describe("the KOReader layer", function()
             assert.are.equal("The quick brown fox jumps over the lazy dog.", sent.sentence)
         end)
 
-        it("falls back to the sentence when there is no paragraph", function()
+        it("sends the sentence the word is in, not the paragraph's first", function()
+            build({
+                paragraph_html = "<p>The quick brown dog naps. A fox, by contrast, " ..
+                    "jumps all afternoon.</p>",
+            })
+            tap_dict_button()
+
+            local sent = helpers.json.decode(kor.transport.requests[1].body)
+            assert.are.equal("A fox, by contrast, jumps all afternoon.", sent.sentence)
+        end)
+
+        it("sends neither passage when there is no paragraph", function()
             build({ no_paragraph = true })
             tap_dict_button()
 
             local sent = helpers.json.decode(kor.transport.requests[1].body)
-            assert.is_truthy(sent.context:find("fox", 1, true))
-            assert.is_nil(sent.context:find("all afternoon", 1, true))
+            assert.are.equal("fox", sent.word)
+            assert.is_nil(sent.context)
+            assert.is_nil(sent.sentence)
         end)
 
         it("sends the book it was reading", function()
@@ -453,17 +461,8 @@ describe("the KOReader layer", function()
             assert.are.equal(0, #kor.shown)
         end)
 
-        it("still sends the paragraph when the document gives no sentence", function()
-            build({ no_sentence = true, selected_text = { text = "fox", pos0 = "p1", pos1 = "p2" } })
-            tap_highlight_button()
-
-            local sent = helpers.json.decode(kor.transport.requests[1].body)
-            assert.is_truthy(sent.context:find("all afternoon", 1, true))
-        end)
-
-        it("sends no context when the document gives neither", function()
+        it("sends no context when the document gives no paragraph", function()
             build({
-                no_sentence = true,
                 no_paragraph = true,
                 selected_text = { text = "fox jumps", pos0 = "p1", pos1 = "p2" },
             })

@@ -356,29 +356,14 @@ end
 -- Context
 ----------------------------------------------------------------------------
 
---- The sentence a selection sits in, when the document can produce one.
-function AiDict:sentenceFor(highlight)
-    local selected = highlight and highlight.selected_text
-    if not (selected and selected.pos0 and selected.pos1) then return "" end
-
-    local sentence
-    if self.ui and self.ui.rolling and self.document and self.document.extendXPointersToSentenceSegment then
-        local ok, extended = pcall(function()
-            return self.document:extendXPointersToSentenceSegment(selected.pos0, selected.pos1)
-        end)
-        if ok and extended then sentence = extended.text end
-    end
-    return Context.cleanup(sentence or selected.text)
-end
-
 --[[--
 The paragraph a selection sits in.
 
 crengine can hand back the HTML of the block element containing a position —
 which is the paragraph — so this is the real passage the reader is looking at,
 not just the sentence. That is what lets the other side tell which sense of a
-word is meant. Falls back to the sentence when the document cannot produce it
-(a paged PDF, an older build).
+word is meant. Empty when the document cannot produce it (a paged PDF, an
+older build).
 --]]--
 function AiDict:paragraphFor(highlight)
     local selected = highlight and highlight.selected_text
@@ -394,19 +379,21 @@ function AiDict:paragraphFor(highlight)
     return Context.cleanup(util.htmlToPlainText(html))
 end
 
---- What gets sent with the word: the paragraph, and the sentence inside it.
+--[[--
+What gets sent with the word: the paragraph, and the sentence inside it.
+
+The sentence is cut out of the paragraph here rather than asked of KOReader,
+whose `extendXPointersToSentenceSegment` only stretches a selection over the
+punctuation around it: every tap on the Kindle filed the word as its own
+sentence. The Words inbox takes the sentence first, so that was all the
+catalog would have had to go on.
+--]]--
 function AiDict:contextFor(highlight, word)
     local budget = self.settings:get("context_chars")
     if budget <= 0 then return "", "" end
 
-    local sentence = self:sentenceFor(highlight)
     local paragraph = self:paragraphFor(highlight)
-
-    if paragraph == "" then
-        -- No paragraph: the sentence is all the context there is.
-        return Context.snippet(sentence, word, budget), sentence
-    end
-
+    local sentence = Context.snippet(Context.sentence(paragraph, word), word, budget)
     return Context.snippet(paragraph, word, budget), sentence
 end
 
