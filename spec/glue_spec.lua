@@ -1113,13 +1113,13 @@ describe("the KOReader layer", function()
 
             it("writes the queued values into KOReader's settings and offers a restart", function()
                 sync({
-                    { status = 200, body = helpers.body({ pending = { { key = "show_bottom_menu", value = false } } }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "show_bottom_menu", value = false } } }) },
                     { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
                 }, { global = { show_bottom_menu = true } })
 
                 assert.is_false(kor.global_settings.data.show_bottom_menu)
                 assert.are.equal(1, kor.global_settings.flushed)
-                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", kor.transport.requests[2].url)
+                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings/plan", kor.transport.requests[2].url)
                 assert.are.equal("POST", kor.transport.requests[3].method)
                 assert.are.equal("ConfirmBox", last_shown().widget_kind)
                 assert.is_truthy(last_shown().text:find("show_bottom_menu", 1, true))
@@ -1128,19 +1128,47 @@ describe("the KOReader layer", function()
                 assert.are.equal("Restart", kor.broadcast[#kor.broadcast].name)
             end)
 
-            it("says there was nothing new, without offering a restart", function()
+            it("sends when KOReader saved a change this Kindle made itself", function()
+                build({ responses = {
+                    EMPTY_LIBRARY,
+                    { status = 200, body = helpers.body({ apply = {} }) },
+                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
+                } })
+                kor.global_settings.data.copt_font_size = 22
+                plugin:onFlushSettings()
+                kor.global_settings.data.copt_font_size = 26
+                plugin:onFlushSettings()
+
+                menu_item("Sync").callback()
+
+                local plan_request = helpers.json.decode(kor.transport.requests[2].body)
+                assert.are.equal(26, plan_request.values.copt_font_size)
+                assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
+            end)
+
+            it("says only that everything is in sync when nothing changed", function()
                 sync({
-                    { status = 200, body = helpers.body({ pending = {} }) },
+                    { status = 200, body = helpers.body({ apply = {} }) },
                     { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
                 })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
-                assert.is_truthy(last_shown().text:find("Settings\nNo new settings.", 1, true))
+                assert.are.equal("Everything is in sync.", last_shown().text)
+            end)
+
+            it("says only the part that changed", function()
+                sync({
+                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
+                    { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
+                })
+                local text = last_shown().text
+                assert.is_truthy(text:find("Settings\nChanged 1: copt_font_size.", 1, true))
+                assert.is_nil(text:find("Library", 1, true))
             end)
 
             it("waits on the network in a subprocess, and a dismissed wait stops the sync", function()
                 build({ responses = {
                     EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ pending = { { key = "copt_font_size", value = 24 } } }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
                 } })
                 local shown = #kor.shown
                 kor.dismiss_next = true
@@ -1154,7 +1182,7 @@ describe("the KOReader layer", function()
             it("stops at a dismissed report, keeping and offering what was applied", function()
                 build({ can_restart = true, responses = {
                     EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ pending = { { key = "copt_font_size", value = 24 } } }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
                 } })
                 kor.files[require("aidict.vocab").PATH] = 1
                 kor.vocab_rows = { { "lk-1", "6032", "s", 1, "w", "w", "en", "B", "T", "A" } }
@@ -1176,13 +1204,13 @@ describe("the KOReader layer", function()
                 assert.is_nil(last_shown().text:find("Kindle lookups", 1, true))
             end)
 
-            it("says why when the library cannot be reached, and still reports the rest", function()
+            it("says why when the settings cannot be reached", function()
                 sync({ { err = "network unreachable" } })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
                 local text = last_shown().text
-                assert.is_truthy(text:find("Library\n", 1, true))
                 assert.is_truthy(text:find("Settings\n", 1, true))
                 assert.is_truthy(text:find("unreachable", 1, true))
+                assert.is_nil(text:find("Library", 1, true))
             end)
         end)
 
@@ -1469,7 +1497,7 @@ describe("the KOReader layer", function()
             plugin:sync()
 
             assert.are.equal(1, library_calls())
-            assert.is_truthy(last_shown().text:find("Nothing new", 1, true))
+            assert.are.equal("Everything is in sync.", last_shown().text)
         end)
 
         it("names the book that failed rather than only counting it", function()
@@ -1767,7 +1795,7 @@ describe("the KOReader layer", function()
             local text = sync()
 
             assert.are.equal(0, kor.transport.calls)
-            assert.is_truthy(text:find("Nothing new since the last upload.", 1, true))
+            assert.is_nil(text:find("Kindle lookups", 1, true))
         end)
 
         it("does not send again the one lookup it sent last time", function()
@@ -1775,7 +1803,7 @@ describe("the KOReader layer", function()
 
             local text = sync()
 
-            assert.is_truthy(text:find("Nothing new since the last upload.", 1, true))
+            assert.is_nil(text:find("Kindle lookups", 1, true))
             assert.are.equal(0, kor.transport.calls)
         end)
 
@@ -1829,7 +1857,7 @@ describe("the KOReader layer", function()
             withVocab({
                 responses = {
                     { status = 200, body = helpers.body({ version = 1, files = {} }) },
-                    { status = 200, body = helpers.body({ pending = {} }) },
+                    { status = 200, body = helpers.body({ apply = {} }) },
                     { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
                     receipt(1),
                 },
@@ -1838,10 +1866,8 @@ describe("the KOReader layer", function()
             local text = sync()
 
             assert.are.equal(helpers.ENDPOINT .. "/vocab", kor.transport.requests[4].url)
-            local library = text:find("Library\n", 1, true)
-            local settings = text:find("Settings\n", 1, true)
-            local lookups = text:find("Kindle lookups\n", 1, true)
-            assert.is_true(library < settings and settings < lookups)
+            -- The library and the settings had nothing new, so only the lookups speak.
+            assert.are.equal(1, text:find("Kindle lookups\n", 1, true))
         end)
 
         it("waits for Wi-Fi instead of failing on it", function()

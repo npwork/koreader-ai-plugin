@@ -334,6 +334,9 @@ end
 
 function AiDict:onFlushSettings()
     self:saveCache()
+    -- KOReader keeps no time for a setting's change; this save is the nearest
+    -- one, and Sync needs it to decide who changed a key last.
+    RemoteSettings.notice(G_reader_settings.data, self.store, json, os.time())
 end
 
 ----------------------------------------------------------------------------
@@ -923,11 +926,11 @@ local function basename(path)
     return path:match("([^/]*)$")
 end
 
---- What the sync did, in the words the InfoMessage uses.
+--- What the sync changed, in the words the InfoMessage uses; false when nothing did.
 local function describeSync(report, settled)
     local lines = {}
     if report.downloaded == 0 and #report.failed == 0 and settled.moved == 0 and settled.deleted == 0 then
-        lines[1] = T(_("Nothing new. %1 books are already here."), report.have)
+        if #settled.deferred == 0 and #settled.failed == 0 then return false end
     else
         local done = {}
         if report.total > 0 then
@@ -941,7 +944,6 @@ local function describeSync(report, settled)
         if settled.deleted > 0 then
             done[#done + 1] = T(_("Deleted %1 the library no longer has."), settled.deleted)
         end
-        done[#done + 1] = T(_("%1 were already here."), report.have)
         lines[1] = table.concat(done, " ")
     end
     if #report.failed > 0 then
@@ -967,8 +969,8 @@ end
 Mirror the gateway's library: pull the books this device does not have, and
 move or delete the ones the server moved or deleted.
 
-A step of `sync`, inside its Trapper coroutine: returns what to say, or nil
-when the reader dismissed it.
+A step of `sync`, inside its Trapper coroutine: returns what changed, false
+when nothing did, or nil when the reader dismissed it.
 --]]--
 function AiDict:libraryStep(endpoint)
     local dir = tostring(self.settings:get("library_dir")):gsub("/+$", "")
@@ -1082,7 +1084,8 @@ end
 Send the words looked up in the Kindle's own reader since the last upload.
 
 A step of `sync`, run only where the Kindle's reader left a `vocab.db`:
-returns what to say, or nil when the reader dismissed it.
+returns what it sent, false when there was nothing to send, or nil when the
+reader dismissed it.
 --]]--
 function AiDict:lookupsStep()
     local since = self.settings:get("vocab_uploaded_through")
@@ -1090,7 +1093,7 @@ function AiDict:lookupsStep()
     if not rows then
         return Format.error({ message = err }, _("vocab.db could not be read."))
     end
-    if Vocab.pending(rows, since) == 0 then return _("Nothing new since the last upload.") end
+    if Vocab.pending(rows, since) == 0 then return false end
 
     local vocab = Vocab.new({
         endpoint = self.settings:get("endpoint"),
@@ -1267,7 +1270,8 @@ local function changedKeys(applied)
 end
 
 --[[--
-Apply the KOReader settings queued on the library, and report back.
+Sync KOReader's settings with the library, both ways: apply what it holds for
+this Kindle, and report back every setting, this Kindle's own changes included.
 
 A step of `sync`: returns what to say, how many settings changed, and whether
 the reader dismissed the report; nil when they dismissed the fetch. The requests run in a subprocess, so a slow
@@ -1287,23 +1291,23 @@ function AiDict:settingsStep(endpoint)
         return raw
     end
 
-    local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload })
+    local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload, now = os.time })
     if not result and err and err.code == "cancelled" then return nil end
     if not result then return Format.error(err, _("Syncing the settings failed.")), 0 end
     logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
         #result.applied, tostring(result.reported),
         result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
 
-    local text
-    if #result.applied == 0 then
-        text = _("No new settings.")
-    else
-        text = T(_("Changed %1: %2."), #result.applied, changedKeys(result.applied))
-    end
     local dismissed = result.report_error and result.report_error.code == "cancelled"
-    if not result.reported then
-        text = text .. " " .. _("This Kindle's settings could not be sent back to the library.")
+    local said = {}
+    if #result.applied > 0 then
+        said[#said + 1] = T(_("Changed %1: %2."), #result.applied, changedKeys(result.applied))
     end
+    if not result.reported and not dismissed then
+        said[#said + 1] = _("This Kindle's settings could not be sent back to the library.")
+    end
+    if #said == 0 and dismissed then return nil end
+    local text = #said > 0 and table.concat(said, " ") or false
     -- Dismissing the report stops the sync too, but what was applied stays
     -- applied, and says so.
     return text, #result.applied, dismissed
@@ -1339,6 +1343,10 @@ function AiDict:sync()
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
             local outcome = Sync.run(steps)
+            if outcome.in_sync then
+                UIManager:show(InfoMessage:new{ text = _("Everything is in sync."), timeout = 3 })
+                return
+            end
             if outcome.empty then return end
             if outcome.changed == 0 then
                 UIManager:show(InfoMessage:new{ text = outcome.text })
