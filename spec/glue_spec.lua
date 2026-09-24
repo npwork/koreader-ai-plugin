@@ -1099,6 +1099,46 @@ describe("the KOReader layer", function()
             assert.is_nil(menu_item("Update channel"))
         end)
 
+        describe("syncing settings from the library", function()
+            local function sync(responses, opts)
+                opts = opts or {}
+                build({ responses = responses, can_restart = opts.can_restart })
+                for key, value in pairs(opts.global or {}) do kor.global_settings.data[key] = value end
+                menu_item("Sync settings").callback()
+            end
+
+            it("writes the queued values into KOReader's settings and offers a restart", function()
+                sync({
+                    { status = 200, body = helpers.body({ pending = { { key = "show_bottom_menu", value = false } } }) },
+                    { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
+                }, { global = { show_bottom_menu = true } })
+
+                assert.is_false(kor.global_settings.data.show_bottom_menu)
+                assert.are.equal(1, kor.global_settings.flushed)
+                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", kor.transport.requests[1].url)
+                assert.are.equal("POST", kor.transport.requests[2].method)
+                assert.are.equal("ConfirmBox", last_shown().widget_kind)
+                assert.is_truthy(last_shown().text:find("show_bottom_menu", 1, true))
+
+                last_shown().ok_callback()
+                assert.are.equal("Restart", kor.broadcast[#kor.broadcast].name)
+            end)
+
+            it("says there was nothing new, without offering a restart", function()
+                sync({
+                    { status = 200, body = helpers.body({ pending = {} }) },
+                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
+                })
+                assert.are.equal("No new settings.", last_shown().text)
+            end)
+
+            it("says why when the library cannot be reached", function()
+                sync({ { err = "network unreachable" } })
+                assert.are.equal("InfoMessage", last_shown().widget_kind)
+                assert.is_truthy(last_shown().text:find("unreachable", 1, true))
+            end)
+        end)
+
         describe("using the open book's look for new books", function()
             local function open_book()
                 reader.ui.config = { options = {
@@ -1294,17 +1334,18 @@ describe("the KOReader layer", function()
             assert.are.equal("AI dictionary", items().aidict.text)
         end)
 
-        it("opens with the four actions, the sync first", function()
+        it("opens with the five actions, the syncs first", function()
             build()
             local sub = items().aidict.sub_item_table
 
             assert.are.equal("Sync library", sub[1].text)
-            assert.are.equal("Send Kindle lookups", sub[2].text)
-            assert.are.equal("Use this book's look for new books", sub[3].text)
+            assert.are.equal("Sync settings", sub[2].text)
+            assert.are.equal("Send Kindle lookups", sub[3].text)
+            assert.are.equal("Use this book's look for new books", sub[4].text)
             -- The version rides on the label: after an update and a restart,
             -- the menu itself is the receipt.
-            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[4].text_func())
-            assert.is_true(sub[4].separator)
+            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[5].text_func())
+            assert.is_true(sub[5].separator)
         end)
 
         -- The update line already carries it, second from the top.

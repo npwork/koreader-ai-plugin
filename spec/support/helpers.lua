@@ -24,6 +24,7 @@ function helpers.store(initial)
         flushed = 0,
         readSetting = function(self, key) return self.data[key] end,
         saveSetting = function(self, key, value) self.data[key] = value end,
+        delSetting = function(self, key) self.data[key] = nil end,
         flush = function(self) self.flushed = self.flushed + 1 end,
     }
 end

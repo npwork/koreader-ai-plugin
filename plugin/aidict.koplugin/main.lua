@@ -42,6 +42,7 @@ local Look = require("aidict.look")
 local Lookup = require("aidict.lookup")
 local Page = require("aidict.page")
 local Prefetch = require("aidict.prefetch")
+local RemoteSettings = require("aidict.remote_settings")
 local Settings = require("aidict.settings")
 local Updater = require("aidict.updater")
 local Vocab = require("aidict.vocab")
@@ -1314,6 +1315,74 @@ function showResult(word, result, source)
 end
 
 ----------------------------------------------------------------------------
+-- Settings from the library
+----------------------------------------------------------------------------
+
+--- The names of the settings a sync changed, for the message that reports it.
+local function changedKeys(applied)
+    local keys = {}
+    for _, change in ipairs(applied) do keys[#keys + 1] = change.key end
+    return table.concat(keys, ", ")
+end
+
+--[[--
+Apply the KOReader settings queued on the library, and report back.
+
+In this process rather than a subprocess, unlike the library sync: the whole
+point is to change `G_reader_settings`, and a change made in a forked child
+dies with it. Two small requests, so the wait is short.
+--]]--
+function AiDict:syncSettings()
+    local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
+    if not endpoint then
+        UIManager:show(InfoMessage:new{ text = _("This package was built without a library address.") })
+        return
+    end
+    local remote = RemoteSettings.new({
+        endpoint = endpoint,
+        api_key = self.settings:get("api_key"),
+        transport = http_transport,
+        json = json,
+    })
+
+    NetworkMgr:runWhenConnected(function()
+        local notice = InfoMessage:new{ text = _("Syncing settings…") }
+        UIManager:show(notice)
+        UIManager:forceRePaint()
+        local result, err = remote:sync(G_reader_settings)
+        UIManager:close(notice)
+
+        if not result then
+            UIManager:show(InfoMessage:new{ text = Format.error(err, _("Syncing the settings failed.")) })
+            return
+        end
+        logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
+            #result.applied, tostring(result.reported),
+            result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
+
+        local text
+        if #result.applied == 0 then
+            text = _("No new settings.")
+        else
+            text = T(_("Changed %1 settings: %2."), #result.applied, changedKeys(result.applied))
+        end
+        if not result.reported then
+            text = text .. "\n\n" .. _("This Kindle's settings could not be sent back to the library.")
+        end
+        if #result.applied == 0 or not Device:canRestart() then
+            if #result.applied > 0 then text = text .. "\n\n" .. _("Restart KOReader to use them.") end
+            UIManager:show(InfoMessage:new{ text = text })
+            return
+        end
+        UIManager:show(ConfirmBox:new{
+            text = text .. "\n\n" .. _("Most take effect after KOReader restarts.\n\nRestart now?"),
+            ok_text = _("Restart"),
+            ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
+        })
+    end)
+end
+
+----------------------------------------------------------------------------
 -- Look
 ----------------------------------------------------------------------------
 
@@ -1397,6 +1466,12 @@ function AiDict:addToMainMenu(menu_items)
                 text = _("Sync library"),
                 keep_menu_open = true,
                 callback = function() self:syncLibrary() end,
+            },
+            {
+                text = _("Sync settings"),
+                help_text = _("Apply the KOReader settings set from the library (its MCP's kindle_settings_set), and send this Kindle's settings back so they can be read there."),
+                keep_menu_open = true,
+                callback = function() self:syncSettings() end,
             },
             {
                 text = _("Send Kindle lookups"),

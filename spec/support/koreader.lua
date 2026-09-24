@@ -124,6 +124,7 @@ function koreader.install(opts)
         close = function(_, widget)
             widget.closed = true
         end,
+        forceRePaint = function() end,
         isWidgetShown = function(_, widget)
             return widget ~= nil and not widget.closed
         end,
