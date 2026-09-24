@@ -16,16 +16,18 @@ endpoint, there is no AI page and the popup is KOReader's own. A selection of
 more than one word goes through **Explain with AI** in the highlight menu, which
 opens the answer in a window of its own.
 
-The same plugin also carries the **book library**: *Sync library* in the menu
+The same plugin also carries the **book library**: *Sync* in the menu
 asks the gateway what is in the owner's R2 bucket and downloads whatever this
 Kindle does not have, mirroring the bucket's folders under `/mnt/us/AI_Books`.
 A book moved to another folder on the server is moved on the Kindle, with its
 reading position, highlights, history and collections; one deleted there is
 deleted here. Only books the sync itself placed are ever moved or deleted.
+The same *Sync* then applies the KOReader settings queued through the library's
+MCP and sends this Kindle's back, and sends the words looked up in the Kindle's
+own reader to the word inbox; one message says what each part did.
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
 if one is bound to it. The plugin has one entry in the menu, **AI dictionary**,
-first in the **Tools** tab; the sync is the first line inside it and the update
-the second, above the settings — the two things that get pressed, two taps
+first in the **Tools** tab; the sync is the first line inside it, two taps
 from the page.
 
 Shipped to a Kindle as a KPM package; the addresses are baked in at build time
@@ -52,7 +54,9 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     plan.lua              manifest vs the device and what it placed -> download, move, delete
     prefetch.lua          whether to start asking about a word, and what is in the air
     reqid.lua             one id per lookup, so both sides log under the same one
+    remote_settings.lua   KOReader settings set from the library, applied and reported back
     settings.lua          typed access over a LuaSettings-shaped store
+    sync.lua              the one Sync: its steps in turn, and one summary
     updater.lua           "is there a newer build on my channel?"
     version.lua           major.minor; patch = branch commit count, set at build
     vocab.lua             the Kindle's own vocab.db, sent to the word inbox since the last upload

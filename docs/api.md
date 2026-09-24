@@ -231,9 +231,8 @@ subprocess doing the request.
 ## POST `<endpoint>/vocab`
 
 The lookups the Kindle's own reader recorded in
-`/mnt/us/system/vocabulary/vocab.db`, sent from the menu's "Send Kindle
-lookups" or its gesture, after a confirmation that says how many lookups are
-new; nothing new asks nothing. The device reads the file read-only and sends the
+`/mnt/us/system/vocabulary/vocab.db`, sent as the last part of the menu's
+"Sync" or its gesture; nothing new sends nothing. The device reads the file read-only and sends the
 English-to-English lookups at or after `vocab_uploaded_through`, oldest first,
 at most 100 per request:
 
@@ -375,7 +374,7 @@ its new path.
 
 ## Notes for the gateway implementation
 
-* **Nothing is automatic.** The reader presses *Sync library*. There is no
+* **Nothing is automatic.** The reader presses *Sync*. There is no
   poll, no timer and no sync on resume, so the gateway sees a request only
   when someone asked for one.
 * **The manifest is generated, not stored.** Listing the bucket on each
