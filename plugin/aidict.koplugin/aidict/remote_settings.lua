@@ -6,7 +6,7 @@ KOReader keeps its global settings in one store (`G_reader_settings`, the file
 through the library's MCP (`kindle_settings_set`); "Sync settings" fetches
 the queue, writes each change into that store, and reports back what it
 changed — with the value each one replaced, so it can be undone — and every
-setting the store now holds.
+setting the store now holds, except the secrets other plugins keep there.
 
 Takes the store, a transport and a JSON codec as arguments, like
 `library.lua`, so the specs run it without KOReader.
@@ -77,7 +77,33 @@ function RemoteSettings.apply(store, pending)
 end
 
 --[[--
-Every setting in the store that can travel as JSON.
+Names that hold a secret. Other plugins keep theirs in the same store —
+kosync's `userkey`, the exporter's Readwise and Joplin tokens — and those stay
+on the device: the report ends up in an MCP client's context.
+--]]--
+local SECRET = { "password", "passwd", "secret", "token", "userkey", "api_key", "apikey", "auth", "cookie", "credential" }
+
+local function is_secret(name)
+    if type(name) ~= "string" then return false end
+    name = name:lower()
+    for _, word in ipairs(SECRET) do
+        if name:find(word, 1, true) then return true end
+    end
+    return false
+end
+
+--- A copy with every field named like a secret left out, at any depth.
+local function without_secrets(value)
+    if type(value) ~= "table" then return value end
+    local out = {}
+    for k, v in pairs(value) do
+        if not is_secret(k) then out[k] = without_secrets(v) end
+    end
+    return out
+end
+
+--[[--
+Every setting in the store that can travel as JSON, secrets left out.
 
 @param data  table  the store's own table (`G_reader_settings.data`)
 @param json  table  the codec, to drop a value it cannot encode
@@ -85,8 +111,9 @@ Every setting in the store that can travel as JSON.
 function RemoteSettings.snapshot(data, json)
     local values = {}
     for key, value in pairs(type(data) == "table" and data or {}) do
-        if is_key(key) and is_plain(value, 0) and pcall(json.encode, value) then
-            values[key] = value
+        if is_key(key) and not is_secret(key) and is_plain(value, 0) then
+            local kept = without_secrets(value)
+            if pcall(json.encode, kept) then values[key] = kept end
         end
     end
     return values

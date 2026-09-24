@@ -80,6 +80,22 @@ describe("settings from the library", function()
                 copt_h_page_margins = { 20, 20 },
             }, values)
         end)
+
+        it("keeps other plugins' secrets on the device, at any depth", function()
+            local values = RemoteSettings.snapshot({
+                kosync = { username = "nick", userkey = "md5", sync_forward = 1 },
+                exporter = { readwise = { token = "rw", enabled = true }, joplin = { ip = "1.2.3.4", token = "j" } },
+                calibre_wireless_password = "pw",
+                opds_servers = { { title = "Shelf", url = "https://x", username = "n", password = "p" } },
+                copt_font_size = 22,
+            }, json)
+            assert.are.same({
+                kosync = { username = "nick", sync_forward = 1 },
+                exporter = { readwise = { enabled = true }, joplin = { ip = "1.2.3.4" } },
+                opds_servers = { { title = "Shelf", url = "https://x", username = "n" } },
+                copt_font_size = 22,
+            }, values)
+        end)
     end)
 
     describe("a sync", function()
