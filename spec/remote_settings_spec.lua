@@ -330,6 +330,13 @@ describe("settings from the library", function()
             assert.are.equal(flushed, outbox.flushed)
         end)
 
+        it("tells apart values whose parts would read the same run together", function()
+            local outbox = helpers.store()
+            RemoteSettings.notice({ t = { a = "x", b = "y" } }, outbox, json, 100)
+            assert.are.same({ t = 200 },
+                RemoteSettings.notice({ t = { a = "x,string:b=string:y" } }, outbox, json, 200))
+        end)
+
         it("does not take a table built in another order for a change", function()
             local outbox = helpers.store()
             RemoteSettings.notice({ kosync = { a = 1, b = 2, c = 3 } }, outbox, json, 100)

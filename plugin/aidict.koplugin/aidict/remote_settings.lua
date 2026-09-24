@@ -197,6 +197,8 @@ A value as one string that is the same whenever the value is: a table's keys
 sorted, since `pairs` walks them in no fixed order.
 --]]--
 local function canonical(value)
+    -- Quoted, so no string can pass for the separators around it.
+    if type(value) == "string" then return string.format("%q", value) end
     if type(value) ~= "table" then return type(value) .. ":" .. tostring(value) end
     local keys = {}
     for k in pairs(value) do keys[#keys + 1] = k end
