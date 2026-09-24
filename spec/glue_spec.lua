@@ -1798,13 +1798,21 @@ describe("the KOReader layer", function()
         end)
 
         it("says nothing about lookups on a device without the Kindle's reader", function()
-            build({ no_library_endpoint = true })
+            build({ responses = { { status = 200, body = helpers.body({ version = 1, files = {} }) } } })
 
             local text = sync()
 
-            assert.are.equal(0, kor.transport.calls)
             assert.is_nil(kor.vocab_opened)
             assert.is_nil(text:find("lookups", 1, true))
+        end)
+
+        it("does not ask for Wi-Fi when there is nothing to sync", function()
+            build({ no_library_endpoint = true, online = false })
+
+            local text = sync()
+
+            assert.is_nil(kor.deferred)
+            assert.are.equal("This package was built without a library address.", text)
         end)
 
         it("says when vocab.db cannot be opened", function()

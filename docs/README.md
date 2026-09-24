@@ -54,7 +54,9 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     plan.lua              manifest vs the device and what it placed -> download, move, delete
     prefetch.lua          whether to start asking about a word, and what is in the air
     reqid.lua             one id per lookup, so both sides log under the same one
+    remote_settings.lua   KOReader settings set from the library, applied and reported back
     settings.lua          typed access over a LuaSettings-shaped store
+    sync.lua              the one Sync: its steps in turn, and one summary
     updater.lua           "is there a newer build on my channel?"
     version.lua           major.minor; patch = branch commit count, set at build
     vocab.lua             the Kindle's own vocab.db, sent to the word inbox since the last upload

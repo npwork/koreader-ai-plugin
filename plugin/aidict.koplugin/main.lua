@@ -44,6 +44,7 @@ local Page = require("aidict.page")
 local Prefetch = require("aidict.prefetch")
 local RemoteSettings = require("aidict.remote_settings")
 local Settings = require("aidict.settings")
+local Sync = require("aidict.sync")
 local Updater = require("aidict.updater")
 local Vocab = require("aidict.vocab")
 local Version = require("aidict.version")
@@ -1080,13 +1081,10 @@ end
 --[[--
 Send the words looked up in the Kindle's own reader since the last upload.
 
-A step of `sync`: returns what to say, nil when the reader dismissed it, or
-false on a device without the Kindle's reader, which has nothing to send.
+A step of `sync`, run only where the Kindle's reader left a `vocab.db`:
+returns what to say, or nil when the reader dismissed it.
 --]]--
 function AiDict:lookupsStep()
-    local lfs = require("libs/libkoreader-lfs")
-    if lfs.attributes(Vocab.PATH, "mode") ~= "file" then return false end
-
     local since = self.settings:get("vocab_uploaded_through")
     local rows, err = readVocab(since)
     if not rows then
@@ -1313,53 +1311,44 @@ end
 
 --[[--
 Everything that goes between this Kindle and the gateway, in one go: the
-library, KOReader's settings, and the Kindle's own lookups. Each step says
-what it did in one summary; a failed step does not stop the next, a
-dismissed one stops the rest.
+library, KOReader's settings, and the Kindle's own lookups. How the steps
+combine is `aidict.sync`; what each does is its step here.
 --]]--
 function AiDict:sync()
     local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
+    local lfs = require("libs/libkoreader-lfs")
+    local has_lookups = lfs.attributes(Vocab.PATH, "mode") == "file"
+    local no_address = _("This package was built without a library address.")
+    -- Nothing to send anywhere: say so without turning the radio on.
+    if not endpoint and not has_lookups then
+        UIManager:show(InfoMessage:new{ text = no_address })
+        return
+    end
+
+    local steps = {}
+    if endpoint then
+        steps[#steps + 1] = { title = _("Library"), run = function() return self:libraryStep(endpoint) end }
+        steps[#steps + 1] = { title = _("Settings"), run = function() return self:settingsStep(endpoint) end }
+    else
+        steps[#steps + 1] = { title = _("Library and settings"), run = function() return no_address end }
+    end
+    if has_lookups then
+        steps[#steps + 1] = { title = _("Kindle lookups"), run = function() return self:lookupsStep() end }
+    end
+
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
-            local sections, changed = {}, 0
-            local function add(title, text)
-                sections[#sections + 1] = title .. "\n" .. text
-            end
-
-            local finished = true
-            if endpoint then
-                local library = self:libraryStep(endpoint)
-                if library == nil then
-                    finished = false
-                else
-                    add(_("Library"), library)
-                    local settings, count, dismissed = self:settingsStep(endpoint)
-                    if settings == nil then
-                        finished = false
-                    else
-                        add(_("Settings"), settings)
-                        changed = count
-                        finished = not dismissed
-                    end
-                end
-            else
-                add(_("Library and settings"), _("This package was built without a library address."))
-            end
-            if finished then
-                -- Nil when dismissed, false on a device with nothing to send.
-                local lookups = self:lookupsStep()
-                if lookups then add(_("Kindle lookups"), lookups) end
-            end
-            if #sections == 0 then return end
-
-            local text = table.concat(sections, "\n\n")
-            if changed == 0 then
-                UIManager:show(InfoMessage:new{ text = text })
+            local outcome = Sync.run(steps)
+            if outcome.empty then return end
+            if outcome.changed == 0 then
+                UIManager:show(InfoMessage:new{ text = outcome.text })
             elseif not Device:canRestart() then
-                UIManager:show(InfoMessage:new{ text = text .. "\n\n" .. _("Restart KOReader to use the new settings.") })
+                UIManager:show(InfoMessage:new{
+                    text = outcome.text .. "\n\n" .. _("Restart KOReader to use the new settings."),
+                })
             else
                 UIManager:show(ConfirmBox:new{
-                    text = text .. "\n\n" .. _("Most settings take effect after KOReader restarts.\n\nRestart now?"),
+                    text = outcome.text .. "\n\n" .. _("Most settings take effect after KOReader restarts.\n\nRestart now?"),
                     ok_text = _("Restart"),
                     ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
                 })
