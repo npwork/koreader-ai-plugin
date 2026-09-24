@@ -68,7 +68,7 @@ names (see `MenuSorter:sort`), and Tools is already two pages long — so the
 hint alone would land it on the second page, inside More tools. The order
 tables are cached by `require`, though, and KOReader's own
 `ui/plugin/insert_menu` edits them the same way. Inserting at index 1 puts
-Sync library, the first line inside, two taps from the reader.
+Sync, the first line inside, two taps from the reader.
 
 Idempotent on purpose: `init` runs once per FileManager and once per Reader,
 and this must not add the entry twice.
@@ -140,17 +140,10 @@ function AiDict:init()
     -- So the sync can be a gesture rather than three taps into a menu: the
     -- Kindle has no keyboard to reach for and this is the one action worth
     -- doing from anywhere.
-    Dispatcher:registerAction("aidict_sync_library", {
+    Dispatcher:registerAction("aidict_sync", {
         category = "none",
-        event = "AiDictSyncLibrary",
-        title = _("Sync library"),
-        general = true,
-    })
-
-    Dispatcher:registerAction("aidict_send_vocab", {
-        category = "none",
-        event = "AiDictSendVocab",
-        title = _("Send Kindle lookups"),
+        event = "AiDictSync",
+        title = _("Sync"),
         general = true,
     })
 
@@ -972,14 +965,11 @@ end
 --[[--
 Mirror the gateway's library: pull the books this device does not have, and
 move or delete the ones the server moved or deleted.
---]]--
-function AiDict:syncLibrary()
-    local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
-    if not endpoint then
-        UIManager:show(InfoMessage:new{ text = _("This package was built without a library address.") })
-        return
-    end
 
+A step of `sync`, inside its Trapper coroutine: returns what to say, or nil
+when the reader dismissed it.
+--]]--
+function AiDict:libraryStep(endpoint)
     local dir = tostring(self.settings:get("library_dir")):gsub("/+$", "")
     local library = Library.new({
         endpoint = endpoint,
@@ -989,52 +979,47 @@ function AiDict:syncLibrary()
         fs = deviceFilesystem(),
     })
 
-    NetworkMgr:runWhenConnected(function()
-        Trapper:wrap(function()
-            local index = self:libraryIndex(dir)
-            -- In a subprocess so the reader can give up on it: a first sync
-            -- over a Kindle's radio is minutes, and the files it has already
-            -- written stay written when they do. Only the downloads happen
-            -- there; see `Library:settle` for why the moves cannot.
-            local completed, outcome = Trapper:dismissableRunInSubprocess(function()
-                local report, err = library:sync(dir, { index = index })
-                return { ok = report ~= nil, report = report, err = err }
-            end, T(_("Syncing %1…"), dir))
+    local index = self:libraryIndex(dir)
+    -- In a subprocess so the reader can give up on it: a first sync over a
+    -- Kindle's radio is minutes, and the files it has already written stay
+    -- written when they do. Only the downloads happen there; see
+    -- `Library:settle` for why the moves cannot.
+    local completed, outcome = Trapper:dismissableRunInSubprocess(function()
+        local report, err = library:sync(dir, { index = index })
+        return { ok = report ~= nil, report = report, err = err }
+    end, T(_("Syncing %1…"), dir))
 
-            if not completed then return end
-            if type(outcome) ~= "table" or not outcome.ok then
-                local err = type(outcome) == "table" and outcome.err or nil
-                UIManager:show(InfoMessage:new{ text = Format.error(err, _("The sync failed.")) })
-                return
-            end
+    if not completed then return nil end
+    if type(outcome) ~= "table" or not outcome.ok then
+        local err = type(outcome) == "table" and outcome.err or nil
+        return Format.error(err, _("The library sync failed."))
+    end
 
-            local report = outcome.report
-            local ops = bookOps(self.ui)
-            ops.index = index
-            local settled = library:settle(report, dir, ops)
-            self:saveLibraryIndex(dir, settled.index)
+    local report = outcome.report
+    local ops = bookOps(self.ui)
+    ops.index = index
+    local settled = library:settle(report, dir, ops)
+    self:saveLibraryIndex(dir, settled.index)
 
-            logger.info(string.format(
-                "aidict: library sync — %d downloaded, %d moved, %d deleted, %d already here, " ..
-                "%d failed, %d dropped, %d left for the next sync",
-                report.downloaded, settled.moved, settled.deleted, report.have, #report.failed,
-                report.dropped or 0, #settled.deferred + #settled.failed))
+    logger.info(string.format(
+        "aidict: library sync — %d downloaded, %d moved, %d deleted, %d already here, " ..
+        "%d failed, %d dropped, %d left for the next sync",
+        report.downloaded, settled.moved, settled.deleted, report.have, #report.failed,
+        report.dropped or 0, #settled.deferred + #settled.failed))
 
-            UIManager:show(InfoMessage:new{ text = describeSync(report, settled) })
-            -- The file browser is very likely sitting on the folder that just
-            -- gained ten books — or on one a move just emptied and removed,
-            -- which has nothing left to show but the library above it.
-            local browser = self.ui and self.ui.file_chooser
-            if browser and browser.path and browser.path:find(dir, 1, true) == 1 then
-                local lfs = require("libs/libkoreader-lfs")
-                if lfs.attributes(browser.path, "mode") == "directory" then
-                    browser:refreshPath()
-                else
-                    browser:changeToPath(dir)
-                end
-            end
-        end)
-    end)
+    -- The file browser is very likely sitting on the folder that just gained
+    -- ten books — or on one a move just emptied and removed, which has
+    -- nothing left to show but the library above it.
+    local browser = self.ui and self.ui.file_chooser
+    if browser and browser.path and browser.path:find(dir, 1, true) == 1 then
+        local lfs = require("libs/libkoreader-lfs")
+        if lfs.attributes(browser.path, "mode") == "directory" then
+            browser:refreshPath()
+        else
+            browser:changeToPath(dir)
+        end
+    end
+    return describeSync(report, settled)
 end
 
 --[[--
@@ -1093,44 +1078,22 @@ local function freshSeed()
 end
 
 --[[--
-Ask before sending: count what is new, and send only once the reader agrees.
+Send the words looked up in the Kindle's own reader since the last upload.
 
-The count is read here, before any network, because the question is only
-worth asking with a number in it — and "nothing new" needs no question at
-all. `vocab.db` is a local file; reading it is quick next to a single
-request over the Kindle's radio.
+A step of `sync`: returns what to say, nil when the reader dismissed it, or
+false on a device without the Kindle's reader, which has nothing to send.
 --]]--
-function AiDict:sendVocab()
+function AiDict:lookupsStep()
+    local lfs = require("libs/libkoreader-lfs")
+    if lfs.attributes(Vocab.PATH, "mode") ~= "file" then return false end
+
     local since = self.settings:get("vocab_uploaded_through")
     local rows, err = readVocab(since)
     if not rows then
-        UIManager:show(InfoMessage:new{
-            text = Format.error({ message = err }, _("vocab.db could not be read.")),
-        })
-        return
+        return Format.error({ message = err }, _("vocab.db could not be read."))
     end
+    if Vocab.pending(rows, since) == 0 then return _("Nothing new since the last upload.") end
 
-    local pending = Vocab.pending(rows, since)
-    if pending == 0 then
-        UIManager:show(InfoMessage:new{ text = _("Nothing new since the last upload.") })
-        return
-    end
-
-    local text
-    if since == 0 then
-        text = T(_("Lookups on this Kindle: %1\n\nThis is the first upload, so all of them go to the word inbox. Send them?"), pending)
-    else
-        text = T(_("New lookups since the last upload: %1\n\nSend them to the word inbox?"), pending)
-    end
-    UIManager:show(ConfirmBox:new{
-        text = text,
-        ok_text = _("Send"),
-        ok_callback = function() self:uploadVocab(rows, since) end,
-    })
-end
-
---- Send what `sendVocab` read and the reader agreed to.
-function AiDict:uploadVocab(rows, since)
     local vocab = Vocab.new({
         endpoint = self.settings:get("endpoint"),
         api_key = self.settings:get("api_key"),
@@ -1138,54 +1101,40 @@ function AiDict:uploadVocab(rows, since)
         json = json,
         random = math.random,
     })
-    NetworkMgr:runWhenConnected(function()
-        Trapper:wrap(function()
-            -- In a subprocess so the reader can give up on it: the first
-            -- upload is the whole archive, a few dozen requests over the
-            -- Kindle's radio. What already arrived stays arrived; the next
-            -- upload sends it again and the server writes nothing.
-            local completed, outcome = Trapper:dismissableRunInSubprocess(function()
-                math.randomseed(freshSeed())
-                local report, err = vocab:upload(function() return rows end, since)
-                return { report = report, err = err }
-            end, _("Sending Kindle lookups…"))
+    -- In a subprocess so the reader can give up on it: the first upload is
+    -- the whole archive, a few dozen requests over the Kindle's radio. What
+    -- already arrived stays arrived; the next upload sends it again and the
+    -- server writes nothing.
+    local completed, outcome = Trapper:dismissableRunInSubprocess(function()
+        math.randomseed(freshSeed())
+        local report, upload_err = vocab:upload(function() return rows end, since)
+        return { report = report, err = upload_err }
+    end, _("Sending Kindle lookups…"))
 
-            if not completed then return end
-            if type(outcome) ~= "table" or type(outcome.report) ~= "table" then
-                UIManager:show(InfoMessage:new{ text = _("Sending the lookups failed.") })
-                return
-            end
+    if not completed then return nil end
+    if type(outcome) ~= "table" or type(outcome.report) ~= "table" then
+        return _("Sending the lookups failed.")
+    end
 
-            local report = outcome.report
-            -- Also after a failure: the batches that arrived need not go again.
-            if (tonumber(report.cursor) or 0) > since then
-                self.settings:set("vocab_uploaded_through", report.cursor)
-                self.settings:flush()
-            end
-            logger.info(string.format(
-                "aidict: vocab upload — %d rows in %d batches, %d new, %d already there, %d skipped%s",
-                report.rows, report.batches, report.created, report.existing, report.skipped,
-                outcome.err and (", failed: " .. tostring(outcome.err.message)) or ""))
+    local report = outcome.report
+    -- Also after a failure: the batches that arrived need not go again.
+    if (tonumber(report.cursor) or 0) > since then
+        self.settings:set("vocab_uploaded_through", report.cursor)
+        self.settings:flush()
+    end
+    logger.info(string.format(
+        "aidict: vocab upload — %d rows in %d batches, %d new, %d already there, %d skipped%s",
+        report.rows, report.batches, report.created, report.existing, report.skipped,
+        outcome.err and (", failed: " .. tostring(outcome.err.message)) or ""))
 
-            local text
-            if outcome.err then
-                text = Format.error(outcome.err, _("Sending the lookups failed."))
-                if report.batches > 0 then
-                    text = text .. "\n\n" .. T(_("%1 new lookups arrived before it stopped."), report.created)
-                end
-            else
-                text = T(_("Sent %1 lookups: %2 new, %3 already there."),
-                    report.rows, report.created, report.existing)
-            end
-            UIManager:show(InfoMessage:new{ text = text })
-        end)
-    end)
-end
-
---- The gesture, if the reader bound one.
-function AiDict:onAiDictSendVocab()
-    self:sendVocab()
-    return true
+    if outcome.err then
+        local text = Format.error(outcome.err, _("Sending the lookups failed."))
+        if report.batches > 0 then
+            text = text .. "\n\n" .. T(_("%1 new lookups arrived before it stopped."), report.created)
+        end
+        return text
+    end
+    return T(_("Sent %1 lookups: %2 new, %3 already there."), report.rows, report.created, report.existing)
 end
 
 --[[--
@@ -1207,12 +1156,6 @@ function AiDict:chooseLibraryFolder()
             self.settings:flush()
         end,
     })
-end
-
---- The gesture, if the reader bound one.
-function AiDict:onAiDictSyncLibrary()
-    self:syncLibrary()
-    return true
 end
 
 --[[--
@@ -1328,16 +1271,12 @@ end
 --[[--
 Apply the KOReader settings queued on the library, and report back.
 
-The requests run in a subprocess, like the library sync, so a slow gateway
-cannot freeze the reader; the writes happen in this process, because a change
-to `G_reader_settings` made in a forked child dies with it.
+A step of `sync`: returns what to say and how many settings changed, or nil
+when the reader dismissed it. The requests run in a subprocess, so a slow
+gateway cannot freeze the reader; the writes happen in this process, because
+a change to `G_reader_settings` made in a forked child dies with it.
 --]]--
-function AiDict:syncSettings()
-    local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
-    if not endpoint then
-        UIManager:show(InfoMessage:new{ text = _("This package was built without a library address.") })
-        return
-    end
+function AiDict:settingsStep(endpoint)
     local remote = RemoteSettings.new({
         endpoint = endpoint,
         api_key = self.settings:get("api_key"),
@@ -1350,40 +1289,85 @@ function AiDict:syncSettings()
         return raw
     end
 
+    local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload })
+    if not result and err and err.code == "cancelled" then return nil end
+    if not result then return Format.error(err, _("Syncing the settings failed.")), 0 end
+    logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
+        #result.applied, tostring(result.reported),
+        result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
+
+    local text
+    if #result.applied == 0 then
+        text = _("No new settings.")
+    else
+        text = T(_("Changed %1: %2."), #result.applied, changedKeys(result.applied))
+    end
+    if not result.reported then
+        text = text .. " " .. _("This Kindle's settings could not be sent back to the library.")
+    end
+    return text, #result.applied
+end
+
+--[[--
+Everything that goes between this Kindle and the gateway, in one go: the
+library, KOReader's settings, and the Kindle's own lookups. Each step says
+what it did in one summary; a failed step does not stop the next, a
+dismissed one stops the rest.
+--]]--
+function AiDict:sync()
+    local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
-            local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload })
-            if not result and err and err.code == "cancelled" then return end
-
-            if not result then
-                UIManager:show(InfoMessage:new{ text = Format.error(err, _("Syncing the settings failed.")) })
-                return
+            local sections, changed = {}, 0
+            local function add(title, text)
+                sections[#sections + 1] = title .. "\n" .. text
             end
-            logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
-                #result.applied, tostring(result.reported),
-                result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
 
-            local text
-            if #result.applied == 0 then
-                text = _("No new settings.")
+            local finished = true
+            if endpoint then
+                local library = self:libraryStep(endpoint)
+                if library == nil then
+                    finished = false
+                else
+                    add(_("Library"), library)
+                    local settings, count = self:settingsStep(endpoint)
+                    if settings == nil then
+                        finished = false
+                    else
+                        add(_("Settings"), settings)
+                        changed = count
+                    end
+                end
             else
-                text = T(_("Changed %1 settings: %2."), #result.applied, changedKeys(result.applied))
+                add(_("Library and settings"), _("This package was built without a library address."))
             end
-            if not result.reported then
-                text = text .. "\n\n" .. _("This Kindle's settings could not be sent back to the library.")
+            if finished then
+                -- Nil when dismissed, false on a device with nothing to send.
+                local lookups = self:lookupsStep()
+                if lookups then add(_("Kindle lookups"), lookups) end
             end
-            if #result.applied == 0 or not Device:canRestart() then
-                if #result.applied > 0 then text = text .. "\n\n" .. _("Restart KOReader to use them.") end
+            if #sections == 0 then return end
+
+            local text = table.concat(sections, "\n\n")
+            if changed == 0 then
                 UIManager:show(InfoMessage:new{ text = text })
-                return
+            elseif not Device:canRestart() then
+                UIManager:show(InfoMessage:new{ text = text .. "\n\n" .. _("Restart KOReader to use the new settings.") })
+            else
+                UIManager:show(ConfirmBox:new{
+                    text = text .. "\n\n" .. _("Most settings take effect after KOReader restarts.\n\nRestart now?"),
+                    ok_text = _("Restart"),
+                    ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
+                })
             end
-            UIManager:show(ConfirmBox:new{
-                text = text .. "\n\n" .. _("Most take effect after KOReader restarts.\n\nRestart now?"),
-                ok_text = _("Restart"),
-                ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
-            })
         end)
     end)
+end
+
+--- The gesture, if the reader bound one.
+function AiDict:onAiDictSync()
+    self:sync()
+    return true
 end
 
 ----------------------------------------------------------------------------
@@ -1467,21 +1451,10 @@ function AiDict:addToMainMenu(menu_items)
         sorting_hint = "tools",
         sub_item_table = {
             {
-                text = _("Sync library"),
+                text = _("Sync"),
+                help_text = _("Download new books and apply the library's moves, apply the KOReader settings set from the library and send this Kindle's back, and send the words looked up in the Kindle's own reader to the word inbox."),
                 keep_menu_open = true,
-                callback = function() self:syncLibrary() end,
-            },
-            {
-                text = _("Sync settings"),
-                help_text = _("Apply the KOReader settings set from the library (its MCP's kindle_settings_set), and send this Kindle's settings back so they can be read there."),
-                keep_menu_open = true,
-                callback = function() self:syncSettings() end,
-            },
-            {
-                text = _("Send Kindle lookups"),
-                help_text = _("Send the words looked up in the Kindle's own reader since the last upload to the word inbox. The first time, that is every lookup on the device."),
-                keep_menu_open = true,
-                callback = function() self:sendVocab() end,
+                callback = function() self:sync() end,
             },
             {
                 text = _("Use this book's look for new books"),

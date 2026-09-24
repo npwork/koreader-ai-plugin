@@ -3,7 +3,7 @@ KOReader's settings, set from the library server.
 
 KOReader keeps its global settings in one store (`G_reader_settings`, the file
 `settings.reader.lua`): plain key → value. The owner queues changes to it
-through the library's MCP (`kindle_settings_set`); "Sync settings" fetches
+through the library's MCP (`kindle_settings_set`); "Sync" fetches
 the queue, writes each change into that store, and reports back what it
 changed — with the value each one replaced, so it can be undone — and every
 setting the store now holds, except the secrets other plugins keep there.
