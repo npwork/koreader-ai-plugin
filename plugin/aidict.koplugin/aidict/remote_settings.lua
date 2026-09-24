@@ -347,8 +347,10 @@ function RemoteSettings:sync(store, opts)
     end
     local outbox, now = opts.outbox, opts.now or os.time
 
-    local changed_at = RemoteSettings.notice(store.data, outbox, self.json, now())
-    local ask = { values = RemoteSettings.snapshot(store.data, self.json) }
+    local clock = now()
+    local changed_at = RemoteSettings.notice(store.data, outbox, self.json, clock)
+    -- `now` is this Kindle's clock, so the library can set the stamps against its own.
+    local ask = { values = RemoteSettings.snapshot(store.data, self.json), now = clock }
     -- Left out rather than sent empty: an empty Lua table encodes as a list.
     if next(changed_at) ~= nil then ask.changed_at = changed_at end
     local encoded, ask_body = pcall(self.json.encode, ask)

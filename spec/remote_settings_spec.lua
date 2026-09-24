@@ -108,8 +108,10 @@ describe("settings from the library", function()
             assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings/plan", tr.requests[1].url)
             assert.are.equal("POST", tr.requests[1].method)
             assert.are.equal("Bearer owner-key", tr.requests[1].headers["Authorization"])
-            assert.are.same({ values = { show_bottom_menu = true, copt_font_size = 22 } },
-                json.decode(tr.requests[1].body))
+            local ask = json.decode(tr.requests[1].body)
+            assert.are.same({ show_bottom_menu = true, copt_font_size = 22 }, ask.values)
+            assert.is_nil(ask.changed_at)
+            assert.are.equal("number", type(ask.now))
             assert.are.equal(1, store.flushed)
 
             assert.are.equal("POST", tr.requests[2].method)
@@ -230,8 +232,8 @@ describe("settings from the library", function()
             local r, tr = remote({ planned({}), REPORTED })
             r:sync(store, { outbox = outbox, now = function() return 200 end })
 
-            assert.are.same({ copt_font_size = 200, show_bottom_menu = 200 },
-                json.decode(tr.requests[1].body).changed_at)
+            assert.are.same({ values = { copt_font_size = 26 }, changed_at = { copt_font_size = 200, show_bottom_menu = 200 }, now = 200 },
+                json.decode(tr.requests[1].body))
             assert.are.same({}, outbox.data[RemoteSettings.CHANGED_KEY])
 
             -- Nothing changed since: nothing to send.

@@ -1146,13 +1146,23 @@ describe("the KOReader layer", function()
                 assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
             end)
 
-            it("says there was nothing new, without offering a restart", function()
+            it("says only that everything is in sync when nothing changed", function()
                 sync({
                     { status = 200, body = helpers.body({ apply = {} }) },
                     { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
                 })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
-                assert.is_truthy(last_shown().text:find("Settings\nNo new settings.", 1, true))
+                assert.are.equal("Everything is in sync.", last_shown().text)
+            end)
+
+            it("says only the part that changed", function()
+                sync({
+                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
+                    { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
+                })
+                local text = last_shown().text
+                assert.is_truthy(text:find("Settings\nChanged 1: copt_font_size.", 1, true))
+                assert.is_nil(text:find("Library", 1, true))
             end)
 
             it("waits on the network in a subprocess, and a dismissed wait stops the sync", function()
@@ -1194,13 +1204,13 @@ describe("the KOReader layer", function()
                 assert.is_nil(last_shown().text:find("Kindle lookups", 1, true))
             end)
 
-            it("says why when the library cannot be reached, and still reports the rest", function()
+            it("says why when the settings cannot be reached", function()
                 sync({ { err = "network unreachable" } })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
                 local text = last_shown().text
-                assert.is_truthy(text:find("Library\n", 1, true))
                 assert.is_truthy(text:find("Settings\n", 1, true))
                 assert.is_truthy(text:find("unreachable", 1, true))
+                assert.is_nil(text:find("Library", 1, true))
             end)
         end)
 
@@ -1487,7 +1497,7 @@ describe("the KOReader layer", function()
             plugin:sync()
 
             assert.are.equal(1, library_calls())
-            assert.is_truthy(last_shown().text:find("Nothing new", 1, true))
+            assert.are.equal("Everything is in sync.", last_shown().text)
         end)
 
         it("names the book that failed rather than only counting it", function()
@@ -1785,7 +1795,7 @@ describe("the KOReader layer", function()
             local text = sync()
 
             assert.are.equal(0, kor.transport.calls)
-            assert.is_truthy(text:find("Nothing new since the last upload.", 1, true))
+            assert.is_nil(text:find("Kindle lookups", 1, true))
         end)
 
         it("does not send again the one lookup it sent last time", function()
@@ -1793,7 +1803,7 @@ describe("the KOReader layer", function()
 
             local text = sync()
 
-            assert.is_truthy(text:find("Nothing new since the last upload.", 1, true))
+            assert.is_nil(text:find("Kindle lookups", 1, true))
             assert.are.equal(0, kor.transport.calls)
         end)
 
@@ -1856,10 +1866,8 @@ describe("the KOReader layer", function()
             local text = sync()
 
             assert.are.equal(helpers.ENDPOINT .. "/vocab", kor.transport.requests[4].url)
-            local library = text:find("Library\n", 1, true)
-            local settings = text:find("Settings\n", 1, true)
-            local lookups = text:find("Kindle lookups\n", 1, true)
-            assert.is_true(library < settings and settings < lookups)
+            -- The library and the settings had nothing new, so only the lookups speak.
+            assert.are.equal(1, text:find("Kindle lookups\n", 1, true))
         end)
 
         it("waits for Wi-Fi instead of failing on it", function()
