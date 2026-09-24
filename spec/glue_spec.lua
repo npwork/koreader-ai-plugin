@@ -1113,13 +1113,13 @@ describe("the KOReader layer", function()
 
             it("writes the queued values into KOReader's settings and offers a restart", function()
                 sync({
-                    { status = 200, body = helpers.body({ pending = { { key = "show_bottom_menu", value = false } } }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "show_bottom_menu", value = false } } }) },
                     { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
                 }, { global = { show_bottom_menu = true } })
 
                 assert.is_false(kor.global_settings.data.show_bottom_menu)
                 assert.are.equal(1, kor.global_settings.flushed)
-                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", kor.transport.requests[2].url)
+                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings/plan", kor.transport.requests[2].url)
                 assert.are.equal("POST", kor.transport.requests[3].method)
                 assert.are.equal("ConfirmBox", last_shown().widget_kind)
                 assert.is_truthy(last_shown().text:find("show_bottom_menu", 1, true))
@@ -1128,9 +1128,27 @@ describe("the KOReader layer", function()
                 assert.are.equal("Restart", kor.broadcast[#kor.broadcast].name)
             end)
 
+            it("sends when KOReader saved a change this Kindle made itself", function()
+                build({ responses = {
+                    EMPTY_LIBRARY,
+                    { status = 200, body = helpers.body({ apply = {} }) },
+                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
+                } })
+                kor.global_settings.data.copt_font_size = 22
+                plugin:onFlushSettings()
+                kor.global_settings.data.copt_font_size = 26
+                plugin:onFlushSettings()
+
+                menu_item("Sync").callback()
+
+                local plan_request = helpers.json.decode(kor.transport.requests[2].body)
+                assert.are.equal(26, plan_request.values.copt_font_size)
+                assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
+            end)
+
             it("says there was nothing new, without offering a restart", function()
                 sync({
-                    { status = 200, body = helpers.body({ pending = {} }) },
+                    { status = 200, body = helpers.body({ apply = {} }) },
                     { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
                 })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
@@ -1140,7 +1158,7 @@ describe("the KOReader layer", function()
             it("waits on the network in a subprocess, and a dismissed wait stops the sync", function()
                 build({ responses = {
                     EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ pending = { { key = "copt_font_size", value = 24 } } }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
                 } })
                 local shown = #kor.shown
                 kor.dismiss_next = true
@@ -1154,7 +1172,7 @@ describe("the KOReader layer", function()
             it("stops at a dismissed report, keeping and offering what was applied", function()
                 build({ can_restart = true, responses = {
                     EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ pending = { { key = "copt_font_size", value = 24 } } }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
                 } })
                 kor.files[require("aidict.vocab").PATH] = 1
                 kor.vocab_rows = { { "lk-1", "6032", "s", 1, "w", "w", "en", "B", "T", "A" } }
@@ -1829,7 +1847,7 @@ describe("the KOReader layer", function()
             withVocab({
                 responses = {
                     { status = 200, body = helpers.body({ version = 1, files = {} }) },
-                    { status = 200, body = helpers.body({ pending = {} }) },
+                    { status = 200, body = helpers.body({ apply = {} }) },
                     { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
                     receipt(1),
                 },

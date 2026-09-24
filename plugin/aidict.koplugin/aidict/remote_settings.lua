@@ -3,10 +3,12 @@ KOReader's settings, set from the library server.
 
 KOReader keeps its global settings in one store (`G_reader_settings`, the file
 `settings.reader.lua`): plain key → value. The owner queues changes to it
-through the library's MCP (`kindle_settings_set`); "Sync" fetches
-the queue, writes each change into that store, and reports back what it
-changed — with the value each one replaced, so it can be undone — and every
-setting the store now holds, except the secrets other plugins keep there.
+through the library's MCP (`kindle_settings_set`); "Sync" sends every
+setting and when this Kindle changed each, gets back what to apply, writes it
+into that store, and reports back what it changed — with the value each one
+replaced, so it can be undone — and every setting the store now holds, except
+the secrets other plugins keep there. That report is the library's copy, so
+it goes both ways; when both sides changed a key, the later change wins.
 
 Takes the store, a transport and a JSON codec as arguments, like
 `library.lua`, so the specs run it without KOReader.
@@ -134,19 +136,19 @@ function RemoteSettings.new(opts)
     }, RemoteSettings)
 end
 
---- `<endpoint>/settings`, keeping a `?token=` the address may carry at the end.
-function RemoteSettings:url()
+--- `<endpoint>/settings<path>`, keeping a `?token=` the address may carry at the end.
+function RemoteSettings:url(path)
     local base, query = self.endpoint or "", ""
     local mark = base:find("?", 1, true)
     if mark then
         query = base:sub(mark)
         base = base:sub(1, mark - 1)
     end
-    return (base:gsub("/+$", "")) .. "/settings" .. query
+    return (base:gsub("/+$", "")) .. "/settings" .. (path or "") .. query
 end
 
 --- One request to the settings route, decoded; nil and `{ code, message }` when it failed.
-function RemoteSettings:request(method, body)
+function RemoteSettings:request(method, body, path)
     local headers = { ["Accept"] = "application/json", ["User-Agent"] = self.user_agent }
     if type(self.api_key) == "string" and self.api_key ~= "" then
         headers["Authorization"] = "Bearer " .. self.api_key
@@ -154,7 +156,7 @@ function RemoteSettings:request(method, body)
     if body then headers["Content-Type"] = "application/json" end
 
     local response, transport_err = self.transport({
-        url = self:url(),
+        url = self:url(path),
         method = method,
         headers = headers,
         body = body,
@@ -185,6 +187,78 @@ end
 
 --- Where changes wait while the library has not heard of them, in the plugin's own store.
 RemoteSettings.OUTBOX_KEY = "settings_unreported"
+
+--- What the settings looked like when last seen, and when each changed; in the plugin's own store.
+RemoteSettings.SEEN_KEY = "settings_seen"
+RemoteSettings.CHANGED_KEY = "settings_changed_at"
+
+--[[--
+A value as one string that is the same whenever the value is: a table's keys
+sorted, since `pairs` walks them in no fixed order.
+--]]--
+local function canonical(value)
+    if type(value) ~= "table" then return type(value) .. ":" .. tostring(value) end
+    local keys = {}
+    for k in pairs(value) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b)
+        if type(a) ~= type(b) then return type(a) < type(b) end
+        return a < b
+    end)
+    local parts = {}
+    for _, k in ipairs(keys) do
+        parts[#parts + 1] = canonical(k) .. "=" .. canonical(value[k])
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+--[[--
+Note when each of this Kindle's own settings changed: compare what the store
+holds with what was seen last time, and stamp what differs with `now`.
+KOReader records no time for a change, so the plugin looks whenever KOReader
+saves its settings, and before every sync; a stamp is the first look that
+saw the change, not the tap itself.
+
+The first look only records. Returns the stamps, key → Unix seconds.
+--]]--
+function RemoteSettings.notice(data, outbox, json, now)
+    local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
+    local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
+    if type(changed) ~= "table" then changed = {} end
+
+    local current, moved = {}, false
+    for key, value in pairs(RemoteSettings.snapshot(data, json)) do
+        current[key] = canonical(value)
+    end
+    if type(seen) == "table" then
+        for key, form in pairs(current) do
+            if seen[key] ~= form then changed[key], moved = now, true end
+        end
+        for key in pairs(seen) do
+            if current[key] == nil then changed[key], moved = now, true end
+        end
+    end
+    if moved or type(seen) ~= "table" then
+        outbox:saveSetting(RemoteSettings.SEEN_KEY, current)
+        outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
+        if outbox.flush then outbox:flush() end
+    end
+    return changed
+end
+
+--- The library's changes are not the Kindle's own: seen as they now are, no stamp.
+local function absorb(outbox, applied)
+    if #applied == 0 then return end
+    local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
+    local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
+    if type(seen) ~= "table" then seen = {} end
+    if type(changed) ~= "table" then changed = {} end
+    for _, entry in ipairs(applied) do
+        seen[entry.key] = (not entry.reset) and canonical(entry.value) or nil
+        changed[entry.key] = nil
+    end
+    outbox:saveSetting(RemoteSettings.SEEN_KEY, seen)
+    outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
+end
 
 --[[--
 The changes to report: those still waiting from a sync whose report never
@@ -235,7 +309,14 @@ end
 local CANCELLED = { code = "cancelled", message = "the sync was cancelled" }
 
 --[[--
-Fetch the queue, apply it, report back.
+One sync, both ways.
+
+1. Note this Kindle's own changes since the last look (`notice`).
+2. Send every setting, with when each of its own changes was seen; the
+   library answers with what to apply — its queued changes, less those the
+   Kindle changed later itself.
+3. Apply them here, and report back what changed and every setting now. The
+   report is the library's copy, so the Kindle's own changes arrive with it.
 
 The two requests go through `opts.offload`, so KOReader can run them in a
 subprocess and a slow gateway never freezes the reader; the writes to the
@@ -243,8 +324,9 @@ store happen here, because a change made in a forked child dies with it.
 
 @param store table  `readSetting`, `saveSetting`, `delSetting`, `flush`, and
                     `data`, the table holding every setting
-@param opts  table  `outbox`: a store for the changes not yet reported;
-                    `offload`: `function(task) → task's string | nil if cancelled`
+@param opts  table  `outbox`: the plugin's own store, for the changes not yet
+                    reported and the stamps; `offload`: `function(task) →
+                    task's string | nil if cancelled`; `now`: Unix seconds
 @treturn table `{ applied = { … }, reported = bool, report_error = err|nil }`
 @treturn table err when nothing could be fetched, so nothing changed
 --]]--
@@ -253,32 +335,37 @@ function RemoteSettings:sync(store, opts)
     if type(self.endpoint) ~= "string" or not self.endpoint:match("^https?://") then
         return nil, { code = "not_configured", message = "the library endpoint is not set" }
     end
+    local outbox, now = opts.outbox, opts.now or os.time
+
+    local changed_at = RemoteSettings.notice(store.data, outbox, self.json, now())
+    local ask = { values = RemoteSettings.snapshot(store.data, self.json) }
+    -- Left out rather than sent empty: an empty Lua table encodes as a list.
+    if next(changed_at) ~= nil then ask.changed_at = changed_at end
+    local encoded, ask_body = pcall(self.json.encode, ask)
+    if not encoded then return nil, { code = "encode", message = tostring(ask_body) } end
 
     local fetched = self:offloaded(opts.offload, function()
-        local queue, err = self:request("GET")
-        return { queue = queue, err = err }
+        local plan, err = self:request("POST", ask_body, "/plan")
+        return { plan = plan, err = err }
     end)
     if not fetched then return nil, CANCELLED end
-    if type(fetched.queue) ~= "table" then
+    if type(fetched.plan) ~= "table" then
         return nil, fetched.err or { code = "bad_response", message = "the library sent nothing usable" }
     end
 
-    local applied = RemoteSettings.apply(store, fetched.queue.pending)
+    local applied = RemoteSettings.apply(store, fetched.plan.apply)
     if #applied > 0 and store.flush then store:flush() end
+    absorb(outbox, applied)
 
-    local unreported = opts.outbox:readSetting(RemoteSettings.OUTBOX_KEY)
+    local unreported = outbox:readSetting(RemoteSettings.OUTBOX_KEY)
     local changes = outgoing(type(unreported) == "table" and unreported or {}, applied)
-    if #applied > 0 then
-        opts.outbox:saveSetting(RemoteSettings.OUTBOX_KEY, changes)
-        if opts.outbox.flush then opts.outbox:flush() end
-    end
+    if #applied > 0 then outbox:saveSetting(RemoteSettings.OUTBOX_KEY, changes) end
+    if outbox.flush then outbox:flush() end
 
     local report = {
         values = RemoteSettings.snapshot(store.data, self.json),
         plugin_version = Version.string,
     }
-    -- Left out rather than sent empty: an empty Lua table encodes as an
-    -- object, and the list it stands for would not be one.
     if #changes > 0 then report.applied = changes end
 
     local ok, body = pcall(self.json.encode, report)
@@ -290,9 +377,12 @@ function RemoteSettings:sync(store, opts)
         return { ok = answer ~= nil, err = err }
     end)
     if not sent then return { applied = applied, reported = false, report_error = CANCELLED } end
-    if sent.ok and #changes > 0 then
-        opts.outbox:delSetting(RemoteSettings.OUTBOX_KEY)
-        if opts.outbox.flush then opts.outbox:flush() end
+    if sent.ok then
+        -- The library's copy now has everything, the Kindle's own changes
+        -- included: nothing is waiting, and no change is newer than it.
+        outbox:delSetting(RemoteSettings.OUTBOX_KEY)
+        outbox:delSetting(RemoteSettings.CHANGED_KEY)
+        if outbox.flush then outbox:flush() end
     end
     return { applied = applied, reported = sent.ok == true, report_error = sent.err }
 end

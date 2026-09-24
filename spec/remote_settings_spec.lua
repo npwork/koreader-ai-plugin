@@ -15,8 +15,8 @@ local function remote(responses, opts)
     }), tr
 end
 
-local function queued(pending)
-    return { status = 200, body = helpers.body({ pending = pending }) }
+local function planned(apply)
+    return { status = 200, body = helpers.body({ apply = apply }) }
 end
 
 local REPORTED = { status = 200, body = helpers.body({ applied = 0, pending = 0 }) }
@@ -99,15 +99,17 @@ describe("settings from the library", function()
     end)
 
     describe("a sync", function()
-        it("fetches the queue with the device's key, applies it, flushes, and reports", function()
+        it("sends every setting with the device's key, applies the plan, flushes, and reports", function()
             local store = helpers.store({ show_bottom_menu = true, copt_font_size = 22 })
-            local r, tr = remote({ queued({ { key = "show_bottom_menu", value = false } }), REPORTED })
+            local r, tr = remote({ planned({ { key = "show_bottom_menu", value = false } }), REPORTED })
 
             local result = r:sync(store, { outbox = helpers.store() })
 
-            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", tr.requests[1].url)
-            assert.are.equal("GET", tr.requests[1].method)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings/plan", tr.requests[1].url)
+            assert.are.equal("POST", tr.requests[1].method)
             assert.are.equal("Bearer owner-key", tr.requests[1].headers["Authorization"])
+            assert.are.same({ values = { show_bottom_menu = true, copt_font_size = 22 } },
+                json.decode(tr.requests[1].body))
             assert.are.equal(1, store.flushed)
 
             assert.are.equal("POST", tr.requests[2].method)
@@ -121,9 +123,9 @@ describe("settings from the library", function()
             assert.are.equal(1, #result.applied)
         end)
 
-        it("still reports every setting when nothing was queued, and leaves the store unflushed", function()
+        it("still reports every setting when there is nothing to apply, and leaves the store unflushed", function()
             local store = helpers.store({ copt_font_size = 22 })
-            local r, tr = remote({ queued({}), REPORTED })
+            local r, tr = remote({ planned({}), REPORTED })
 
             local result = r:sync(store, { outbox = helpers.store() })
 
@@ -135,12 +137,13 @@ describe("settings from the library", function()
         end)
 
         it("keeps a ?token= in the address at the end", function()
-            local r, tr = remote({ queued({}), REPORTED }, { endpoint = "https://gw.test/koreader-library/?token=t" })
+            local r, tr = remote({ planned({}), REPORTED }, { endpoint = "https://gw.test/koreader-library/?token=t" })
             r:sync(helpers.store(), { outbox = helpers.store() })
-            assert.are.equal("https://gw.test/koreader-library/settings?token=t", tr.requests[1].url)
+            assert.are.equal("https://gw.test/koreader-library/settings/plan?token=t", tr.requests[1].url)
+            assert.are.equal("https://gw.test/koreader-library/settings?token=t", tr.requests[2].url)
         end)
 
-        it("changes nothing when the queue cannot be fetched", function()
+        it("changes nothing when there is no plan", function()
             local store = helpers.store({ copt_font_size = 22 })
             local r, tr = remote({ { status = 401, body = "{}" } })
 
@@ -154,7 +157,7 @@ describe("settings from the library", function()
 
         it("says so when the report back fails, the changes staying made", function()
             local store = helpers.store()
-            local r = remote({ queued({ { key = "copt_font_size", value = 24 } }), { err = "timeout" } })
+            local r = remote({ planned({ { key = "copt_font_size", value = 24 } }), { err = "timeout" } })
 
             local result = r:sync(store, { outbox = helpers.store() })
 
@@ -166,7 +169,7 @@ describe("settings from the library", function()
         it("keeps unreported changes, and reports each with the value it first replaced", function()
             local store = helpers.store({ copt_font_size = 22 })
             local outbox = helpers.store()
-            local change = queued({ { key = "copt_font_size", value = 24 } })
+            local change = planned({ { key = "copt_font_size", value = 24 } })
 
             local first = remote({ change, { err = "timeout" } }):sync(store, { outbox = outbox })
             assert.is_false(first.reported)
@@ -187,7 +190,7 @@ describe("settings from the library", function()
             local outbox = helpers.store({
                 [RemoteSettings.OUTBOX_KEY] = { { key = "show_bottom_menu", value = false, previous = true } },
             })
-            local r, tr = remote({ queued({ { key = "copt_font_size", value = 24 } }), REPORTED })
+            local r, tr = remote({ planned({ { key = "copt_font_size", value = 24 } }), REPORTED })
 
             r:sync(helpers.store(), { outbox = outbox })
 
@@ -199,7 +202,7 @@ describe("settings from the library", function()
 
         it("sends both requests through the offload, and a cancelled fetch changes nothing", function()
             local store = helpers.store({ copt_font_size = 22 })
-            local r, tr = remote({ queued({ { key = "copt_font_size", value = 24 } }), REPORTED })
+            local r, tr = remote({ planned({ { key = "copt_font_size", value = 24 } }), REPORTED })
             local tasks = 0
             local result = r:sync(store, { outbox = helpers.store(), offload = function(task)
                 tasks = tasks + 1
@@ -217,7 +220,89 @@ describe("settings from the library", function()
             assert.are.equal(2, tr.calls)
         end)
 
-        it("refuses to start without an address", function()
+        it("sends when this Kindle changed each of its own settings, and forgets once reported", function()
+            local store = helpers.store({ copt_font_size = 22, show_bottom_menu = true })
+            local outbox = helpers.store()
+            RemoteSettings.notice(store.data, outbox, json, 100)
+            store.data.copt_font_size = 26
+            store.data.show_bottom_menu = nil
+
+            local r, tr = remote({ planned({}), REPORTED })
+            r:sync(store, { outbox = outbox, now = function() return 200 end })
+
+            assert.are.same({ copt_font_size = 200, show_bottom_menu = 200 },
+                json.decode(tr.requests[1].body).changed_at)
+            assert.is_nil(outbox.data[RemoteSettings.CHANGED_KEY])
+
+            -- Nothing changed since: nothing to send.
+            local again, tr2 = remote({ planned({}), REPORTED })
+            again:sync(store, { outbox = outbox, now = function() return 300 end })
+            assert.is_nil(json.decode(tr2.requests[1].body).changed_at)
+        end)
+
+        it("keeps the times while the report has not arrived", function()
+            local store = helpers.store({ copt_font_size = 22 })
+            local outbox = helpers.store()
+            RemoteSettings.notice(store.data, outbox, json, 100)
+            store.data.copt_font_size = 26
+
+            remote({ planned({}), { err = "timeout" } }):sync(store, { outbox = outbox, now = function() return 200 end })
+            local r, tr = remote({ planned({}), REPORTED })
+            r:sync(store, { outbox = outbox, now = function() return 300 end })
+
+            assert.are.same({ copt_font_size = 200 }, json.decode(tr.requests[1].body).changed_at)
+        end)
+
+        it("does not count what the library applied as this Kindle's own change", function()
+            local store = helpers.store({ copt_font_size = 22, cre_font = "Literata" })
+            local outbox = helpers.store()
+            RemoteSettings.notice(store.data, outbox, json, 100)
+
+            remote({
+                planned({ { key = "copt_font_size", value = 24 }, { key = "cre_font", reset = true } }),
+                { err = "timeout" },
+            }):sync(store, { outbox = outbox, now = function() return 200 end })
+
+            assert.are.same({}, RemoteSettings.notice(store.data, outbox, json, 300))
+        end)
+    end)
+
+    describe("noticing this Kindle's own changes", function()
+        it("only records the first time, then stamps what changed or went", function()
+            local data = { copt_font_size = 22, cre_font = "Literata", copt_h_page_margins = { 20, 20 } }
+            local outbox = helpers.store()
+
+            assert.are.same({}, RemoteSettings.notice(data, outbox, json, 100))
+            data.copt_font_size = 24
+            data.cre_font = nil
+            data.show_bottom_menu = false
+            assert.are.same({ copt_font_size = 200, cre_font = 200, show_bottom_menu = 200 },
+                RemoteSettings.notice(data, outbox, json, 200))
+        end)
+
+        it("keeps the first time a change was seen, and saves only when something moved", function()
+            local data = { copt_font_size = 22 }
+            local outbox = helpers.store()
+            RemoteSettings.notice(data, outbox, json, 100)
+            data.copt_font_size = 24
+            RemoteSettings.notice(data, outbox, json, 200)
+            local flushed = outbox.flushed
+
+            assert.are.same({ copt_font_size = 200 }, RemoteSettings.notice(data, outbox, json, 300))
+            assert.are.equal(flushed, outbox.flushed)
+        end)
+
+        it("does not take a table built in another order for a change", function()
+            local outbox = helpers.store()
+            RemoteSettings.notice({ kosync = { a = 1, b = 2, c = 3 } }, outbox, json, 100)
+            local rebuilt = {}
+            rebuilt.c, rebuilt.a, rebuilt.b = 3, 1, 2
+            assert.are.same({}, RemoteSettings.notice({ kosync = rebuilt }, outbox, json, 200))
+        end)
+    end)
+
+    describe("without an address", function()
+        it("refuses to start", function()
             local r = remote({}, { endpoint = "" })
             local result, err = r:sync(helpers.store(), { outbox = helpers.store() })
             assert.is_nil(result)

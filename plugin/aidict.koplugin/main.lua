@@ -334,6 +334,9 @@ end
 
 function AiDict:onFlushSettings()
     self:saveCache()
+    -- KOReader keeps no time for a setting's change; this save is the nearest
+    -- one, and Sync needs it to decide who changed a key last.
+    RemoteSettings.notice(G_reader_settings.data, self.store, json, os.time())
 end
 
 ----------------------------------------------------------------------------
@@ -1267,7 +1270,8 @@ local function changedKeys(applied)
 end
 
 --[[--
-Apply the KOReader settings queued on the library, and report back.
+Sync KOReader's settings with the library, both ways: apply what it holds for
+this Kindle, and report back every setting, this Kindle's own changes included.
 
 A step of `sync`: returns what to say, how many settings changed, and whether
 the reader dismissed the report; nil when they dismissed the fetch. The requests run in a subprocess, so a slow
@@ -1287,7 +1291,7 @@ function AiDict:settingsStep(endpoint)
         return raw
     end
 
-    local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload })
+    local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload, now = os.time })
     if not result and err and err.code == "cancelled" then return nil end
     if not result then return Format.error(err, _("Syncing the settings failed.")), 0 end
     logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
