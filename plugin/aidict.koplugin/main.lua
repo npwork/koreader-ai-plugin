@@ -38,6 +38,7 @@ local Format = require("aidict.format")
 local Reqid = require("aidict.reqid")
 local Library = require("aidict.library")
 local Kpm = require("aidict.kpm")
+local Look = require("aidict.look")
 local Lookup = require("aidict.lookup")
 local Page = require("aidict.page")
 local Prefetch = require("aidict.prefetch")
@@ -1313,6 +1314,39 @@ function showResult(word, result, source)
 end
 
 ----------------------------------------------------------------------------
+-- Look
+----------------------------------------------------------------------------
+
+--- The open book's look as default settings, or nil in the file manager.
+function AiDict:openBookLook()
+    local config, document = self.ui.config, self.ui.document
+    if not (config and config.options and document and document.configurable) then return nil end
+    return Look.defaults(config.options, document.configurable, self.ui.font and self.ui.font.font_face)
+end
+
+--[[--
+Save the open book's look as KOReader's defaults for new books.
+
+What a long-press on every value in the bottom menu, and on the font in the
+font list, would save — the same settings, under the same names.
+--]]--
+function AiDict:useLookForNewBooks()
+    local defaults = self:openBookLook()
+    if not defaults then return end
+    UIManager:show(ConfirmBox:new{
+        text = _("Open every new book with this book's font, size, margins and spacing?\n\nBooks you have already opened keep their own."),
+        ok_text = _("Use for new books"),
+        ok_callback = function()
+            for _, entry in ipairs(defaults) do
+                G_reader_settings:saveSetting(entry.key, entry.value)
+            end
+            G_reader_settings:flush()
+            UIManager:show(InfoMessage:new{ text = _("New books will open looking like this one.") })
+        end,
+    })
+end
+
+----------------------------------------------------------------------------
 -- Menu
 ----------------------------------------------------------------------------
 
@@ -1353,7 +1387,7 @@ function AiDict:editSetting(key, title, opts)
 end
 
 function AiDict:addToMainMenu(menu_items)
-    -- One entry, first in Tools. The two actions open it, because they are
+    -- One entry, first in Tools. The actions open it, because they are
     -- what gets pressed; the settings follow.
     menu_items[MENU_ID] = {
         text = _("AI dictionary"),
@@ -1369,6 +1403,13 @@ function AiDict:addToMainMenu(menu_items)
                 help_text = _("Send the words looked up in the Kindle's own reader since the last upload to the word inbox. The first time, that is every lookup on the device."),
                 keep_menu_open = true,
                 callback = function() self:sendVocab() end,
+            },
+            {
+                text = _("Use this book's look for new books"),
+                help_text = _("Make the open book's font, size, margins and spacing the defaults that every new book opens with. Books already opened keep their own."),
+                enabled_func = function() return self:openBookLook() ~= nil end,
+                keep_menu_open = true,
+                callback = function() self:useLookForNewBooks() end,
             },
             {
                 -- The version is on the label because this is the one entry
@@ -1392,18 +1433,9 @@ function AiDict:addToMainMenu(menu_items)
                     return T(_("API key: %1"), key ~= "" and _("set") or _("none"))
                 end,
                 keep_menu_open = true,
-                callback = function()
-                    self:editSetting("api_key", _("API key"), { password = true })
-                end,
-            },
-            {
-                text_func = function()
-                    return T(_("Context sent: %1 characters"), self.settings:get("context_chars"))
-                end,
-                keep_menu_open = true,
                 separator = true,
                 callback = function()
-                    self:editSetting("context_chars", _("Context characters"), { numeric = true })
+                    self:editSetting("api_key", _("API key"), { password = true })
                 end,
             },
             {
@@ -1415,17 +1447,6 @@ function AiDict:addToMainMenu(menu_items)
                     self.lookup:clear_cache()
                     self:saveCache()
                     UIManager:show(InfoMessage:new{ text = _("Cached answers cleared.") })
-                end,
-            },
-            {
-                text_func = function()
-                    return T(_("Update channel: %1"), self.settings:get("channel"))
-                end,
-                keep_menu_open = true,
-                callback = function()
-                    local next_channel = self.settings:get("channel") == "stable" and "dev" or "stable"
-                    self.settings:set("channel", next_channel)
-                    self.settings:flush()
                 end,
             },
             {
