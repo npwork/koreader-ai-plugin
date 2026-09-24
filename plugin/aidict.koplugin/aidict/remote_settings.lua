@@ -245,15 +245,23 @@ function RemoteSettings.notice(data, outbox, json, now)
     return changed
 end
 
---- The library's changes are not the Kindle's own: seen as they now are, no stamp.
-local function absorb(outbox, applied)
+--[[--
+The library's changes are not the Kindle's own: seen as they now are, no
+stamp. Seen in the form `notice` compares, the secrets left out, or the next
+look would take the difference for a change.
+--]]--
+local function absorb(outbox, applied, json)
     if #applied == 0 then return end
     local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
     local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
     if type(seen) ~= "table" then seen = {} end
     if type(changed) ~= "table" then changed = {} end
     for _, entry in ipairs(applied) do
-        seen[entry.key] = (not entry.reset) and canonical(entry.value) or nil
+        local visible
+        if not entry.reset then
+            visible = RemoteSettings.snapshot({ [entry.key] = entry.value }, json)[entry.key]
+        end
+        if visible == nil then seen[entry.key] = nil else seen[entry.key] = canonical(visible) end
         changed[entry.key] = nil
     end
     outbox:saveSetting(RemoteSettings.SEEN_KEY, seen)
@@ -355,13 +363,16 @@ function RemoteSettings:sync(store, opts)
 
     local applied = RemoteSettings.apply(store, fetched.plan.apply)
     if #applied > 0 and store.flush then store:flush() end
-    absorb(outbox, applied)
+    absorb(outbox, applied, self.json)
 
     local unreported = outbox:readSetting(RemoteSettings.OUTBOX_KEY)
     local changes = outgoing(type(unreported) == "table" and unreported or {}, applied)
     if #applied > 0 then outbox:saveSetting(RemoteSettings.OUTBOX_KEY, changes) end
     if outbox.flush then outbox:flush() end
 
+    -- The stamps this report answers; one taken while it is on its way is not.
+    local answered = {}
+    for key, at in pairs(outbox:readSetting(RemoteSettings.CHANGED_KEY) or {}) do answered[key] = at end
     local report = {
         values = RemoteSettings.snapshot(store.data, self.json),
         plugin_version = Version.string,
@@ -381,7 +392,13 @@ function RemoteSettings:sync(store, opts)
         -- The library's copy now has everything, the Kindle's own changes
         -- included: nothing is waiting, and no change is newer than it.
         outbox:delSetting(RemoteSettings.OUTBOX_KEY)
-        outbox:delSetting(RemoteSettings.CHANGED_KEY)
+        local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
+        if type(changed) == "table" then
+            for key, at in pairs(answered) do
+                if changed[key] == at then changed[key] = nil end
+            end
+            outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
+        end
         if outbox.flush then outbox:flush() end
     end
     return { applied = applied, reported = sent.ok == true, report_error = sent.err }

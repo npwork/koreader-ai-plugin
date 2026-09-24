@@ -232,7 +232,7 @@ describe("settings from the library", function()
 
             assert.are.same({ copt_font_size = 200, show_bottom_menu = 200 },
                 json.decode(tr.requests[1].body).changed_at)
-            assert.is_nil(outbox.data[RemoteSettings.CHANGED_KEY])
+            assert.are.same({}, outbox.data[RemoteSettings.CHANGED_KEY])
 
             -- Nothing changed since: nothing to send.
             local again, tr2 = remote({ planned({}), REPORTED })
@@ -260,6 +260,44 @@ describe("settings from the library", function()
 
             remote({
                 planned({ { key = "copt_font_size", value = 24 }, { key = "cre_font", reset = true } }),
+                { err = "timeout" },
+            }):sync(store, { outbox = outbox, now = function() return 200 end })
+
+            assert.are.same({}, RemoteSettings.notice(store.data, outbox, json, 300))
+        end)
+
+        it("keeps a change seen while the report was on its way", function()
+            local store = helpers.store({ copt_font_size = 22, cre_font = "Literata" })
+            local outbox = helpers.store()
+            RemoteSettings.notice(store.data, outbox, json, 100)
+            store.data.copt_font_size = 26
+
+            local r = remote({})
+            local calls = 0
+            r:sync(store, { outbox = outbox, now = function() return 200 end, offload = function()
+                calls = calls + 1
+                if calls == 2 then
+                    -- KOReader saves its settings while the report is sent.
+                    store.data.cre_font = "Bookerly"
+                    RemoteSettings.notice(store.data, outbox, json, 250)
+                    return json.encode({ ok = true })
+                end
+                return json.encode({ plan = { apply = {} } })
+            end })
+
+            assert.are.same({ cre_font = 250 }, outbox.data[RemoteSettings.CHANGED_KEY])
+        end)
+
+        it("does not take a secret the library applied for this Kindle's own change", function()
+            local store = helpers.store({ kosync = { username = "nick" } })
+            local outbox = helpers.store()
+            RemoteSettings.notice(store.data, outbox, json, 100)
+
+            remote({
+                planned({
+                    { key = "kosync", value = { username = "nick", userkey = "md5" } },
+                    { key = "calibre_wireless_password", value = "pw" },
+                }),
                 { err = "timeout" },
             }):sync(store, { outbox = outbox, now = function() return 200 end })
 
