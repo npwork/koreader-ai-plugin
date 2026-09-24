@@ -1151,6 +1151,31 @@ describe("the KOReader layer", function()
                 assert.are.equal(shown, #kor.shown)
             end)
 
+            it("stops at a dismissed report, keeping and offering what was applied", function()
+                build({ can_restart = true, responses = {
+                    EMPTY_LIBRARY,
+                    { status = 200, body = helpers.body({ pending = { { key = "copt_font_size", value = 24 } } }) },
+                } })
+                kor.files[require("aidict.vocab").PATH] = 1
+                kor.vocab_rows = { { "lk-1", "6032", "s", 1, "w", "w", "en", "B", "T", "A" } }
+                -- The library and the fetch run; the report is the third wait.
+                local waits = 0
+                local trapper = package.loaded["ui/trapper"]
+                local run = trapper.dismissableRunInSubprocess
+                trapper.dismissableRunInSubprocess = function(self, fn, message, simple)
+                    waits = waits + 1
+                    if waits == 3 then return false end
+                    return run(self, fn, message, simple)
+                end
+
+                menu_item("Sync").callback()
+
+                assert.are.equal(24, kor.global_settings.data.copt_font_size)
+                assert.are.equal(2, kor.transport.calls)
+                assert.are.equal("ConfirmBox", last_shown().widget_kind)
+                assert.is_nil(last_shown().text:find("Kindle lookups", 1, true))
+            end)
+
             it("says why when the library cannot be reached, and still reports the rest", function()
                 sync({ { err = "network unreachable" } })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)

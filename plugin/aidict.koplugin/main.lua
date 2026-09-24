@@ -1271,8 +1271,8 @@ end
 --[[--
 Apply the KOReader settings queued on the library, and report back.
 
-A step of `sync`: returns what to say and how many settings changed, or nil
-when the reader dismissed it. The requests run in a subprocess, so a slow
+A step of `sync`: returns what to say, how many settings changed, and whether
+the reader dismissed the report; nil when they dismissed the fetch. The requests run in a subprocess, so a slow
 gateway cannot freeze the reader; the writes happen in this process, because
 a change to `G_reader_settings` made in a forked child dies with it.
 --]]--
@@ -1302,10 +1302,13 @@ function AiDict:settingsStep(endpoint)
     else
         text = T(_("Changed %1: %2."), #result.applied, changedKeys(result.applied))
     end
+    local dismissed = result.report_error and result.report_error.code == "cancelled"
     if not result.reported then
         text = text .. " " .. _("This Kindle's settings could not be sent back to the library.")
     end
-    return text, #result.applied
+    -- Dismissing the report stops the sync too, but what was applied stays
+    -- applied, and says so.
+    return text, #result.applied, dismissed
 end
 
 --[[--
@@ -1330,12 +1333,13 @@ function AiDict:sync()
                     finished = false
                 else
                     add(_("Library"), library)
-                    local settings, count = self:settingsStep(endpoint)
+                    local settings, count, dismissed = self:settingsStep(endpoint)
                     if settings == nil then
                         finished = false
                     else
                         add(_("Settings"), settings)
                         changed = count
+                        finished = not dismissed
                     end
                 end
             else
