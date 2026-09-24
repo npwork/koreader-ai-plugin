@@ -1093,10 +1093,54 @@ describe("the KOReader layer", function()
             assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/manifest", kor.transport.requests[1].url)
         end)
 
-        it("toggles the update channel", function()
+        it("keeps the context size and update channel out of it", function()
             build()
-            menu_item("Update channel").callback()
-            assert.are.equal("dev", kor.store.data.channel)
+            assert.is_nil(menu_item("Context sent"))
+            assert.is_nil(menu_item("Update channel"))
+        end)
+
+        describe("using the open book's look for new books", function()
+            local function open_book()
+                reader.ui.config = { options = {
+                    prefix = "copt",
+                    { options = { { name = "h_page_margins" } } },
+                    { options = { { name = "font_size" } } },
+                } }
+                reader.ui.document = { configurable = { h_page_margins = { 20, 20 }, font_size = 22 } }
+                reader.ui.font = { font_face = "Literata" }
+            end
+
+            it("is greyed out with no book open", function()
+                build()
+                assert.is_false(menu_item("look for new books").enabled_func())
+            end)
+
+            it("asks first, and saves nothing until confirmed", function()
+                build()
+                open_book()
+                local item = menu_item("look for new books")
+                assert.is_true(item.enabled_func())
+
+                item.callback()
+
+                assert.are.equal("ConfirmBox", last_shown().widget_kind)
+                assert.are.same({}, kor.global_settings.data)
+            end)
+
+            it("saves the book's options and font as KOReader's defaults", function()
+                build()
+                open_book()
+                menu_item("look for new books").callback()
+                last_shown().ok_callback()
+
+                assert.are.same({
+                    copt_h_page_margins = { 20, 20 },
+                    copt_font_size = 22,
+                    cre_font = "Literata",
+                }, kor.global_settings.data)
+                assert.are.equal(1, kor.global_settings.flushed)
+                assert.are.equal("New books will open looking like this one.", last_shown().text)
+            end)
         end)
     end)
 
@@ -1250,16 +1294,17 @@ describe("the KOReader layer", function()
             assert.are.equal("AI dictionary", items().aidict.text)
         end)
 
-        it("opens with the three actions, the sync first", function()
+        it("opens with the four actions, the sync first", function()
             build()
             local sub = items().aidict.sub_item_table
 
             assert.are.equal("Sync library", sub[1].text)
             assert.are.equal("Send Kindle lookups", sub[2].text)
+            assert.are.equal("Use this book's look for new books", sub[3].text)
             -- The version rides on the label: after an update and a restart,
             -- the menu itself is the receipt.
-            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[3].text_func())
-            assert.is_true(sub[3].separator)
+            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[4].text_func())
+            assert.is_true(sub[4].separator)
         end)
 
         -- The update line already carries it, second from the top.

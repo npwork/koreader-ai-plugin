@@ -252,6 +252,10 @@ function koreader.install(opts)
     package.loaded["ui/widget/booklist"] = {
         resetBookInfoCache = function(path) log_call("BookList.resetBookInfoCache " .. path) end,
     }
+    -- KOReader's global settings, where the defaults for new books live.
+    recorder.global_settings = helpers.store()
+    rawset(_G, "G_reader_settings", recorder.global_settings)
+
     -- No book open unless a spec opens one: `kor.reader_ui.instance = {…}`.
     recorder.reader_ui = { instance = nil }
     package.loaded["apps/reader/readerui"] = recorder.reader_ui
@@ -502,6 +506,7 @@ function koreader.uninstall()
     os.rename = real_os.rename
     os.remove = real_os.remove
     io.popen = real_io.popen
+    rawset(_G, "G_reader_settings", nil)
     for _, module in ipairs({
         "ui/widget/container/widgetcontainer", "ui/widget/infomessage", "ui/widget/textviewer",
         "ui/widget/inputdialog", "ui/widget/confirmbox", "ui/uimanager", "ui/trapper",
