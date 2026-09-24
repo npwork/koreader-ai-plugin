@@ -1132,6 +1132,19 @@ describe("the KOReader layer", function()
                 assert.are.equal("No new settings.", last_shown().text)
             end)
 
+            it("waits on the network in a subprocess, and a dismissed wait changes nothing", function()
+                build({ responses = {
+                    { status = 200, body = helpers.body({ pending = { { key = "copt_font_size", value = 24 } } }) },
+                } })
+                local shown = #kor.shown
+                kor.dismiss_next = true
+                menu_item("Sync settings").callback()
+
+                assert.are.equal("Syncing settings…", kor.last_progress_message)
+                assert.is_nil(kor.global_settings.data.copt_font_size)
+                assert.are.equal(shown, #kor.shown)
+            end)
+
             it("says why when the library cannot be reached", function()
                 sync({ { err = "network unreachable" } })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)

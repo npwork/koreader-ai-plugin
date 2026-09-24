@@ -1328,9 +1328,9 @@ end
 --[[--
 Apply the KOReader settings queued on the library, and report back.
 
-In this process rather than a subprocess, unlike the library sync: the whole
-point is to change `G_reader_settings`, and a change made in a forked child
-dies with it. Two small requests, so the wait is short.
+The requests run in a subprocess, like the library sync, so a slow gateway
+cannot freeze the reader; the writes happen in this process, because a change
+to `G_reader_settings` made in a forked child dies with it.
 --]]--
 function AiDict:syncSettings()
     local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
@@ -1344,41 +1344,45 @@ function AiDict:syncSettings()
         transport = http_transport,
         json = json,
     })
+    local function offload(task)
+        local completed, raw = Trapper:dismissableRunInSubprocess(task, _("Syncing settings…"), true)
+        if not completed then return nil end
+        return raw
+    end
 
     NetworkMgr:runWhenConnected(function()
-        local notice = InfoMessage:new{ text = _("Syncing settings…") }
-        UIManager:show(notice)
-        UIManager:forceRePaint()
-        local result, err = remote:sync(G_reader_settings)
-        UIManager:close(notice)
+        Trapper:wrap(function()
+            local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload })
+            if not result and err and err.code == "cancelled" then return end
 
-        if not result then
-            UIManager:show(InfoMessage:new{ text = Format.error(err, _("Syncing the settings failed.")) })
-            return
-        end
-        logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
-            #result.applied, tostring(result.reported),
-            result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
+            if not result then
+                UIManager:show(InfoMessage:new{ text = Format.error(err, _("Syncing the settings failed.")) })
+                return
+            end
+            logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
+                #result.applied, tostring(result.reported),
+                result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
 
-        local text
-        if #result.applied == 0 then
-            text = _("No new settings.")
-        else
-            text = T(_("Changed %1 settings: %2."), #result.applied, changedKeys(result.applied))
-        end
-        if not result.reported then
-            text = text .. "\n\n" .. _("This Kindle's settings could not be sent back to the library.")
-        end
-        if #result.applied == 0 or not Device:canRestart() then
-            if #result.applied > 0 then text = text .. "\n\n" .. _("Restart KOReader to use them.") end
-            UIManager:show(InfoMessage:new{ text = text })
-            return
-        end
-        UIManager:show(ConfirmBox:new{
-            text = text .. "\n\n" .. _("Most take effect after KOReader restarts.\n\nRestart now?"),
-            ok_text = _("Restart"),
-            ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
-        })
+            local text
+            if #result.applied == 0 then
+                text = _("No new settings.")
+            else
+                text = T(_("Changed %1 settings: %2."), #result.applied, changedKeys(result.applied))
+            end
+            if not result.reported then
+                text = text .. "\n\n" .. _("This Kindle's settings could not be sent back to the library.")
+            end
+            if #result.applied == 0 or not Device:canRestart() then
+                if #result.applied > 0 then text = text .. "\n\n" .. _("Restart KOReader to use them.") end
+                UIManager:show(InfoMessage:new{ text = text })
+                return
+            end
+            UIManager:show(ConfirmBox:new{
+                text = text .. "\n\n" .. _("Most take effect after KOReader restarts.\n\nRestart now?"),
+                ok_text = _("Restart"),
+                ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
+            })
+        end)
     end)
 end
 

@@ -183,24 +183,95 @@ function RemoteSettings:request(method, body)
     return decoded
 end
 
+--- Where changes wait while the library has not heard of them, in the plugin's own store.
+RemoteSettings.OUTBOX_KEY = "settings_unreported"
+
+--[[--
+The changes to report: those still waiting from a sync whose report never
+arrived, then this sync's. A change applied again because its first report was
+lost keeps the value it first replaced — the second time round, the store
+already holds the new value, and that is no use for undoing it.
+--]]--
+local function outgoing(unreported, applied)
+    local first = {}
+    for _, entry in ipairs(unreported) do
+        if type(entry) == "table" and entry.key then first[entry.key] = entry end
+    end
+    local again = {}
+    for _, entry in ipairs(applied) do
+        local earlier = first[entry.key]
+        if earlier then entry.previous = copy(earlier.previous) end
+        again[entry.key] = true
+    end
+    local out = {}
+    for _, entry in ipairs(unreported) do
+        if type(entry) == "table" and entry.key and not again[entry.key] then out[#out + 1] = entry end
+    end
+    for _, entry in ipairs(applied) do out[#out + 1] = entry end
+    return out
+end
+
+--[[--
+Run a request through `offload`, which may run it in another process: the
+answer crosses as JSON, the way the prefetch's does. Nil when it was cancelled.
+--]]--
+function RemoteSettings:offloaded(offload, fn)
+    local codec = self.json
+    local function task()
+        local ok, encoded = pcall(codec.encode, fn())
+        return ok and encoded or ""
+    end
+    local raw
+    if offload then
+        raw = offload(task)
+        if raw == nil then return nil end
+    else
+        raw = task()
+    end
+    local ok, decoded = pcall(codec.decode, raw)
+    return ok and type(decoded) == "table" and decoded or {}
+end
+
+local CANCELLED = { code = "cancelled", message = "the sync was cancelled" }
+
 --[[--
 Fetch the queue, apply it, report back.
 
+The two requests go through `opts.offload`, so KOReader can run them in a
+subprocess and a slow gateway never freezes the reader; the writes to the
+store happen here, because a change made in a forked child dies with it.
+
 @param store table  `readSetting`, `saveSetting`, `delSetting`, `flush`, and
                     `data`, the table holding every setting
+@param opts  table  `outbox`: a store for the changes not yet reported;
+                    `offload`: `function(task) → task's string | nil if cancelled`
 @treturn table `{ applied = { … }, reported = bool, report_error = err|nil }`
 @treturn table err when nothing could be fetched, so nothing changed
 --]]--
-function RemoteSettings:sync(store)
+function RemoteSettings:sync(store, opts)
+    assert(type(opts) == "table" and opts.outbox, "RemoteSettings:sync needs an outbox")
     if type(self.endpoint) ~= "string" or not self.endpoint:match("^https?://") then
         return nil, { code = "not_configured", message = "the library endpoint is not set" }
     end
 
-    local queue, err = self:request("GET")
-    if not queue then return nil, err end
+    local fetched = self:offloaded(opts.offload, function()
+        local queue, err = self:request("GET")
+        return { queue = queue, err = err }
+    end)
+    if not fetched then return nil, CANCELLED end
+    if type(fetched.queue) ~= "table" then
+        return nil, fetched.err or { code = "bad_response", message = "the library sent nothing usable" }
+    end
 
-    local applied = RemoteSettings.apply(store, queue.pending)
+    local applied = RemoteSettings.apply(store, fetched.queue.pending)
     if #applied > 0 and store.flush then store:flush() end
+
+    local unreported = opts.outbox:readSetting(RemoteSettings.OUTBOX_KEY)
+    local changes = outgoing(type(unreported) == "table" and unreported or {}, applied)
+    if #applied > 0 then
+        opts.outbox:saveSetting(RemoteSettings.OUTBOX_KEY, changes)
+        if opts.outbox.flush then opts.outbox:flush() end
+    end
 
     local report = {
         values = RemoteSettings.snapshot(store.data, self.json),
@@ -208,14 +279,22 @@ function RemoteSettings:sync(store)
     }
     -- Left out rather than sent empty: an empty Lua table encodes as an
     -- object, and the list it stands for would not be one.
-    if #applied > 0 then report.applied = applied end
+    if #changes > 0 then report.applied = changes end
 
     local ok, body = pcall(self.json.encode, report)
     if not ok then
         return { applied = applied, reported = false, report_error = { code = "encode", message = tostring(body) } }
     end
-    local answer, report_err = self:request("POST", body)
-    return { applied = applied, reported = answer ~= nil, report_error = report_err }
+    local sent = self:offloaded(opts.offload, function()
+        local answer, err = self:request("POST", body)
+        return { ok = answer ~= nil, err = err }
+    end)
+    if not sent then return { applied = applied, reported = false, report_error = CANCELLED } end
+    if sent.ok and #changes > 0 then
+        opts.outbox:delSetting(RemoteSettings.OUTBOX_KEY)
+        if opts.outbox.flush then opts.outbox:flush() end
+    end
+    return { applied = applied, reported = sent.ok == true, report_error = sent.err }
 end
 
 return RemoteSettings

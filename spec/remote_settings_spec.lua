@@ -103,7 +103,7 @@ describe("settings from the library", function()
             local store = helpers.store({ show_bottom_menu = true, copt_font_size = 22 })
             local r, tr = remote({ queued({ { key = "show_bottom_menu", value = false } }), REPORTED })
 
-            local result = r:sync(store)
+            local result = r:sync(store, { outbox = helpers.store() })
 
             assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", tr.requests[1].url)
             assert.are.equal("GET", tr.requests[1].method)
@@ -125,7 +125,7 @@ describe("settings from the library", function()
             local store = helpers.store({ copt_font_size = 22 })
             local r, tr = remote({ queued({}), REPORTED })
 
-            local result = r:sync(store)
+            local result = r:sync(store, { outbox = helpers.store() })
 
             assert.are.equal(0, #result.applied)
             assert.are.equal(0, store.flushed)
@@ -136,7 +136,7 @@ describe("settings from the library", function()
 
         it("keeps a ?token= in the address at the end", function()
             local r, tr = remote({ queued({}), REPORTED }, { endpoint = "https://gw.test/koreader-library/?token=t" })
-            r:sync(helpers.store())
+            r:sync(helpers.store(), { outbox = helpers.store() })
             assert.are.equal("https://gw.test/koreader-library/settings?token=t", tr.requests[1].url)
         end)
 
@@ -144,7 +144,7 @@ describe("settings from the library", function()
             local store = helpers.store({ copt_font_size = 22 })
             local r, tr = remote({ { status = 401, body = "{}" } })
 
-            local result, err = r:sync(store)
+            local result, err = r:sync(store, { outbox = helpers.store() })
 
             assert.is_nil(result)
             assert.are.equal("unauthorized", err.code)
@@ -156,16 +156,70 @@ describe("settings from the library", function()
             local store = helpers.store()
             local r = remote({ queued({ { key = "copt_font_size", value = 24 } }), { err = "timeout" } })
 
-            local result = r:sync(store)
+            local result = r:sync(store, { outbox = helpers.store() })
 
             assert.are.equal(24, store.data.copt_font_size)
             assert.is_false(result.reported)
             assert.are.equal("timeout", result.report_error.code)
         end)
 
+        it("keeps unreported changes, and reports each with the value it first replaced", function()
+            local store = helpers.store({ copt_font_size = 22 })
+            local outbox = helpers.store()
+            local change = queued({ { key = "copt_font_size", value = 24 } })
+
+            local first = remote({ change, { err = "timeout" } }):sync(store, { outbox = outbox })
+            assert.is_false(first.reported)
+            assert.are.same({ { key = "copt_font_size", value = 24, previous = 22 } },
+                outbox.data[RemoteSettings.OUTBOX_KEY])
+
+            -- The library never heard, so it hands out the same change again.
+            local r, tr = remote({ change, REPORTED })
+            local second = r:sync(store, { outbox = outbox })
+
+            assert.is_true(second.reported)
+            assert.are.same({ { key = "copt_font_size", value = 24, previous = 22 } },
+                json.decode(tr.requests[2].body).applied)
+            assert.is_nil(outbox.data[RemoteSettings.OUTBOX_KEY])
+        end)
+
+        it("reports an unreported change the library no longer hands out", function()
+            local outbox = helpers.store({
+                [RemoteSettings.OUTBOX_KEY] = { { key = "show_bottom_menu", value = false, previous = true } },
+            })
+            local r, tr = remote({ queued({ { key = "copt_font_size", value = 24 } }), REPORTED })
+
+            r:sync(helpers.store(), { outbox = outbox })
+
+            assert.are.same({
+                { key = "show_bottom_menu", value = false, previous = true },
+                { key = "copt_font_size", value = 24 },
+            }, json.decode(tr.requests[2].body).applied)
+        end)
+
+        it("sends both requests through the offload, and a cancelled fetch changes nothing", function()
+            local store = helpers.store({ copt_font_size = 22 })
+            local r, tr = remote({ queued({ { key = "copt_font_size", value = 24 } }), REPORTED })
+            local tasks = 0
+            local result = r:sync(store, { outbox = helpers.store(), offload = function(task)
+                tasks = tasks + 1
+                local raw = task()
+                assert.are.equal("string", type(raw))
+                return raw
+            end })
+            assert.are.equal(2, tasks)
+            assert.is_true(result.reported)
+            assert.are.equal(24, store.data.copt_font_size)
+
+            local cancelled, err = r:sync(store, { outbox = helpers.store(), offload = function() return nil end })
+            assert.is_nil(cancelled)
+            assert.are.equal("cancelled", err.code)
+            assert.are.equal(2, tr.calls)
+        end)
+
         it("refuses to start without an address", function()
             local r = remote({}, { endpoint = "" })
-            local result, err = r:sync(helpers.store())
+            local result, err = r:sync(helpers.store(), { outbox = helpers.store() })
             assert.is_nil(result)
             assert.are.equal("not_configured", err.code)
         end)
