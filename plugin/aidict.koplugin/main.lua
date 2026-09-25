@@ -1418,6 +1418,8 @@ function AiDict:sync()
             return exchanged.library
         end }
         steps[#steps + 1] = { title = _("Settings"), run = function()
+            -- A dismissed report with nothing to show is a dismissed sync, not one in sync.
+            if exchanged.dismissed and not exchanged.settings then return nil end
             return exchanged.settings, exchanged.changed, exchanged.dismissed
         end }
     else

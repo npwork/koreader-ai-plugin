@@ -1209,6 +1209,26 @@ describe("the KOReader layer", function()
                 assert.is_nil(last_shown().text:find("Kindle lookups", 1, true))
             end)
 
+            it("says nothing, not \"in sync\", when an earlier change's report is dismissed", function()
+                build({ responses = { synced({}) } })
+                kor.store.data.settings_unreported = { { key = "copt_font_size", value = 22, previous = 20 } }
+                local waits = 0
+                local trapper = package.loaded["ui/trapper"]
+                local run = trapper.dismissableRunInSubprocess
+                trapper.dismissableRunInSubprocess = function(self, fn, message, simple)
+                    waits = waits + 1
+                    if waits == 2 then return false end
+                    return run(self, fn, message, simple)
+                end
+                local shown = #kor.shown
+
+                menu_item("Sync").callback()
+
+                assert.are.equal(2, waits)
+                assert.are.equal(shown, #kor.shown)
+                assert.is_table(kor.store.data.settings_unreported)
+            end)
+
             it("says why when the library cannot be reached, once", function()
                 sync({ { err = "network unreachable" } })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
