@@ -1243,6 +1243,20 @@ describe("the KOReader layer", function()
                 }, sidecar.data)
             end)
 
+            it("keeps a book it has read before in web rendering, not KOReader's legacy fallback", function()
+                build()
+                reader.ui.config = { options = { prefix = "copt", { options = { { name = "block_rendering_mode" } } } } }
+                reader.ui.document = { configurable = { block_rendering_mode = 3 } }
+                local sidecar = helpers.store({ copt_block_rendering_mode = 3, last_xpointer = "/body/p[4]" })
+
+                plugin:onDocSettingsLoad(sidecar, reader.ui.document)
+                assert.are.same({ copt_block_rendering_mode = 3, last_xpointer = "/body/p[4]" }, sidecar.data)
+
+                kor.global_settings.data.copt_block_rendering_mode = 2
+                plugin:onDocSettingsLoad(sidecar, reader.ui.document)
+                assert.are.equal(2, sidecar.data.copt_block_rendering_mode)
+            end)
+
             it("makes a change made in the book the default for every book", function()
                 build()
                 local look = { h_page_margins = { 20, 20 }, font_size = 22 }
