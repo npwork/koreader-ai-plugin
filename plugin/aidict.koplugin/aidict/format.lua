@@ -34,9 +34,10 @@ subtract, knowing what they have subtracted.
 The edge's round trip changes that, a little. A lookup opens a fresh
 connection, so the flight costs about three of them (TCP, TLS 1.3, the
 request itself); what the total has left after the server and those three is
-DNS, the Kindle's own TLS work and Wi-Fi loss. That remainder is shown with a
-tilde and under that name, as the estimate it is, and only when it is big
-enough to be worth reading.
+mostly DNS, the Kindle's own TLS work and Wi-Fi loss, but also whatever
+Cloudflare spent before the Worker started, which nothing here can separate.
+So it is shown as "elsewhere", with a tilde, and only when it is big enough
+to be worth reading; the Network check is what splits it.
 
 @param elapsed_ms number  the whole round trip, as the device measured it
 @param server_ms  number  what the gateway says it spent, when it says
@@ -58,7 +59,7 @@ function Format.timing(elapsed_ms, server_ms, edge_rtt_ms)
         local elapsed, spent = tonumber(elapsed_ms), tonumber(server_ms)
         if spent then
             local rest = elapsed - spent - FLIGHT_ROUND_TRIPS * rtt
-            if rest >= MIN_REST_MS then text = text .. " · ~" .. Format.duration(rest) .. " DNS & Kindle" end
+            if rest >= MIN_REST_MS then text = text .. " · ~" .. Format.duration(rest) .. " elsewhere" end
         end
     end
     return text

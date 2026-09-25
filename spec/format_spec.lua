@@ -311,9 +311,10 @@ describe("format", function()
         end)
 
         it("estimates what the flight does not explain", function()
-            -- 7000 - 1600 - 3 round trips of 180 = 4860: DNS, the Kindle's
-            -- TLS work and Wi-Fi loss, which no server clock can see.
-            assert.are.equal("7.0s total · 1.6s server · 180 ms to edge · ~4.9s DNS & Kindle",
+            -- 7000 - 1600 - 3 round trips of 180 = 4860: mostly DNS, the
+            -- Kindle's TLS work and Wi-Fi loss, but any delay at the edge
+            -- too, so it is not named as any one of them.
+            assert.are.equal("7.0s total · 1.6s server · 180 ms to edge · ~4.9s elsewhere",
                 Format.timing(7000, 1600, 180))
         end)
 
