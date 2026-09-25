@@ -1302,6 +1302,23 @@ describe("the KOReader layer", function()
                 assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
             end)
 
+            it("hands the open book the style tweaks Sync applied, so closing it keeps them", function()
+                local tweaks = { margin_body_0 = true, ["footnote-inpage_epub"] = true }
+                build({ responses = {
+                    { status = 200, body = helpers.body({ version = 1, files = {} }) },
+                    { status = 200, body = helpers.body({ apply = { { key = "style_tweaks", value = tweaks } } }) },
+                    { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
+                } })
+                open_book({ h_page_margins = { 20, 20 } }, "Literata")
+                kor.global_settings.data.style_tweaks = { ["footnote-inpage_epub"] = true }
+                reader.ui.styletweak = { global_tweaks = kor.global_settings.data.style_tweaks }
+
+                menu_item("Sync").callback()
+
+                assert.are.same(tweaks, reader.ui.styletweak.global_tweaks)
+                assert.are.equal(kor.global_settings.data.style_tweaks, reader.ui.styletweak.global_tweaks)
+            end)
+
             it("leaves a PDF's own crop, zoom and contrast alone", function()
                 build()
                 reader.ui.config = { options = { prefix = "kopt", { options = { { name = "zoom_mode" }, { name = "contrast" } } } } }
