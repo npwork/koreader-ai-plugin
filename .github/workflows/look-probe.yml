@@ -1,0 +1,36 @@
+name: look probe
+on:
+  push:
+    branches: [claude/look-probe]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb libsdl2-2.0-0 fonts-dejavu-core zip
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          TAG="$(gh release list --repo koreader/koreader --limit 1 --json tagName --jq '.[0].tagName')"
+          gh release download "${TAG}" --repo koreader/koreader --pattern '*x86_64*.AppImage' --dir .
+          chmod +x ./*.AppImage && ./*.AppImage --appimage-extract >/dev/null
+          K="$(dirname "$(find squashfs-root -name reader.lua | head -1)")"
+          echo "K=$PWD/$K" >> "$GITHUB_ENV"
+          cp -r plugin/aidict.koplugin "$K/plugins/"
+      - name: probe
+        run: |
+          set +e
+          mkdir -p book/OEBPS/META-INF book/OEBPS && cd book
+          printf 'application/epub+zip' > mimetype
+          mkdir -p META-INF && printf '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/c.opf" media-type="application/oebps-package+xml"/></rootfiles></container>' > META-INF/container.xml
+          printf '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title><dc:identifier id="id">x</dc:identifier><dc:language>en</dc:language></metadata><manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>' > OEBPS/c.opf
+          printf '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>T</title></head><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > OEBPS/c.xhtml
+          zip -X0 ../b.epub mimetype >/dev/null && zip -Xr9D ../b.epub META-INF OEBPS >/dev/null && cd ..
+          CFG="$HOME/.config/koreader"; mkdir -p "$CFG/patches"; cp probe/2-probe.lua "$CFG/patches/"
+          printf 'return {\n ["copt_h_page_margins"] = {5, 5},\n ["copt_block_rendering_mode"] = 3,\n}\n' > "$CFG/settings.reader.lua"
+          run() { PROBE_PHASE="$1" xvfb-run -a --server-args="-screen 0 600x800x24" timeout --signal=TERM --kill-after=15 40 "$K/reader.lua" -d "$PWD/b.epub" > "log-$1.txt" 2>&1 < /dev/null; echo "phase $1 exited $?"; grep -E "PROBE|aidict|rror" "log-$1.txt" | head -40; echo "--- G after $1:"; grep -E "h_page_margins|margin_body|style_tweaks" -A3 "$CFG/settings.reader.lua" | head -20; echo "--- sidecar:"; grep -rh "h_page_margins" -A3 "$PWD"/b.sdr/*.lua 2>/dev/null | head -8; }
+          run first
+          run sync
+          run reopen
+          run close
+          run last
