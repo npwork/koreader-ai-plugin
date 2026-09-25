@@ -1375,6 +1375,7 @@ function AiDict:settingsStep(endpoint)
         #result.applied, tostring(result.reported),
         result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
 
+    self:adoptStyleTweaks(result.applied)
     local dismissed = result.report_error and result.report_error.code == "cancelled"
     local said = {}
     if #result.applied > 0 then
@@ -1388,6 +1389,27 @@ function AiDict:settingsStep(endpoint)
     -- Dismissing the report stops the sync too, but what was applied stays
     -- applied, and says so.
     return text, #result.applied, dismissed
+end
+
+--[[--
+The open book's style tweaks module keeps its own copy of the global tweaks
+and writes it back over `style_tweaks` when the book is saved or closed, so
+the restart that would show the tweaks Sync applied undid them first. Hand it
+the applied ones instead.
+--]]--
+function AiDict:adoptStyleTweaks(applied)
+    local styletweak = self.ui and self.ui.styletweak
+    if not (styletweak and styletweak.global_tweaks) then return end
+    for _, change in ipairs(applied) do
+        if change.key == "style_tweaks" then
+            local tweaks = G_reader_settings:readSetting("style_tweaks")
+            if not tweaks then
+                local ok, CssTweaks = pcall(require, "ui/data/css_tweaks")
+                tweaks = ok and CssTweaks.DEFAULT_GLOBAL_STYLE_TWEAKS or {}
+            end
+            styletweak.global_tweaks = tweaks
+        end
+    end
 end
 
 --[[--
