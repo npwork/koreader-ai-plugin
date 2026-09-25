@@ -12,6 +12,11 @@ function Format.duration(ms)
     return string.format("%.1fs", ms / 1000)
 end
 
+-- TCP connect, TLS 1.3 and the request: the round trips a fresh lookup flies.
+local FLIGHT_ROUND_TRIPS = 3
+-- Below this the remainder is clock skew and rounding, not something to chase.
+local MIN_REST_MS = 300
+
 --[[--
 How long it took, measured twice.
 
@@ -25,6 +30,14 @@ thing. It is the Wi-Fi waking, DNS, the handshake, Cloudflare and the flight
 each way, taken off two different clocks on two different machines. Naming it
 "network" would be a claim neither number supports; a reader who wants it can
 subtract, knowing what they have subtracted.
+
+The edge's round trip changes that, a little. A lookup opens a fresh
+connection, so the flight costs about three of them (TCP, TLS 1.3, the
+request itself); what the total has left after the server and those three is
+mostly DNS, the Kindle's own TLS work and Wi-Fi loss, but also whatever
+Cloudflare spent before the Worker started, which nothing here can separate.
+So it is shown as "elsewhere", with a tilde, and only when it is big enough
+to be worth reading; the Network check is what splits it.
 
 @param elapsed_ms number  the whole round trip, as the device measured it
 @param server_ms  number  what the gateway says it spent, when it says
@@ -41,7 +54,14 @@ function Format.timing(elapsed_ms, server_ms, edge_rtt_ms)
     if server ~= "" then text = total .. " total · " .. server .. " server" end
 
     local rtt = tonumber(edge_rtt_ms)
-    if rtt then text = text .. string.format(" · %d ms to edge", math.floor(rtt + 0.5)) end
+    if rtt then
+        text = text .. string.format(" · %d ms to edge", math.floor(rtt + 0.5))
+        local elapsed, spent = tonumber(elapsed_ms), tonumber(server_ms)
+        if spent then
+            local rest = elapsed - spent - FLIGHT_ROUND_TRIPS * rtt
+            if rest >= MIN_REST_MS then text = text .. " · ~" .. Format.duration(rest) .. " elsewhere" end
+        end
+    end
     return text
 end
 
