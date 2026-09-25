@@ -28,7 +28,7 @@ jobs:
           zip -X0 ../b.epub mimetype >/dev/null && zip -Xr9D ../b.epub META-INF OEBPS >/dev/null && cd ..
           CFG="$HOME/.config/koreader"; mkdir -p "$CFG/patches"; cp probe/2-probe.lua "$CFG/patches/"
           printf 'return {\n ["copt_h_page_margins"] = {5, 5},\n ["copt_block_rendering_mode"] = 3,\n}\n' > "$CFG/settings.reader.lua"
-          run() { PROBE_PHASE="$1" xvfb-run -a --server-args="-screen 0 600x800x24" timeout --signal=TERM --kill-after=15 40 "$K/reader.lua" -d "$PWD/b.epub" > "log-$1.txt" 2>&1 < /dev/null; echo "phase $1 exited $?"; grep -E "PROBE|aidict|rror" "log-$1.txt" | head -40; echo "--- G after $1:"; grep -E "h_page_margins|margin_body|style_tweaks" -A3 "$CFG/settings.reader.lua" | head -20; echo "--- sidecar:"; grep -rh "h_page_margins" -A3 "$PWD"/b.sdr/*.lua 2>/dev/null | head -8; }
+          W="$PWD"; run() { (cd "$K" && PROBE_PHASE="$1" xvfb-run -a --server-args="-screen 0 600x800x24" timeout --signal=TERM --kill-after=15 40 ./reader.lua -d "$W/b.epub" > "$W/log-$1.txt" 2>&1 < /dev/null); echo "phase $1 exited $?"; tail -5 "log-$1.txt"; grep -E "PROBE|aidict|rror" "log-$1.txt" | head -40; echo "--- G after $1:"; grep -E "h_page_margins|margin_body|style_tweaks" -A3 "$CFG/settings.reader.lua" | head -20; echo "--- sidecar:"; grep -rh "h_page_margins" -A3 "$PWD"/b.sdr/*.lua 2>/dev/null | head -8; }
           run first
           run sync
           run reopen
