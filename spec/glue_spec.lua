@@ -1264,6 +1264,25 @@ describe("the KOReader layer", function()
                 assert.are.equal(0, kor.global_settings.flushed)
             end)
 
+            it("sends a change made in the open book with the next Sync, saved or not", function()
+                build({ responses = {
+                    { status = 200, body = helpers.body({ version = 1, files = {} }) },
+                    { status = 200, body = helpers.body({ apply = {} }) },
+                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
+                } })
+                local look = { h_page_margins = { 20, 20 }, font_size = 22 }
+                open_book(look, "Literata")
+                plugin:onReadSettings()
+                plugin:onFlushSettings()
+                look.font_size = 26
+
+                menu_item("Sync").callback()
+
+                local plan_request = helpers.json.decode(kor.transport.requests[2].body)
+                assert.are.equal(26, plan_request.values.copt_font_size)
+                assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
+            end)
+
             it("leaves a PDF's own crop, zoom and contrast alone", function()
                 build()
                 reader.ui.config = { options = { prefix = "kopt", { options = { { name = "zoom_mode" }, { name = "contrast" } } } } }

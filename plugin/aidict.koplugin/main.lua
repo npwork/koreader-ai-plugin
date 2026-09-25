@@ -1281,6 +1281,8 @@ gateway cannot freeze the reader; the writes happen in this process, because
 a change to `G_reader_settings` made in a forked child dies with it.
 --]]--
 function AiDict:settingsStep(endpoint)
+    -- A change made in the open book since the last save is this Kindle's too.
+    self:keepLookGlobal()
     local remote = RemoteSettings.new({
         endpoint = endpoint,
         api_key = self.settings:get("api_key"),
