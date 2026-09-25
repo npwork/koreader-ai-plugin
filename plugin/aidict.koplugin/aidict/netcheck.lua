@@ -170,8 +170,11 @@ function NetCheck.report(results)
     for _, r in ipairs(results) do
         lines[#lines + 1] = string.format("%s — round %d%s", r.name, r.round or 1,
             r.colo and (" · via " .. r.colo) or "")
-        lines[#lines + 1] = string.format("  DNS %s · connect %s · TLS %s · request %s",
-            ms(r.dns_ms), ms(r.tcp_ms), ms(r.tls_ms), ms(r.request_ms))
+        -- The status too: a hotel's captive portal answers fast, and with
+        -- something that is not ours.
+        lines[#lines + 1] = string.format("  DNS %s · connect %s · TLS %s · request %s%s",
+            ms(r.dns_ms), ms(r.tcp_ms), ms(r.tls_ms), ms(r.request_ms),
+            r.status and (" (HTTP " .. tostring(r.status) .. ")") or "")
         if r.err then lines[#lines + 1] = "  failed at " .. r.err end
         for _, step in ipairs({ { "DNS", r.dns_ms }, { "connect", r.tcp_ms }, { "TLS", r.tls_ms } }) do
             if step[2] and step[2] > slowest_ms then
