@@ -1316,7 +1316,10 @@ describe("the KOReader layer", function()
                 menu_item("Sync").callback()
 
                 assert.are.same(tweaks, reader.ui.styletweak.global_tweaks)
-                assert.are.equal(kor.global_settings.data.style_tweaks, reader.ui.styletweak.global_tweaks)
+
+                -- What ReaderStyleTweak:onSaveSettings does when the book is saved or closed.
+                kor.global_settings:saveSetting("style_tweaks", reader.ui.styletweak.global_tweaks)
+                assert.are.same(tweaks, kor.global_settings.data.style_tweaks)
             end)
 
             it("leaves a PDF's own crop, zoom and contrast alone", function()
