@@ -50,6 +50,20 @@ describe("updater", function()
         end)
     end)
 
+    describe("what Sync offers", function()
+        it("offers only a version newer than this one", function()
+            assert.are.equal("0.2.90", Updater.newer("0.2.90", "0.2.82"))
+            assert.are.equal("0.10.0", Updater.newer("0.10.0", "0.9.9"))
+            assert.is_nil(Updater.newer("0.2.82", "0.2.82"))
+            assert.is_nil(Updater.newer("0.2.81", "0.2.82"))
+        end)
+
+        it("offers nothing it cannot read", function()
+            assert.is_nil(Updater.newer(nil, "0.2.82"))
+            assert.is_nil(Updater.newer("soon", "0.2.82"))
+        end)
+    end)
+
     describe("url", function()
         it("points at the channel's version manifest", function()
             assert.are.equal("https://repo.test/kpm/dev/version.json",

@@ -80,13 +80,22 @@ describe("library sync, end to end", function()
         os.execute("rm -rf '" .. dir .. "'")
     end)
 
+    -- The manifest arrives with the library's answer to Sync, the one
+    -- request the plugin makes; the library then only downloads.
     local function library()
-        return Library.new({
-            endpoint = server.url("/koreader-library"),
-            transport = transport,
-            json = helpers.json,
-            fs = filesystem(),
-        })
+        local lib = Library.new({ transport = transport, fs = filesystem() })
+        local sync = lib.sync
+        function lib:sync(into, opts)
+            local response = assert(transport({
+                url = server.url("/koreader-library/sync"),
+                method = "POST",
+                headers = { ["Content-Type"] = "application/json" },
+                body = helpers.json.encode({ values = {}, now = os.time() }),
+            }))
+            assert.are.equal(200, response.status)
+            return sync(self, into, helpers.json.decode(response.body).manifest, opts)
+        end
+        return lib
     end
 
     it("downloads the books into their shelves and leaves nothing half-written", function()

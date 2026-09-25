@@ -136,7 +136,7 @@ function RemoteSettings.new(opts)
     }, RemoteSettings)
 end
 
---- `<endpoint>/settings<path>`, keeping a `?token=` the address may carry at the end.
+--- `<endpoint><path>`, keeping a `?token=` the address may carry at the end.
 function RemoteSettings:url(path)
     local base, query = self.endpoint or "", ""
     local mark = base:find("?", 1, true)
@@ -144,10 +144,10 @@ function RemoteSettings:url(path)
         query = base:sub(mark)
         base = base:sub(1, mark - 1)
     end
-    return (base:gsub("/+$", "")) .. "/settings" .. (path or "") .. query
+    return (base:gsub("/+$", "")) .. path .. query
 end
 
---- One request to the settings route, decoded; nil and `{ code, message }` when it failed.
+--- One request to the library, decoded; nil and `{ code, message }` when it failed.
 function RemoteSettings:request(method, body, path)
     local headers = { ["Accept"] = "application/json", ["User-Agent"] = self.user_agent }
     if type(self.api_key) == "string" and self.api_key ~= "" then
@@ -397,26 +397,61 @@ end
 
 local CANCELLED = { code = "cancelled", message = "the sync was cancelled" }
 
+--- Forget what a request the library answered took there: the log lines it
+--- carried, and the stamps of changes it now holds.
+local function delivered(outbox, sent)
+    local left = outbox:readSetting(RemoteSettings.LOG_KEY)
+    if type(left) == "table" then
+        local rest = {}
+        for _, line in ipairs(left) do
+            if type(line) == "table" and (tonumber(line.n) or 0) > sent.last_logged then rest[#rest + 1] = line end
+        end
+        outbox:saveSetting(RemoteSettings.LOG_KEY, rest)
+    end
+    local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
+    if type(changed) == "table" then
+        for key, at in pairs(sent.stamps) do
+            if changed[key] == at then changed[key] = nil end
+        end
+        outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
+    end
+end
+
+--- What a request is about to take to the library. Copies, because the
+--- store's own lists grow if a change is logged while it is on its way.
+local function sending(outbox)
+    local stamps, log = {}, {}
+    for key, at in pairs(outbox:readSetting(RemoteSettings.CHANGED_KEY) or {}) do stamps[key] = at end
+    for i, line in ipairs(outbox:readSetting(RemoteSettings.LOG_KEY) or {}) do log[i] = line end
+    return { stamps = stamps, log = log, last_logged = #log > 0 and tonumber(log[#log].n) or 0 }
+end
+
 --[[--
-One sync, both ways.
+One sync, both ways: one request, and a second only when this Kindle changed.
 
 1. Note this Kindle's own changes since the last look (`notice`).
-2. Send every setting, with when each of its own changes was seen; the
-   library answers with what to apply — its queued changes, less those the
-   Kindle changed later itself.
-3. Apply them here, and report back what changed and every setting now. The
-   report is the library's copy, so the Kindle's own changes arrive with it.
+2. Send every setting, when each of its own changes was seen, and the log of
+   them to the library's `/sync`. It keeps what was sent as this Kindle's
+   settings now, and answers with what to apply: its queued changes, less
+   those the Kindle changed later itself.
+3. Apply them here. Only when that changed something, or an earlier report
+   never arrived, report back what changed and every setting now.
 
-The two requests go through `opts.offload`, so KOReader can run them in a
+The requests go through `opts.offload`, so KOReader can run them in a
 subprocess and a slow gateway never freezes the reader; the writes to the
 store happen here, because a change made in a forked child dies with it.
+`opts.also(answer)` runs in that same subprocess once the library answered,
+for the rest of the Sync that needs the answer (the books to download); what
+it returns comes back as `answer.also`.
 
 @param store table  `readSetting`, `saveSetting`, `delSetting`, `flush`, and
                     `data`, the table holding every setting
 @param opts  table  `outbox`: the plugin's own store, for the changes not yet
                     reported and the stamps; `offload`: `function(task) →
-                    task's string | nil if cancelled`; `now`: Unix seconds
-@treturn table `{ applied = { … }, reported = bool, report_error = err|nil }`
+                    task's string | nil if cancelled`; `now`: Unix seconds;
+                    `ask`: more to send beside the settings; `also`: see above
+@treturn table `{ applied = { … }, reported = bool, report_error = err|nil,
+                answer = the library's answer, less the manifest }`
 @treturn table err when nothing could be fetched, so nothing changed
 --]]--
 function RemoteSettings:sync(store, opts)
@@ -428,21 +463,29 @@ function RemoteSettings:sync(store, opts)
 
     local clock = now()
     local changed_at = RemoteSettings.notice(store.data, outbox, self.json, clock)
+    local sent = sending(outbox)
     -- `now` is this Kindle's clock, so the library can set the stamps against its own.
     local ask = { values = RemoteSettings.snapshot(store.data, self.json), now = clock }
+    for key, value in pairs(opts.ask or {}) do ask[key] = value end
     -- Left out rather than sent empty: an empty Lua table encodes as a list.
     if next(changed_at) ~= nil then ask.changed_at = changed_at end
+    if #sent.log > 0 then ask.log = sent.log end
     local encoded, ask_body = pcall(self.json.encode, ask)
     if not encoded then return nil, { code = "encode", message = tostring(ask_body) } end
 
     local fetched = self:offloaded(opts.offload, function()
-        local plan, err = self:request("POST", ask_body, "/plan")
-        return { plan = plan, err = err }
+        local answer, err = self:request("POST", ask_body, "/sync")
+        if answer and opts.also then answer.also = opts.also(answer) end
+        -- The manifest's presigned links are no use out here, and they are the bulk of the answer.
+        if answer then answer.manifest = nil end
+        return { plan = answer, err = err }
     end)
     if not fetched then return nil, CANCELLED end
     if type(fetched.plan) ~= "table" then
         return nil, fetched.err or { code = "bad_response", message = "the library sent nothing usable" }
     end
+    -- The library keeps what it was sent as this Kindle's settings now.
+    delivered(outbox, sent)
 
     local applied = RemoteSettings.apply(store, fetched.plan.apply)
     if #applied > 0 and store.flush then store:flush() end
@@ -464,54 +507,37 @@ function RemoteSettings:sync(store, opts)
     local changes = outgoing(type(unreported) == "table" and unreported or {}, applied)
     if #applied > 0 then outbox:saveSetting(RemoteSettings.OUTBOX_KEY, changes) end
     if outbox.flush then outbox:flush() end
+    -- Nothing here changed since the library was told: its copy is already right.
+    if #changes == 0 then return { applied = applied, reported = true, answer = fetched.plan } end
 
-    -- The stamps this report answers; one taken while it is on its way is not.
-    local answered = {}
-    for key, at in pairs(outbox:readSetting(RemoteSettings.CHANGED_KEY) or {}) do answered[key] = at end
-    -- A copy: the store's own list grows if a change is logged while the report is on its way.
-    local log = {}
-    for i, line in ipairs(outbox:readSetting(RemoteSettings.LOG_KEY) or {}) do log[i] = line end
-    local last_sent = #log > 0 and tonumber(log[#log].n) or 0
+    local report_sent = sending(outbox)
     local report = {
         values = RemoteSettings.snapshot(store.data, self.json),
         plugin_version = Version.string,
         now = now(),
+        applied = changes,
     }
-    if #changes > 0 then report.applied = changes end
-    if #log > 0 then report.log = log end
+    if #report_sent.log > 0 then report.log = report_sent.log end
 
     local ok, body = pcall(self.json.encode, report)
     if not ok then
-        return { applied = applied, reported = false, report_error = { code = "encode", message = tostring(body) } }
+        return { applied = applied, reported = false, answer = fetched.plan,
+            report_error = { code = "encode", message = tostring(body) } }
     end
-    local sent = self:offloaded(opts.offload, function()
-        local answer, err = self:request("POST", body)
+    local answered = self:offloaded(opts.offload, function()
+        local answer, err = self:request("POST", body, "/settings")
         return { ok = answer ~= nil, err = err }
     end)
-    if not sent then return { applied = applied, reported = false, report_error = CANCELLED } end
-    if sent.ok then
-        -- The library's copy now has everything, the Kindle's own changes
-        -- included: nothing is waiting, and no change is newer than it.
+    if not answered then
+        return { applied = applied, reported = false, report_error = CANCELLED, answer = fetched.plan }
+    end
+    if answered.ok then
+        -- The library's copy now has everything: nothing is waiting, and no change is newer than it.
         outbox:delSetting(RemoteSettings.OUTBOX_KEY)
-        -- Only what went: a change logged while the report was on its way stays for the next one.
-        local left = outbox:readSetting(RemoteSettings.LOG_KEY)
-        if type(left) == "table" then
-            local rest = {}
-            for _, line in ipairs(left) do
-                if type(line) == "table" and (tonumber(line.n) or 0) > last_sent then rest[#rest + 1] = line end
-            end
-            outbox:saveSetting(RemoteSettings.LOG_KEY, rest)
-        end
-        local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
-        if type(changed) == "table" then
-            for key, at in pairs(answered) do
-                if changed[key] == at then changed[key] = nil end
-            end
-            outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
-        end
+        delivered(outbox, report_sent)
         if outbox.flush then outbox:flush() end
     end
-    return { applied = applied, reported = sent.ok == true, report_error = sent.err }
+    return { applied = applied, reported = answered.ok == true, report_error = answered.err, answer = fetched.plan }
 end
 
 return RemoteSettings

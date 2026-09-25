@@ -35,6 +35,15 @@ function Updater.compare(a, b)
     return 0
 end
 
+--- `latest` when it is a version newer than `current` (this plugin's own by
+--- default), for Sync to offer; nil otherwise.
+function Updater.newer(latest, current)
+    local wanted = Updater.parse(latest)
+    local have = Updater.parse(current or Version.string)
+    if wanted and have and Updater.compare(wanted, have) > 0 then return latest end
+    return nil
+end
+
 function Updater.new(opts)
     opts = opts or {}
     assert(type(opts.transport) == "function", "Updater needs a transport function")

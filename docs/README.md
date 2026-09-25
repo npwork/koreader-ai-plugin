@@ -76,9 +76,10 @@ docs/                     api.md (gateway contract), testing.md, emulator.md, di
 
 ## Updating itself
 
-**Update the plugin** — second in AI dictionary, under the sync — asks the
-channel's `version.json` whether there is something newer, and offers to
-install it. Installing runs the Kindle's own
+**Sync** ends by comparing the newest release on the channel, which the
+gateway sends with its answer (or the channel's `version.json` when it does
+not), against what runs, and offers to install it when it is newer. Installing
+runs the Kindle's own
 package manager — `kpm -y install koreader-aidict`, found at
 `/var/local/kmc/<platform>/bin/kpm` — from inside KOReader, so an update does
 not mean leaving the book to type `;kpm install …` into the Kindle's search
@@ -109,7 +110,7 @@ published package is world-readable and the gateway's key now opens the codex
 proxy and the Words data endpoint too, so it is typed once into the plugin's
 own "API key" field on the device.
 
-The library lives on the gateway, at `GET <library endpoint>/manifest`, and its
+The library lives on the gateway, at `POST <library endpoint>/sync`, and its
 address comes only from the `AIDICT_LIBRARY_ENDPOINT` secret, baked into the
 package at build time. It is not a setting: the plugin's menu shows it on the
 "Library" line and cannot change it. A new address reaches the device the way

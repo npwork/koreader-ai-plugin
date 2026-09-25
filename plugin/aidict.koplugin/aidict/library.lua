@@ -13,7 +13,7 @@ for the filesystem, `json` for decoding — so the whole sync is exercised in
     fs.rmdir(path)       -> ok, err       (fails on a folder that is not empty)
 
 It happens in two halves, because the first runs in a forked subprocess.
-`sync` fetches the manifest, plans, and downloads — the slow part, which the
+`sync` plans from the manifest the library sent with its answer to Sync, and downloads — the slow part, which the
 reader must be able to give up on. `settle` then runs back in KOReader itself
 and does the moves and deletes: they go through KOReader's own history,
 collections and book settings, and a child process's changes to those would
@@ -65,81 +65,12 @@ end
 function Library.new(opts)
     opts = opts or {}
     assert(type(opts.transport) == "function", "Library needs a transport function")
-    assert(type(opts.json) == "table", "Library needs a json codec")
     assert(type(opts.fs) == "table", "Library needs a filesystem")
     return setmetatable({
-        endpoint = opts.endpoint,
-        api_key = opts.api_key,
         transport = opts.transport,
-        json = opts.json,
         fs = opts.fs,
-        block_timeout = opts.block_timeout or 10,
-        total_timeout = opts.total_timeout or 60,
         user_agent = opts.user_agent or ("koreader-aidict/" .. Version.string),
     }, Library)
-end
-
-function Library:url_for(path)
-    local base = self.endpoint or ""
-    local query = ""
-    local mark = base:find("?", 1, true)
-    if mark then
-        query = base:sub(mark)
-        base = base:sub(1, mark - 1)
-    end
-    base = base:gsub("/+$", "")
-    return base .. "/" .. tostring(path or ""):gsub("^/+", "") .. query
-end
-
---[[--
-Everything the gateway holds.
-
-@treturn table entries from `manifest.parse`
-@treturn table err     { code, message }
---]]--
-function Library:manifest()
-    if type(self.endpoint) ~= "string" or not self.endpoint:match("^https?://") then
-        return nil, { code = "not_configured", message = "the library endpoint is not set" }
-    end
-
-    local headers = {
-        ["Accept"] = "application/json",
-        ["User-Agent"] = self.user_agent,
-    }
-    if type(self.api_key) == "string" and self.api_key ~= "" then
-        headers["Authorization"] = "Bearer " .. self.api_key
-    end
-
-    local response, transport_err = self.transport({
-        url = self:url_for("manifest"),
-        method = "GET",
-        headers = headers,
-        block_timeout = self.block_timeout,
-        total_timeout = self.total_timeout,
-    })
-
-    if not response then
-        local reason = tostring(transport_err or "network unreachable")
-        if reason:lower():find("timeout") then
-            return nil, { code = "timeout", message = "the gateway did not answer in time" }
-        end
-        return nil, { code = "network", message = reason }
-    end
-
-    local status = tonumber(response.status) or 0
-    if status == 401 or status == 403 then
-        return nil, { code = "unauthorized", message = "the gateway rejected this device's key" }
-    end
-    if status < 200 or status >= 300 then
-        return nil, { code = "http_error", message = "the library answered HTTP " .. status, status = status }
-    end
-
-    local ok, decoded = pcall(self.json.decode, response.body or "")
-    if not ok or type(decoded) ~= "table" then
-        return nil, { code = "bad_response", message = "the library sent something that is not JSON" }
-    end
-
-    return Manifest.parse(decoded)
 end
 
 --- Create `dir` and every folder above it. The manifest carries shelves, and
@@ -211,14 +142,15 @@ function Library:fetch(entry, target)
 end
 
 --[[--
-Fetch the manifest, work out what to do, and do the downloads.
+Work out what to do from the manifest, and do the downloads.
 
 The moves are planned before anything downloads, so a book the server moved
 is never fetched again at its new path; they come back in the report, for
 `settle` to carry out where KOReader's bookkeeping lives.
 
-@param dir     string  where books go; the manifest's folders are mirrored under it
-@param opts    table   {
+@param dir      string  where books go; the manifest's folders are mirrored under it
+@param manifest table   the manifest, decoded, as the library's answer to Sync carries it
+@param opts     table   {
     on_progress = function(done, total, path),
     index = { [relative path] = { size, etag } }  what earlier syncs placed,
 }
@@ -228,11 +160,11 @@ is never fetched again at its new path; they come back in the report, for
     listed = { {path, size, etag}, … }  the manifest, for the next index,
     unusable = { path, … }  rows the manifest named that this device dropped,
 }
-@treturn table err    { code, message } when the manifest never arrived
+@treturn table err    { code, message } when the manifest is not one
 --]]--
-function Library:sync(dir, opts)
+function Library:sync(dir, manifest, opts)
     opts = opts or {}
-    local entries, dropped, named = self:manifest()
+    local entries, dropped, named = Manifest.parse(manifest)
     -- Same pair `Manifest.parse` returns, so with no entries the second
     -- value is the failure rather than a count.
     if not entries then return nil, dropped end
