@@ -115,11 +115,17 @@ describe("settings from the library", function()
             assert.are.equal(1, store.flushed)
 
             assert.are.equal("POST", tr.requests[2].method)
+            local report = json.decode(tr.requests[2].body)
+            assert.are.equal("number", type(report.now))
+            assert.are.same({
+                { n = 1, at = ask.now, key = "show_bottom_menu", source = "sync", value = false, previous = true },
+            }, report.log)
+            report.now, report.log = nil, nil
             assert.are.same({
                 applied = { { key = "show_bottom_menu", value = false, previous = true } },
                 values = { show_bottom_menu = false, copt_font_size = 22 },
                 plugin_version = Version.string,
-            }, json.decode(tr.requests[2].body))
+            }, report)
 
             assert.is_true(result.reported)
             assert.are.equal(1, #result.applied)
@@ -345,6 +351,109 @@ describe("settings from the library", function()
             local rebuilt = {}
             rebuilt.c, rebuilt.a, rebuilt.b = 3, 1, 2
             assert.are.same({}, RemoteSettings.notice({ kosync = rebuilt }, outbox, json, 200))
+        end)
+    end)
+
+    describe("the change log", function()
+        local function log(outbox) return outbox.data[RemoteSettings.LOG_KEY] end
+
+        it("logs what this Kindle changed or removed, but not the first look or a secret", function()
+            local data = { copt_font_size = 22, cre_font = "Literata", kosync_userkey = "a" }
+            local outbox = helpers.store()
+            RemoteSettings.notice(data, outbox, json, 100)
+            assert.is_nil(log(outbox))
+
+            data.copt_font_size, data.cre_font, data.kosync_userkey = 24, nil, "b"
+            RemoteSettings.notice(data, outbox, json, 200)
+
+            local lines = log(outbox)
+            table.sort(lines, function(a, b) return a.key < b.key end)
+            for _, line in ipairs(lines) do line.n = nil end -- numbered in the order pairs() met them
+            assert.are.same({
+                { at = 200, key = "copt_font_size", source = "kindle", value = 24 },
+                { at = 200, key = "cre_font", source = "kindle", removed = true },
+            }, lines)
+        end)
+
+        it("logs what Sync applied, with what it replaced, and a reset as removed", function()
+            local store = helpers.store({ copt_font_size = 22, cre_font = "Literata" })
+            local outbox = helpers.store()
+            remote({
+                planned({ { key = "copt_font_size", value = 24 }, { key = "cre_font", reset = true } }),
+                { err = "timeout" },
+            }):sync(store, { outbox = outbox, now = function() return 200 end })
+
+            assert.are.same({
+                { n = 1, at = 200, key = "copt_font_size", source = "sync", value = 24, previous = 22 },
+                { n = 2, at = 200, key = "cre_font", source = "sync", removed = true, previous = "Literata" },
+            }, log(outbox))
+        end)
+
+        it("does not log a change Sync applies again over its own value", function()
+            local store = helpers.store({ copt_font_size = 24, cre_font = "Literata" })
+            local outbox = helpers.store()
+            remote({
+                planned({
+                    { key = "copt_font_size", value = 24 },
+                    { key = "style_tweaks", reset = true },
+                    { key = "cre_font", value = "Bookerly" },
+                }),
+                { err = "timeout" },
+            }):sync(store, { outbox = outbox, now = function() return 200 end })
+
+            assert.are.same({
+                { n = 1, at = 200, key = "cre_font", source = "sync", value = "Bookerly", previous = "Literata" },
+            }, log(outbox))
+        end)
+
+        it("sends the log with the report, and keeps it while the report has not arrived", function()
+            local outbox = helpers.store()
+            RemoteSettings.log(outbox, { at = 100, key = "copt_font_size", source = "book", value = 26 }, json)
+            local store = helpers.store({ copt_font_size = 26 })
+
+            remote({ planned({}), { err = "timeout" } }):sync(store, { outbox = outbox })
+            assert.are.equal(1, #log(outbox))
+
+            local r, tr = remote({ planned({}), REPORTED })
+            r:sync(store, { outbox = outbox })
+            assert.are.same({ { n = 1, at = 100, key = "copt_font_size", source = "book", value = 26 } },
+                json.decode(tr.requests[2].body).log)
+            assert.are.same({}, log(outbox))
+        end)
+
+        it("keeps a change logged while the report was on its way", function()
+            local outbox = helpers.store()
+            RemoteSettings.log(outbox, { at = 100, key = "copt_font_size", source = "book", value = 26 }, json)
+            local r = remote({})
+            local calls = 0
+            r:sync(helpers.store({ copt_font_size = 26 }), { outbox = outbox, offload = function()
+                calls = calls + 1
+                if calls == 2 then
+                    RemoteSettings.log(outbox, { at = 250, key = "cre_font", source = "book", value = "Bookerly" }, json)
+                    return json.encode({ ok = true })
+                end
+                return json.encode({ plan = { apply = {} } })
+            end })
+
+            assert.are.same({ { n = 2, at = 250, key = "cre_font", source = "book", value = "Bookerly" } }, log(outbox))
+        end)
+
+        it("keeps only the newest entries when reports keep failing", function()
+            local outbox = helpers.store()
+            for i = 1, RemoteSettings.LOG_KEPT + 5 do
+                RemoteSettings.log(outbox, { at = i, key = "copt_font_size", source = "kindle", value = i }, json)
+            end
+            assert.are.equal(RemoteSettings.LOG_KEPT, #log(outbox))
+            assert.are.equal(6, log(outbox)[1].at)
+        end)
+
+        it("never logs a secret, not even inside a table", function()
+            local outbox = helpers.store()
+            RemoteSettings.log(outbox, { at = 1, key = "calibre_wireless_password", source = "sync", value = "pw" }, json)
+            RemoteSettings.log(outbox, { at = 2, key = "kosync", source = "sync",
+                value = { username = "nick", userkey = "md5" }, previous = { userkey = "old" } }, json)
+            assert.are.same({ { n = 1, at = 2, key = "kosync", source = "sync",
+                value = { username = "nick" }, previous = {} } }, log(outbox))
         end)
     end)
 

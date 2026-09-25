@@ -1521,7 +1521,11 @@ function AiDict:keepLookGlobal()
     for _, entry in ipairs(changed) do
         G_reader_settings:saveSetting(entry.key, entry.value)
     end
-    if #changed > 0 then G_reader_settings:flush() end
+    RemoteSettings.adopt(self.store, changed, json, os.time(), "book")
+    if #changed > 0 then
+        G_reader_settings:flush()
+        if self.store.flush then self.store:flush() end
+    end
 end
 
 ----------------------------------------------------------------------------
