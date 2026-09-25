@@ -20,6 +20,18 @@ local ANSWER = helpers.body({
     model = "spec-model",
 })
 
+--- The library's one answer to Sync: the books, the settings to apply, and the
+--- newest plugin, which is this one unless a spec says otherwise.
+local function synced(opts)
+    opts = opts or {}
+    return { status = 200, body = helpers.body({
+        manifest = { version = 1, files = opts.files or {} },
+        apply = opts.apply or {},
+        -- `plugin = false`: the library could not read the release.
+        plugin = opts.plugin ~= false and { version = opts.plugin or Version.string, channel = "stable" } or nil,
+    }) }
+end
+
 describe("the KOReader layer", function()
     local kor, reader, plugin
 
@@ -1085,12 +1097,12 @@ describe("the KOReader layer", function()
         it("syncs against the package's library address, not a saved one", function()
             build({
                 settings = { library_endpoint = "https://stale.test/koreader-library" },
-                responses = { { status = 200, body = helpers.body({ version = 1, files = {} }) } },
+                responses = { synced() },
             })
 
             plugin:sync()
 
-            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/manifest", kor.transport.requests[1].url)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[1].url)
         end)
 
         it("keeps the context size and update channel out of it", function()
@@ -1100,12 +1112,8 @@ describe("the KOReader layer", function()
         end)
 
         describe("syncing settings from the library", function()
-            -- Sync runs the library first; an empty one keeps it out of the way.
-            local EMPTY_LIBRARY = { status = 200, body = helpers.body({ version = 1, files = {} }) }
-
             local function sync(responses, opts)
                 opts = opts or {}
-                table.insert(responses, 1, EMPTY_LIBRARY)
                 build({ responses = responses, can_restart = opts.can_restart })
                 for key, value in pairs(opts.global or {}) do kor.global_settings.data[key] = value end
                 menu_item("Sync").callback()
@@ -1113,14 +1121,15 @@ describe("the KOReader layer", function()
 
             it("writes the queued values into KOReader's settings and offers a restart", function()
                 sync({
-                    { status = 200, body = helpers.body({ apply = { { key = "show_bottom_menu", value = false } } }) },
+                    synced({ apply = { { key = "show_bottom_menu", value = false } } }),
                     { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
                 }, { global = { show_bottom_menu = true } })
 
                 assert.is_false(kor.global_settings.data.show_bottom_menu)
                 assert.are.equal(1, kor.global_settings.flushed)
-                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings/plan", kor.transport.requests[2].url)
-                assert.are.equal("POST", kor.transport.requests[3].method)
+                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[1].url)
+                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", kor.transport.requests[2].url)
+                assert.are.equal("POST", kor.transport.requests[2].method)
                 assert.are.equal("ConfirmBox", last_shown().widget_kind)
                 assert.is_truthy(last_shown().text:find("show_bottom_menu", 1, true))
 
@@ -1129,11 +1138,7 @@ describe("the KOReader layer", function()
             end)
 
             it("sends when KOReader saved a change this Kindle made itself", function()
-                build({ responses = {
-                    EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ apply = {} }) },
-                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
-                } })
+                build({ responses = { synced() } })
                 kor.global_settings.data.copt_font_size = 22
                 plugin:onFlushSettings()
                 kor.global_settings.data.copt_font_size = 26
@@ -1141,23 +1146,25 @@ describe("the KOReader layer", function()
 
                 menu_item("Sync").callback()
 
-                local plan_request = helpers.json.decode(kor.transport.requests[2].body)
-                assert.are.equal(26, plan_request.values.copt_font_size)
-                assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
+                -- One request, and no report: the library kept what it carried.
+                assert.are.equal(1, kor.transport.calls)
+                local request = helpers.json.decode(kor.transport.requests[1].body)
+                assert.are.equal(26, request.values.copt_font_size)
+                assert.are.equal("number", type(request.changed_at.copt_font_size))
+                assert.are.equal(Version.string, request.plugin_version)
+                assert.are.equal("stable", request.channel)
             end)
 
-            it("says only that everything is in sync when nothing changed", function()
-                sync({
-                    { status = 200, body = helpers.body({ apply = {} }) },
-                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
-                })
+            it("says only that everything is in sync when nothing changed, in one request", function()
+                sync({ synced() })
+                assert.are.equal(1, kor.transport.calls)
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
-                assert.are.equal("Everything is in sync.", last_shown().text)
+                assert.are.equal("Everything is in sync, plugin " .. Version.string .. " included.", last_shown().text)
             end)
 
             it("says only the part that changed", function()
                 sync({
-                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
+                    synced({ apply = { { key = "copt_font_size", value = 24 } } }),
                     { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
                 })
                 local text = last_shown().text
@@ -1167,8 +1174,7 @@ describe("the KOReader layer", function()
 
             it("waits on the network in a subprocess, and a dismissed wait stops the sync", function()
                 build({ responses = {
-                    EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
+                    synced({ apply = { { key = "copt_font_size", value = 24 } } }),
                 } })
                 local shown = #kor.shown
                 kor.dismiss_next = true
@@ -1181,36 +1187,35 @@ describe("the KOReader layer", function()
 
             it("stops at a dismissed report, keeping and offering what was applied", function()
                 build({ can_restart = true, responses = {
-                    EMPTY_LIBRARY,
-                    { status = 200, body = helpers.body({ apply = { { key = "copt_font_size", value = 24 } } }) },
+                    synced({ apply = { { key = "copt_font_size", value = 24 } } }),
                 } })
                 kor.files[require("aidict.vocab").PATH] = 1
                 kor.vocab_rows = { { "lk-1", "6032", "s", 1, "w", "w", "en", "B", "T", "A" } }
-                -- The library and the fetch run; the report is the third wait.
+                -- The request runs; the report is the second wait.
                 local waits = 0
                 local trapper = package.loaded["ui/trapper"]
                 local run = trapper.dismissableRunInSubprocess
                 trapper.dismissableRunInSubprocess = function(self, fn, message, simple)
                     waits = waits + 1
-                    if waits == 3 then return false end
+                    if waits == 2 then return false end
                     return run(self, fn, message, simple)
                 end
 
                 menu_item("Sync").callback()
 
                 assert.are.equal(24, kor.global_settings.data.copt_font_size)
-                assert.are.equal(2, kor.transport.calls)
+                assert.are.equal(1, kor.transport.calls)
                 assert.are.equal("ConfirmBox", last_shown().widget_kind)
                 assert.is_nil(last_shown().text:find("Kindle lookups", 1, true))
             end)
 
-            it("says why when the settings cannot be reached", function()
+            it("says why when the library cannot be reached, once", function()
                 sync({ { err = "network unreachable" } })
                 assert.are.equal("InfoMessage", last_shown().widget_kind)
                 local text = last_shown().text
-                assert.is_truthy(text:find("Settings\n", 1, true))
+                assert.is_truthy(text:find("Library\n", 1, true))
                 assert.is_truthy(text:find("unreachable", 1, true))
-                assert.is_nil(text:find("Library", 1, true))
+                assert.is_nil(text:find("Settings", 1, true))
             end)
         end)
 
@@ -1298,11 +1303,7 @@ describe("the KOReader layer", function()
             end)
 
             it("sends a change made in the open book with the next Sync, saved or not", function()
-                build({ responses = {
-                    { status = 200, body = helpers.body({ version = 1, files = {} }) },
-                    { status = 200, body = helpers.body({ apply = {} }) },
-                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
-                } })
+                build({ responses = { synced() } })
                 local look = { h_page_margins = { 20, 20 }, font_size = 22 }
                 open_book(look, "Literata")
                 plugin:onReadSettings()
@@ -1311,7 +1312,7 @@ describe("the KOReader layer", function()
 
                 menu_item("Sync").callback()
 
-                local plan_request = helpers.json.decode(kor.transport.requests[2].body)
+                local plan_request = helpers.json.decode(kor.transport.requests[1].body)
                 assert.are.equal(26, plan_request.values.copt_font_size)
                 assert.are.equal("number", type(plan_request.changed_at.copt_font_size))
             end)
@@ -1319,8 +1320,7 @@ describe("the KOReader layer", function()
             it("hands the open book the style tweaks Sync applied, so closing it keeps them", function()
                 local tweaks = { margin_body_0 = true, ["footnote-inpage_epub"] = true }
                 build({ responses = {
-                    { status = 200, body = helpers.body({ version = 1, files = {} }) },
-                    { status = 200, body = helpers.body({ apply = { { key = "style_tweaks", value = tweaks } } }) },
+                    synced({ apply = { { key = "style_tweaks", value = tweaks } } }),
                     { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
                 } })
                 open_book({ h_page_margins = { 20, 20 } }, "Literata")
@@ -1361,39 +1361,66 @@ describe("the KOReader layer", function()
         end)
     end)
 
-    describe("the update check", function()
-        it("points at the channel's version manifest", function()
-            build({
-                responses = { { status = 200, body = helpers.body({
-                    channel = "stable",
-                    packages = { ["koreader-aidict"] = { version = { 9, 9, 9 }, version_string = "9.9.9" } },
-                }) } },
-                settings = { repo_url = "https://repo.test/kpm" },
-            })
-            plugin:checkForUpdates()
+    describe("the update Sync offers", function()
+        local function released(version)
+            return { status = 200, body = helpers.body({
+                channel = "stable",
+                packages = { ["koreader-aidict"] = { version = { 9, 9, 9 }, version_string = version } },
+            }) }
+        end
 
-            assert.are.equal("https://repo.test/kpm/stable/version.json", kor.transport.requests[1].url)
+        it("offers the newer plugin the library named, with no request of its own", function()
+            build({ responses = { synced({ plugin = "9.9.9" }) } })
+            plugin:sync()
+
+            assert.are.equal(1, kor.transport.calls)
             assert.are.equal("ConfirmBox", last_shown().widget_kind)
-            assert.is_truthy(last_shown().text:find("9.9.9", 1, true))
+            assert.is_truthy(last_shown().text:find("Plugin 9.9.9 is out; this is " .. Version.string, 1, true))
             assert.are.equal("Install", last_shown().ok_text)
         end)
 
-        it("says when there is nothing newer", function()
+        it("asks the release repository itself when the library cannot say", function()
             build({
-                responses = { { status = 200, body = helpers.body({
-                    channel = "stable",
-                    packages = { ["koreader-aidict"] = { version = { 0, 0, 1 }, version_string = "0.0.1" } },
-                }) } },
+                responses = { synced({ plugin = false }), released("9.9.9") },
+                settings = { repo_url = "https://repo.test/kpm" },
             })
-            plugin:checkForUpdates()
-            assert.is_truthy(last_shown().text:find("newest", 1, true))
+            plugin:sync()
+
+            assert.are.equal("https://repo.test/kpm/stable/version.json", kor.transport.requests[2].url)
+            assert.is_truthy(last_shown().text:find("Plugin 9.9.9 is out", 1, true))
         end)
 
-        it("reports a repository that cannot be reached", function()
-            build({ responses = { { err = "host not found" } } })
-            plugin:checkForUpdates()
+        it("still offers it when the library is down, beside saying so", function()
+            build({ responses = { { err = "network unreachable" }, released("9.9.9") } })
+            plugin:sync()
+
+            local text = last_shown().text
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
+            assert.is_truthy(text:find("unreachable", 1, true))
+            assert.is_truthy(text:find("Plugin 9.9.9 is out", 1, true))
+        end)
+
+        it("says nothing of the plugin when neither can say, or when it is the newest", function()
+            build({ responses = { synced({ plugin = false }), { err = "host not found" } } })
+            plugin:sync()
+            assert.are.equal("Everything is in sync.", last_shown().text)
+
+            build({ responses = { synced({ plugin = "0.0.1" }) } })
+            plugin:sync()
             assert.are.equal("InfoMessage", last_shown().widget_kind)
-            assert.is_truthy(last_shown().text:find("Host not found", 1, true))
+        end)
+
+        it("offers the restart the new settings want when the update is turned down", function()
+            build({ can_restart = true, responses = {
+                synced({ plugin = "9.9.9", apply = { { key = "copt_font_size", value = 24 } } }),
+                { status = 200, body = helpers.body({ applied = 1, pending = 0 }) },
+            } })
+            plugin:sync()
+            assert.is_truthy(last_shown().text:find("Changed 1: copt_font_size.", 1, true))
+
+            last_shown().cancel_callback()
+            assert.are.equal("ConfirmBox", last_shown().widget_kind)
+            assert.is_truthy(last_shown().text:find("Restart now?", 1, true))
         end)
     end)
 
@@ -1478,7 +1505,11 @@ describe("the KOReader layer", function()
         local BOOKS = "/mnt/us/books"
 
         local function manifest(files)
-            return helpers.body({ version = 1, files = files })
+            return helpers.body({
+                manifest = { version = 1, files = files },
+                apply = {},
+                plugin = { version = Version.string, channel = "stable" },
+            })
         end
 
         local function book(path, size)
@@ -1520,19 +1551,20 @@ describe("the KOReader layer", function()
             assert.are.equal("AI dictionary", items().aidict.text)
         end)
 
-        it("opens with the two actions, Sync first", function()
+        it("opens with Sync, which offers the update too, so there is no update entry", function()
             build()
             local sub = items().aidict.sub_item_table
 
             assert.are.equal("Sync", sub[1].text)
-            -- The version rides on the label: after an update and a restart,
-            -- the menu itself is the receipt.
-            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[2].text_func())
-            assert.is_true(sub[2].separator)
+            assert.is_true(sub[1].separator)
+            for _, item in ipairs(sub) do
+                local label = item.text_func and item.text_func() or item.text
+                assert.is_nil(label:find("Update", 1, true))
+            end
         end)
 
-        -- The update line already carries it, under Sync.
-        it("does not repeat the version on a line of its own", function()
+        -- Sync's own message names the version when it is the newest.
+        it("does not put the version on a line of its own", function()
             build()
             for _, item in ipairs(items().aidict.sub_item_table) do
                 local label = item.text_func and item.text_func() or item.text
@@ -1582,7 +1614,7 @@ describe("the KOReader layer", function()
             plugin:sync()
 
             -- The library mount, from its own setting.
-            assert.are.equal("https://gw.test/koreader-library/manifest", kor.transport.requests[1].url)
+            assert.are.equal("https://gw.test/koreader-library/sync", kor.transport.requests[1].url)
             assert.are.equal(BOOKS .. "/Lem/Solaris.epub.part", kor.transport.requests[2].download_to)
             assert.are.equal(10, kor.files[BOOKS .. "/Lem/Solaris.epub"])
             assert.is_truthy(last_shown().text:find("Downloaded 1 of 1", 1, true))
@@ -1598,7 +1630,7 @@ describe("the KOReader layer", function()
             plugin:sync()
 
             assert.are.equal(1, library_calls())
-            assert.are.equal("Everything is in sync.", last_shown().text)
+            assert.are.equal("Everything is in sync, plugin " .. Version.string .. " included.", last_shown().text)
         end)
 
         it("names the book that failed rather than only counting it", function()
@@ -1624,7 +1656,9 @@ describe("the KOReader layer", function()
 
             plugin:sync()
 
-            assert.are.equal(0, kor.transport.calls)
+            -- Only the release repository, for the update Sync offers.
+            assert.are.equal(1, kor.transport.calls)
+            assert.is_truthy(kor.transport.requests[1].url:find("/version.json$"))
             assert.is_truthy(last_shown().text:find("library address", 1, true))
         end)
 
@@ -1633,7 +1667,9 @@ describe("the KOReader layer", function()
 
             plugin:sync()
 
-            assert.are.equal(0, kor.transport.calls)
+            for _, request in ipairs(kor.transport.requests) do
+                assert.is_truthy(request.url:find("/version.json$"))
+            end
         end)
 
         it("waits for Wi-Fi instead of failing on it", function()
@@ -1862,10 +1898,19 @@ describe("the KOReader layer", function()
             kor.vocab_rows = rows
         end
 
-        --- Sync, with no library address: only the lookups travel.
+        --- Sync, with no library address: only the lookups travel, and the update check.
         local function sync()
             plugin:sync()
             return last_shown() and last_shown().text
+        end
+
+        --- The requests that were not the update check.
+        local function sent()
+            local requests = {}
+            for _, request in ipairs(kor.transport.requests) do
+                if not request.url:find("/version.json$") then requests[#requests + 1] = request end
+            end
+            return requests
         end
 
         it("sends what is new since the last upload, without asking, and remembers how far it got", function()
@@ -1880,7 +1925,7 @@ describe("the KOReader layer", function()
             -- Read-only: the Kindle's own reader owns the file.
             assert.are.same({ path = Vocab.PATH, mode = "ro" }, kor.vocab_opened)
             assert.is_true(kor.vocab_closed)
-            assert.are.equal(1, kor.transport.calls)
+            assert.are.equal(1, #sent())
             assert.are.equal(helpers.ENDPOINT .. "/vocab", kor.transport.requests[1].url)
             local body = helpers.json.decode(kor.transport.requests[1].body)
             assert.are.equal(2, #body.rows)
@@ -1895,7 +1940,7 @@ describe("the KOReader layer", function()
 
             local text = sync()
 
-            assert.are.equal(0, kor.transport.calls)
+            assert.are.equal(0, #sent())
             assert.is_nil(text:find("Kindle lookups", 1, true))
         end)
 
@@ -1905,7 +1950,7 @@ describe("the KOReader layer", function()
             local text = sync()
 
             assert.is_nil(text:find("Kindle lookups", 1, true))
-            assert.are.equal(0, kor.transport.calls)
+            assert.are.equal(0, #sent())
         end)
 
         it("keeps what arrived before a failure", function()
@@ -1927,7 +1972,7 @@ describe("the KOReader layer", function()
         end)
 
         it("says nothing about lookups on a device without the Kindle's reader", function()
-            build({ responses = { { status = 200, body = helpers.body({ version = 1, files = {} }) } } })
+            build({ responses = { synced() } })
 
             local text = sync()
 
@@ -1935,13 +1980,13 @@ describe("the KOReader layer", function()
             assert.is_nil(text:find("lookups", 1, true))
         end)
 
-        it("does not ask for Wi-Fi when there is nothing to sync", function()
+        it("waits for Wi-Fi even with nothing but the update to check", function()
             build({ no_library_endpoint = true, online = false })
 
-            local text = sync()
+            plugin:sync()
 
-            assert.is_nil(kor.deferred)
-            assert.are.equal("This package was built without a library address.", text)
+            assert.are.equal(0, kor.transport.calls)
+            assert.is_function(kor.deferred)
         end)
 
         it("says when vocab.db cannot be opened", function()
@@ -1950,23 +1995,18 @@ describe("the KOReader layer", function()
 
             local text = sync()
 
-            assert.are.equal(0, kor.transport.calls)
+            assert.are.equal(0, #sent())
             assert.is_truthy(text:find("database is locked", 1, true))
         end)
 
         it("sends after the library and the settings", function()
             withVocab({
-                responses = {
-                    { status = 200, body = helpers.body({ version = 1, files = {} }) },
-                    { status = 200, body = helpers.body({ apply = {} }) },
-                    { status = 200, body = helpers.body({ applied = 0, pending = 0 }) },
-                    receipt(1),
-                },
+                responses = { synced(), receipt(1) },
             }, { lookup("lk-1", 1) })
 
             local text = sync()
 
-            assert.are.equal(helpers.ENDPOINT .. "/vocab", kor.transport.requests[4].url)
+            assert.are.equal(helpers.ENDPOINT .. "/vocab", kor.transport.requests[2].url)
             -- The library and the settings had nothing new, so only the lookups speak.
             assert.are.equal(1, text:find("Kindle lookups\n", 1, true))
         end)

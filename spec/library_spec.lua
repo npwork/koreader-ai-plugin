@@ -17,14 +17,15 @@ local function manifest_body(entries)
 end
 
 --[[--
-A transport that answers the manifest first and then every download.
+A transport for the downloads, holding the manifest the spec serves: the
+library's answer to Sync carries it, and `library` below hands it over.
 
 A download "arrives" by putting its size into the fake filesystem, which is
 what the real one does through `ltn12.sink.file`. `bytes` says how much
 actually landed, so a truncated transfer is one number.
 --]]--
 local function transport(fs, manifest, downloads)
-    local tr = { requests = {}, downloads = downloads or {}, sizes = {} }
+    local tr = { requests = {}, downloads = downloads or {}, sizes = {}, manifest = manifest }
     -- What each URL is supposed to deliver, read off the manifest being
     -- served: a download arrives whole unless a spec says otherwise.
     if type(manifest.body) == "string" then
@@ -36,10 +37,6 @@ local function transport(fs, manifest, downloads)
 
     tr.fn = function(request)
         tr.requests[#tr.requests + 1] = request
-        if not request.download_to then
-            if manifest.err then return nil, manifest.err end
-            return manifest
-        end
         local answer = tr.downloads[request.url] or {}
         if answer.err then return nil, answer.err end
         local status = answer.status or 200
@@ -51,15 +48,15 @@ local function transport(fs, manifest, downloads)
     return tr
 end
 
-local function library(tr, fs, opts)
-    opts = opts or {}
-    return Library.new({
-        endpoint = opts.endpoint or "https://gw.test/koreader-library",
-        api_key = opts.api_key,
-        transport = tr.fn,
-        json = helpers.json,
-        fs = fs,
-    })
+--- A library whose `sync` is handed the manifest `tr` serves, as the answer to Sync would.
+local function library(tr, fs)
+    local lib = Library.new({ transport = tr.fn, fs = fs })
+    local sync = lib.sync
+    lib.sync = function(self, dir, opts)
+        local ok, decoded = pcall(helpers.json.decode, tr.manifest.body or "")
+        return sync(self, dir, ok and decoded or nil, opts)
+    end
+    return lib
 end
 
 describe("library", function()
@@ -94,37 +91,6 @@ describe("library", function()
             assert.is_nil(Library.endpoint_from(nil))
             assert.is_nil(Library.endpoint_from("not a url"))
             assert.is_nil(Library.endpoint_from("ftp://gw.test/koreader-library"))
-        end)
-    end)
-
-    describe("the manifest", function()
-        it("asks the gateway and carries the key", function()
-            local fs = helpers.filesystem()
-            local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
-
-            local entries = library(tr, fs, { api_key = "k" }):manifest()
-
-            assert.are.equal("https://gw.test/koreader-library/manifest", tr.requests[1].url)
-            assert.are.equal("Bearer k", tr.requests[1].headers["Authorization"])
-            assert.are.equal(1, #entries)
-        end)
-
-        it("names the failure rather than the status code", function()
-            local fs = helpers.filesystem()
-            local _, err = library(transport(fs, { status = 401, body = "" }), fs):manifest()
-            assert.are.equal("unauthorized", err.code)
-
-            local _, timeout = library(transport(fs, { err = "timeout" }), fs):manifest()
-            assert.are.equal("timeout", timeout.code)
-
-            local _, junk = library(transport(fs, { status = 200, body = "<html>" }), fs):manifest()
-            assert.are.equal("bad_response", junk.code)
-        end)
-
-        it("refuses to ask when there is no address", function()
-            local fs = helpers.filesystem()
-            local _, err = library(transport(fs, {}), fs, { endpoint = "" }):manifest()
-            assert.are.equal("not_configured", err.code)
         end)
     end)
 
@@ -165,10 +131,10 @@ describe("library", function()
             local fs = helpers.filesystem()
             local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
 
-            library(tr, fs, { api_key = "k" }):sync(BOOKS)
+            library(tr, fs):sync(BOOKS)
 
-            assert.is_nil(tr.requests[2].headers["Authorization"])
-            assert.are.equal("https://r2.test/books/A.epub?sig=x", tr.requests[2].url)
+            assert.is_nil(tr.requests[1].headers["Authorization"])
+            assert.are.equal("https://r2.test/books/A.epub?sig=x", tr.requests[1].url)
         end)
 
         it("writes to .part and only then puts the book in place", function()
@@ -177,7 +143,7 @@ describe("library", function()
 
             library(tr, fs):sync(BOOKS)
 
-            assert.are.equal(BOOKS .. "/A.epub.part", tr.requests[2].download_to)
+            assert.are.equal(BOOKS .. "/A.epub.part", tr.requests[1].download_to)
             assert.is_nil(fs.files[BOOKS .. "/A.epub.part"])
             assert.are.equal(10, fs.files[BOOKS .. "/A.epub"])
         end)
@@ -238,12 +204,12 @@ describe("library", function()
             assert.are.same({ "1/2 A.epub", "2/2 B.epub" }, seen)
         end)
 
-        it("passes the manifest's own failure straight back", function()
+        it("refuses a manifest that is not one", function()
             local fs = helpers.filesystem()
-            local report, err = library(transport(fs, { status = 500, body = "" }), fs):sync(BOOKS)
+            local report, err = library(transport(fs, { status = 200, body = "" }), fs):sync(BOOKS)
 
             assert.is_nil(report)
-            assert.are.equal("http_error", err.code)
+            assert.are.equal("bad_response", err.code)
         end)
 
         it("tolerates a trailing slash on the books folder", function()
@@ -296,7 +262,7 @@ describe("library", function()
                 index = { ["Fiction/x.epub"] = { size = 10, etag = "e1" } },
             })
 
-            assert.are.equal(1, #tr.requests)
+            assert.are.equal(0, #tr.requests)
             assert.are.equal(0, report.total)
             assert.are.equal(1, #report.moves)
             assert.are.equal("Fiction/x.epub", report.moves[1].from)

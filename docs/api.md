@@ -275,26 +275,59 @@ The plugin used to carry one address and swap the last path segment —
 came on 2026-09-22: the dictionary moved to a Cloudflare Worker and the
 library stayed here, and a Worker address has no path segment to swap.
 
-## GET `<library>/manifest`
+## POST `<library>/sync`
 
-Everything the gateway holds, in one request. The device does the diffing —
-only the device knows what it already has — so there is no per-folder walk and
-no listing credential on a Kindle.
+The whole of Sync's conversation with the gateway, in one request: the
+Kindle's settings and its change log go out, and the books, the settings to
+apply and the newest plugin come back. The device does the diffing of books —
+only the device knows what it already has — so there is no per-folder walk
+and no listing credential on a Kindle.
 
 ```json
 {
-  "version": 1,
-  "generated_at": "2026-09-21T11:00:00.000Z",
-  "files": [
-    {
-      "path": "Lem/Solaris.epub",
-      "size": 412345,
-      "etag": "d41d8cd98f00b204",
-      "url": "https://….r2.cloudflarestorage.com/…?X-Amz-Signature=…"
-    }
-  ]
+  "values": { "cre_font": "Literata", "…": "…" },
+  "now": 1790000000,
+  "changed_at": { "cre_font": 1789999000 },
+  "log": [{ "n": 12, "at": 1789999000, "source": "kindle", "key": "cre_font", "value": "Literata" }],
+  "plugin_version": "0.2.82",
+  "channel": "stable"
 }
 ```
+
+`values` are the KOReader settings the plugin shares, secrets never among
+them. `now` is the device clock, so the gateway can shift `changed_at` to its
+own. `log` is every change since the last one the gateway took. The gateway
+plans against the copy it held before, then keeps `values` as the new copy.
+
+```json
+{
+  "manifest": {
+    "version": 1,
+    "generated_at": "2026-09-21T11:00:00.000Z",
+    "files": [
+      {
+        "path": "Lem/Solaris.epub",
+        "size": 412345,
+        "etag": "d41d8cd98f00b204",
+        "url": "https://….r2.cloudflarestorage.com/…?X-Amz-Signature=…"
+      }
+    ]
+  },
+  "apply": [{ "key": "cre_font", "value": "Bookerly" }],
+  "plugin": { "version": "0.2.83", "channel": "stable" }
+}
+```
+
+* `apply` is what the owner queued from the library MCP and won against the
+  Kindle's own change; an empty list is the usual answer.
+* `plugin` is the newest release on the device's channel, read from that
+  channel's `version.json` on Pages; `null` when Pages did not answer, and the
+  device then asks Pages itself. Sync ends by offering the install when it is
+  newer than what runs.
+
+Only when Sync applied something does a second request follow:
+`POST <library>/settings` with `{values, now, applied, log, plugin_version}`,
+so the gateway's copy and log hold the values the device has after applying.
 
 * `path` is relative and carries the folders. They are mirrored under
   `library_dir`, which defaults to `/mnt/us/AI_Books` — its own folder beside
@@ -307,10 +340,10 @@ no listing credential on a Kindle.
   and "already have it" would keep it wrong for ever.
 * `url` is fetched with **no Authorization header** — it is presigned, and a
   key beside a signed query is how a signature stops matching. A 401 or 403
-  from it means the link expired, and the fix is another manifest.
+  from it means the link expired, and the fix is another Sync.
 * `etag` is how a moved or renamed book is recognised: see below. It is never
   compared to decide whether a book in place is current — size does that.
-* `Authorization: Bearer <key>` or `?token=` gates the manifest itself, the
+* `Authorization: Bearer <key>` or `?token=` gates the request itself, the
   same key the dictionary uses.
 
 A row the device cannot use — a path that would climb out of the books folder,

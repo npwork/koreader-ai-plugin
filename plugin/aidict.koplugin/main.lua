@@ -744,45 +744,25 @@ function AiDict:askNow(request)
     end)
 end
 
---- Ask the repository whether a newer package is published. Installing it
---- is `kpm`'s job, so this only reports.
-function AiDict:checkForUpdates()
-    local repo_url = self.settings:get("repo_url")
-    local channel = self.settings:get("channel")
+--[[--
+The newest plugin on this Kindle's channel, asked of the release repository
+itself: what Sync falls back on when the library could not say, so a gateway
+that is down never stands between the reader and the update that fixes it.
+Inside Sync's Trapper coroutine; nil when it could not be read or the reader
+dismissed it.
+--]]--
+function AiDict:latestPlugin()
     local updater = Updater.new({ transport = http_transport, json = json })
-
-    if not canAsk() then
-        UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so updates cannot be checked.") })
-        return
+    local repo_url, channel = self.settings:get("repo_url"), self.settings:get("channel")
+    local completed, outcome = Trapper:dismissableRunInSubprocess(function()
+        local info, err = updater:check(repo_url, channel)
+        return { latest = info and info.latest, err = err }
+    end, _("Checking for a newer plugin…"))
+    if not completed or type(outcome) ~= "table" then return nil end
+    if not outcome.latest then
+        logger.warn("aidict: plugin update check failed —", outcome.err and outcome.err.message or "?")
     end
-
-    Trapper:wrap(function()
-        local completed, outcome = Trapper:dismissableRunInSubprocess(function()
-            local info, err = updater:check(repo_url, channel)
-            return { ok = info ~= nil, info = info, err = err }
-        end, _("Checking for updates…"))
-
-        if not completed then return end
-        if type(outcome) ~= "table" or not outcome.ok then
-            local err = type(outcome) == "table" and outcome.err or nil
-            UIManager:show(InfoMessage:new{ text = Format.error(err, _("The update check failed.")) })
-            return
-        end
-
-        local info = outcome.info
-        if info.available then
-            UIManager:show(ConfirmBox:new{
-                text = T(_("Version %1 is available on the %2 channel.\nYou have %3.\n\nInstall it now?"),
-                    info.latest, info.channel, info.current),
-                ok_text = _("Install"),
-                ok_callback = function() self:installUpdate(info.latest) end,
-            })
-        else
-            UIManager:show(InfoMessage:new{
-                text = T(_("Version %1 is the newest on the %2 channel."), info.current, info.channel),
-            })
-        end
-    end)
+    return outcome.latest
 end
 
 --[[--
@@ -1041,39 +1021,19 @@ local function describeSync(report, settled)
 end
 
 --[[--
-Mirror the gateway's library: pull the books this device does not have, and
-move or delete the ones the server moved or deleted.
+Mirror the gateway's library from what Sync's request brought back. The
+downloads already happened in that request's subprocess (`got`, from
+`Library:sync`); the moves and deletes happen here, where KOReader keeps its
+bookkeeping (see `Library:settle`).
 
-A step of `sync`, inside its Trapper coroutine: returns what changed, false
-when nothing did, or nil when the reader dismissed it.
+Returns what changed, or false when nothing did.
 --]]--
-function AiDict:libraryStep(endpoint)
-    local dir = tostring(self.settings:get("library_dir")):gsub("/+$", "")
-    local library = Library.new({
-        endpoint = endpoint,
-        api_key = self.settings:get("api_key"),
-        transport = http_transport,
-        json = json,
-        fs = deviceFilesystem(),
-    })
-
-    local index = self:libraryIndex(dir)
-    -- In a subprocess so the reader can give up on it: a first sync over a
-    -- Kindle's radio is minutes, and the files it has already written stay
-    -- written when they do. Only the downloads happen there; see
-    -- `Library:settle` for why the moves cannot.
-    local completed, outcome = Trapper:dismissableRunInSubprocess(function()
-        local report, err = library:sync(dir, { index = index })
-        return { ok = report ~= nil, report = report, err = err }
-    end, T(_("Syncing %1…"), dir))
-
-    if not completed then return nil end
-    if type(outcome) ~= "table" or not outcome.ok then
-        local err = type(outcome) == "table" and outcome.err or nil
-        return Format.error(err, _("The library sync failed."))
+function AiDict:settleLibrary(dir, library, index, got)
+    if type(got) ~= "table" or not got.ok then
+        return Format.error(type(got) == "table" and got.err or nil, _("The library sync failed."))
     end
 
-    local report = outcome.report
+    local report = got.report
     local ops = bookOps(self.ui)
     ops.index = index
     local settled = library:settle(report, dir, ops)
@@ -1345,37 +1305,59 @@ local function changedKeys(applied)
 end
 
 --[[--
-Sync KOReader's settings with the library, both ways: apply what it holds for
-this Kindle, and report back every setting, this Kindle's own changes included.
+Everything Sync asks the library, in one request: this Kindle's settings, its
+log of changes and its plugin version go out; the manifest, the settings to
+apply and the newest plugin come back. The books the manifest calls for
+download in that request's subprocess, so a slow gateway or a first sync's
+minutes of downloads never freeze the reader, and the reader can give up on
+them. The settings are written here, because a change to `G_reader_settings`
+made in a forked child dies with it; a second request reports them only when
+Sync changed any.
 
-A step of `sync`: returns what to say, how many settings changed, and whether
-the reader dismissed the report; nil when they dismissed the fetch. The requests run in a subprocess, so a slow
-gateway cannot freeze the reader; the writes happen in this process, because
-a change to `G_reader_settings` made in a forked child dies with it.
+@treturn table `{ library = text|false, settings = text|false, changed,
+    dismissed, plugin = { version, channel }|nil }`; nil when the reader
+    dismissed the request
 --]]--
-function AiDict:settingsStep(endpoint)
+function AiDict:exchange(endpoint)
     -- A change made in the open book since the last save is this Kindle's too.
     self:keepLookGlobal()
+    local dir = tostring(self.settings:get("library_dir")):gsub("/+$", "")
+    local library = Library.new({ transport = http_transport, fs = deviceFilesystem() })
+    local index = self:libraryIndex(dir)
     local remote = RemoteSettings.new({
         endpoint = endpoint,
         api_key = self.settings:get("api_key"),
         transport = http_transport,
         json = json,
     })
+    local asked = false
     local function offload(task)
-        local completed, raw = Trapper:dismissableRunInSubprocess(task, _("Syncing settings…"), true)
+        local text = asked and _("Sending the settings back…") or T(_("Syncing %1…"), dir)
+        asked = true
+        local completed, raw = Trapper:dismissableRunInSubprocess(task, text, true)
         if not completed then return nil end
         return raw
     end
 
-    local result, err = remote:sync(G_reader_settings, { outbox = self.store, offload = offload, now = os.time })
+    local result, err = remote:sync(G_reader_settings, {
+        outbox = self.store,
+        offload = offload,
+        now = os.time,
+        ask = { plugin_version = Version.string, channel = self.settings:get("channel") },
+        also = function(answer)
+            local report, library_err = library:sync(dir, answer.manifest, { index = index })
+            return { ok = report ~= nil, report = report, err = library_err }
+        end,
+    })
     if not result and err and err.code == "cancelled" then return nil end
-    if not result then return Format.error(err, _("Syncing the settings failed.")), 0 end
+    if not result then
+        return { library = Format.error(err, _("The sync failed.")), settings = false, changed = 0 }
+    end
     logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
         #result.applied, tostring(result.reported),
         result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
-
     self:adoptStyleTweaks(result.applied)
+
     local dismissed = result.report_error and result.report_error.code == "cancelled"
     local said = {}
     if #result.applied > 0 then
@@ -1384,11 +1366,14 @@ function AiDict:settingsStep(endpoint)
     if not result.reported and not dismissed then
         said[#said + 1] = _("This Kindle's settings could not be sent back to the library.")
     end
-    if #said == 0 and dismissed then return nil end
-    local text = #said > 0 and table.concat(said, " ") or false
-    -- Dismissing the report stops the sync too, but what was applied stays
-    -- applied, and says so.
-    return text, #result.applied, dismissed
+    return {
+        library = self:settleLibrary(dir, library, index, result.answer.also),
+        settings = #said > 0 and table.concat(said, " ") or false,
+        changed = #result.applied,
+        -- Dismissing the report stops the sync too, but what was applied stays applied.
+        dismissed = dismissed,
+        plugin = type(result.answer.plugin) == "table" and result.answer.plugin or nil,
+    }
 end
 
 --[[--
@@ -1414,26 +1399,31 @@ end
 
 --[[--
 Everything that goes between this Kindle and the gateway, in one go: the
-library, KOReader's settings, and the Kindle's own lookups. How the steps
-combine is `aidict.sync`; what each does is its step here.
+library, KOReader's settings, the Kindle's own lookups, and last, the offer of
+a newer plugin. How the steps combine is `aidict.sync`; what each does is its
+step here.
 --]]--
 function AiDict:sync()
     local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
     local lfs = require("libs/libkoreader-lfs")
     local has_lookups = lfs.attributes(Vocab.PATH, "mode") == "file"
-    local no_address = _("This package was built without a library address.")
-    -- Nothing to send anywhere: say so without turning the radio on.
-    if not endpoint and not has_lookups then
-        UIManager:show(InfoMessage:new{ text = no_address })
-        return
-    end
 
+    -- The library's one answer covers two steps of the summary.
+    local exchanged
     local steps = {}
     if endpoint then
-        steps[#steps + 1] = { title = _("Library"), run = function() return self:libraryStep(endpoint) end }
-        steps[#steps + 1] = { title = _("Settings"), run = function() return self:settingsStep(endpoint) end }
+        steps[#steps + 1] = { title = _("Library"), run = function()
+            exchanged = self:exchange(endpoint)
+            if not exchanged then return nil end
+            return exchanged.library
+        end }
+        steps[#steps + 1] = { title = _("Settings"), run = function()
+            return exchanged.settings, exchanged.changed, exchanged.dismissed
+        end }
     else
-        steps[#steps + 1] = { title = _("Library and settings"), run = function() return no_address end }
+        steps[#steps + 1] = { title = _("Library and settings"), run = function()
+            return _("This package was built without a library address.")
+        end }
     end
     if has_lookups then
         steps[#steps + 1] = { title = _("Kindle lookups"), run = function() return self:lookupsStep() end }
@@ -1442,23 +1432,47 @@ function AiDict:sync()
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
             local outcome = Sync.run(steps)
-            if outcome.in_sync then
-                UIManager:show(InfoMessage:new{ text = _("Everything is in sync."), timeout = 3 })
-                return
-            end
-            if outcome.empty then return end
-            if outcome.changed == 0 then
-                UIManager:show(InfoMessage:new{ text = outcome.text })
-            elseif not Device:canRestart() then
-                UIManager:show(InfoMessage:new{
-                    text = outcome.text .. "\n\n" .. _("Restart KOReader to use the new settings."),
-                })
-            else
+            -- Dismissed: it stops there, saying nothing.
+            if outcome.empty and not outcome.in_sync then return end
+
+            local latest = exchanged and exchanged.plugin and exchanged.plugin.version or self:latestPlugin()
+            local update = Updater.newer(latest)
+
+            -- What Sync said, then the restart the new settings want, in one box.
+            local function conclude(said)
+                if outcome.changed == 0 then
+                    if said ~= "" then UIManager:show(InfoMessage:new{ text = said }) end
+                    return
+                end
+                local lead = said ~= "" and (said .. "\n\n") or ""
+                if not Device:canRestart() then
+                    UIManager:show(InfoMessage:new{ text = lead .. _("Restart KOReader to use the new settings.") })
+                    return
+                end
                 UIManager:show(ConfirmBox:new{
-                    text = outcome.text .. "\n\n" .. _("Most settings take effect after KOReader restarts.\n\nRestart now?"),
+                    text = lead .. _("Most settings take effect after KOReader restarts.\n\nRestart now?"),
                     ok_text = _("Restart"),
                     ok_callback = function() UIManager:broadcastEvent(Event:new("Restart")) end,
                 })
+            end
+
+            if update then
+                -- Installing ends in a restart, which the new settings wanted anyway.
+                local said = outcome.empty and "" or (outcome.text .. "\n\n")
+                UIManager:show(ConfirmBox:new{
+                    text = said .. T(_("Plugin %1 is out; this is %2.\n\nInstall it now?"), update, Version.string),
+                    ok_text = _("Install"),
+                    ok_callback = function() self:installUpdate(update) end,
+                    cancel_callback = function() conclude("") end,
+                })
+            elseif outcome.in_sync then
+                UIManager:show(InfoMessage:new{
+                    text = latest and T(_("Everything is in sync, plugin %1 included."), Version.string)
+                        or _("Everything is in sync."),
+                    timeout = 3,
+                })
+            else
+                conclude(outcome.text)
             end
         end)
     end)
@@ -1577,18 +1591,10 @@ function AiDict:addToMainMenu(menu_items)
         sub_item_table = {
             {
                 text = _("Sync"),
-                help_text = _("Download new books and apply the library's moves, apply the KOReader settings set from the library and send this Kindle's back, and send the words looked up in the Kindle's own reader to the word inbox."),
-                keep_menu_open = true,
-                callback = function() self:sync() end,
-            },
-            {
-                -- The version is on the label because this is the one entry
-                -- that changes it: after an update and a restart, the menu
-                -- itself is the receipt.
-                text_func = function() return T(_("Update the plugin (%1)"), Version.string) end,
+                help_text = _("Download new books and apply the library's moves, apply the KOReader settings set from the library and send this Kindle's back, send the words looked up in the Kindle's own reader to the word inbox, and offer a newer plugin when there is one."),
                 keep_menu_open = true,
                 separator = true,
-                callback = function() self:checkForUpdates() end,
+                callback = function() self:sync() end,
             },
             {
                 text = _("Network check"),

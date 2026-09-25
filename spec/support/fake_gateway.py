@@ -13,7 +13,7 @@ real socket:
     POST /garbage/define    200 that is not JSON
     GET  /stable/version.json   an update manifest one version ahead
 
-    GET  /koreader-library/manifest   two books, with URLs back into /store
+    POST /koreader-library/sync       two books, with URLs back into /store
     GET  /store/<name>                the bytes of one of them
 """
 
@@ -54,23 +54,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _library(self):
+        host = self.headers.get("Host") or "127.0.0.1"
+        return {
+            "version": 1,
+            "generated_at": "2026-09-21T11:00:00.000Z",
+            "files": [
+                {
+                    "path": path,
+                    "size": book["claimed"],
+                    "etag": "etag-%d" % index,
+                    "url": "http://%s/store/%s" % (host, path),
+                }
+                for index, (path, book) in enumerate(BOOKS.items())
+            ],
+        }
+
     def do_GET(self):
-        if self.path == "/koreader-library/manifest":
-            host = self.headers.get("Host") or "127.0.0.1"
-            self._send(200, {
-                "version": 1,
-                "generated_at": "2026-09-21T11:00:00.000Z",
-                "files": [
-                    {
-                        "path": path,
-                        "size": book["claimed"],
-                        "etag": "etag-%d" % index,
-                        "url": "http://%s/store/%s" % (host, path),
-                    }
-                    for index, (path, book) in enumerate(BOOKS.items())
-                ],
-            })
-            return
         if self.path.startswith("/store/"):
             book = BOOKS.get(self.path[len("/store/"):])
             if book is None:
@@ -107,6 +107,9 @@ class Handler(BaseHTTPRequestHandler):
             "body": json.loads(raw) if raw else None,
         }
 
+        if self.path == "/koreader-library/sync":
+            self._send(200, {"manifest": self._library(), "apply": [], "plugin": None})
+            return
         if self.path == "/slow/define":
             time.sleep(3)
             self._send(200, {"definition": "too late"})

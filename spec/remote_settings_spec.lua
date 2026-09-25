@@ -105,7 +105,7 @@ describe("settings from the library", function()
 
             local result = r:sync(store, { outbox = helpers.store() })
 
-            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings/plan", tr.requests[1].url)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", tr.requests[1].url)
             assert.are.equal("POST", tr.requests[1].method)
             assert.are.equal("Bearer owner-key", tr.requests[1].headers["Authorization"])
             local ask = json.decode(tr.requests[1].body)
@@ -114,6 +114,7 @@ describe("settings from the library", function()
             assert.are.equal("number", type(ask.now))
             assert.are.equal(1, store.flushed)
 
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/settings", tr.requests[2].url)
             assert.are.equal("POST", tr.requests[2].method)
             local report = json.decode(tr.requests[2].body)
             assert.are.equal("number", type(report.now))
@@ -131,7 +132,7 @@ describe("settings from the library", function()
             assert.are.equal(1, #result.applied)
         end)
 
-        it("still reports every setting when there is nothing to apply, and leaves the store unflushed", function()
+        it("makes one request when there is nothing to apply, and leaves the store unflushed", function()
             local store = helpers.store({ copt_font_size = 22 })
             local r, tr = remote({ planned({}), REPORTED })
 
@@ -139,15 +140,40 @@ describe("settings from the library", function()
 
             assert.are.equal(0, #result.applied)
             assert.are.equal(0, store.flushed)
-            local report = json.decode(tr.requests[2].body)
-            assert.is_nil(report.applied)
-            assert.are.same({ copt_font_size = 22 }, report.values)
+            -- The library kept what the request carried: there is nothing to report.
+            assert.are.equal(1, tr.calls)
+            assert.is_true(result.reported)
+        end)
+
+        it("sends what the caller adds, runs `also` with the answer where the request ran, and drops the manifest", function()
+            local answer = { status = 200, body = helpers.body({
+                apply = {}, manifest = { files = { { path = "A.epub" } } }, plugin = { version = "0.2.90" },
+            }) }
+            local r, tr = remote({ answer })
+            local seen
+            local result = r:sync(helpers.store(), {
+                outbox = helpers.store(),
+                ask = { plugin_version = "0.2.82", channel = "stable" },
+                also = function(got)
+                    seen = got.manifest.files[1].path
+                    return { downloaded = 1 }
+                end,
+            })
+
+            local ask = json.decode(tr.requests[1].body)
+            assert.are.equal("0.2.82", ask.plugin_version)
+            assert.are.equal("stable", ask.channel)
+            assert.are.equal("A.epub", seen)
+            assert.are.same({ downloaded = 1 }, result.answer.also)
+            assert.are.same({ version = "0.2.90" }, result.answer.plugin)
+            assert.is_nil(result.answer.manifest)
         end)
 
         it("keeps a ?token= in the address at the end", function()
-            local r, tr = remote({ planned({}), REPORTED }, { endpoint = "https://gw.test/koreader-library/?token=t" })
+            local r, tr = remote({ planned({ { key = "copt_font_size", value = 24 } }), REPORTED },
+                { endpoint = "https://gw.test/koreader-library/?token=t" })
             r:sync(helpers.store(), { outbox = helpers.store() })
-            assert.are.equal("https://gw.test/koreader-library/settings/plan?token=t", tr.requests[1].url)
+            assert.are.equal("https://gw.test/koreader-library/sync?token=t", tr.requests[1].url)
             assert.are.equal("https://gw.test/koreader-library/settings?token=t", tr.requests[2].url)
         end)
 
@@ -228,7 +254,7 @@ describe("settings from the library", function()
             assert.are.equal(2, tr.calls)
         end)
 
-        it("sends when this Kindle changed each of its own settings, and forgets once reported", function()
+        it("sends when this Kindle changed each of its own settings, and forgets once the library has them", function()
             local store = helpers.store({ copt_font_size = 22, show_bottom_menu = true })
             local outbox = helpers.store()
             RemoteSettings.notice(store.data, outbox, json, 100)
@@ -238,8 +264,11 @@ describe("settings from the library", function()
             local r, tr = remote({ planned({}), REPORTED })
             r:sync(store, { outbox = outbox, now = function() return 200 end })
 
+            local ask = json.decode(tr.requests[1].body)
+            assert.are.equal(2, #ask.log)
+            ask.log = nil
             assert.are.same({ values = { copt_font_size = 26 }, changed_at = { copt_font_size = 200, show_bottom_menu = 200 }, now = 200 },
-                json.decode(tr.requests[1].body))
+                ask)
             assert.are.same({}, outbox.data[RemoteSettings.CHANGED_KEY])
 
             -- Nothing changed since: nothing to send.
@@ -248,13 +277,13 @@ describe("settings from the library", function()
             assert.is_nil(json.decode(tr2.requests[1].body).changed_at)
         end)
 
-        it("keeps the times while the report has not arrived", function()
+        it("keeps the times while the library has not answered", function()
             local store = helpers.store({ copt_font_size = 22 })
             local outbox = helpers.store()
             RemoteSettings.notice(store.data, outbox, json, 100)
             store.data.copt_font_size = 26
 
-            remote({ planned({}), { err = "timeout" } }):sync(store, { outbox = outbox, now = function() return 200 end })
+            remote({ { err = "timeout" } }):sync(store, { outbox = outbox, now = function() return 200 end })
             local r, tr = remote({ planned({}), REPORTED })
             r:sync(store, { outbox = outbox, now = function() return 300 end })
 
@@ -274,22 +303,17 @@ describe("settings from the library", function()
             assert.are.same({}, RemoteSettings.notice(store.data, outbox, json, 300))
         end)
 
-        it("keeps a change seen while the report was on its way", function()
+        it("keeps a change seen while the request was on its way", function()
             local store = helpers.store({ copt_font_size = 22, cre_font = "Literata" })
             local outbox = helpers.store()
             RemoteSettings.notice(store.data, outbox, json, 100)
             store.data.copt_font_size = 26
 
             local r = remote({})
-            local calls = 0
             r:sync(store, { outbox = outbox, now = function() return 200 end, offload = function()
-                calls = calls + 1
-                if calls == 2 then
-                    -- KOReader saves its settings while the report is sent.
-                    store.data.cre_font = "Bookerly"
-                    RemoteSettings.notice(store.data, outbox, json, 250)
-                    return json.encode({ ok = true })
-                end
+                -- KOReader saves its settings while the request is sent.
+                store.data.cre_font = "Bookerly"
+                RemoteSettings.notice(store.data, outbox, json, 250)
                 return json.encode({ plan = { apply = {} } })
             end })
 
@@ -406,32 +430,44 @@ describe("settings from the library", function()
             }, log(outbox))
         end)
 
-        it("sends the log with the report, and keeps it while the report has not arrived", function()
+        it("sends the log with the request, and keeps it while the library has not answered", function()
             local outbox = helpers.store()
             RemoteSettings.log(outbox, { at = 100, key = "copt_font_size", source = "book", value = 26 }, json)
             local store = helpers.store({ copt_font_size = 26 })
 
-            remote({ planned({}), { err = "timeout" } }):sync(store, { outbox = outbox })
+            remote({ { err = "timeout" } }):sync(store, { outbox = outbox })
             assert.are.equal(1, #log(outbox))
 
-            local r, tr = remote({ planned({}), REPORTED })
+            local r, tr = remote({ planned({}) })
             r:sync(store, { outbox = outbox })
             assert.are.same({ { n = 1, at = 100, key = "copt_font_size", source = "book", value = 26 } },
-                json.decode(tr.requests[2].body).log)
+                json.decode(tr.requests[1].body).log)
             assert.are.same({}, log(outbox))
         end)
 
-        it("keeps a change logged while the report was on its way", function()
+        it("sends what Sync applied with the report, and keeps it while the report has not arrived", function()
+            local outbox = helpers.store()
+            local store = helpers.store({ copt_font_size = 22 })
+
+            remote({ planned({ { key = "copt_font_size", value = 24 } }), { err = "timeout" } })
+                :sync(store, { outbox = outbox, now = function() return 200 end })
+            assert.are.equal(1, #log(outbox))
+
+            local r, tr = remote({ planned({}), REPORTED })
+            r:sync(store, { outbox = outbox, now = function() return 300 end })
+            -- The unanswered report's change goes with the next request, and the report it still owes.
+            assert.are.same({ { n = 1, at = 200, key = "copt_font_size", source = "sync", value = 24, previous = 22 } },
+                json.decode(tr.requests[1].body).log)
+            assert.are.equal(2, tr.calls)
+            assert.are.same({}, log(outbox))
+        end)
+
+        it("keeps a change logged while the request was on its way", function()
             local outbox = helpers.store()
             RemoteSettings.log(outbox, { at = 100, key = "copt_font_size", source = "book", value = 26 }, json)
             local r = remote({})
-            local calls = 0
             r:sync(helpers.store({ copt_font_size = 26 }), { outbox = outbox, offload = function()
-                calls = calls + 1
-                if calls == 2 then
-                    RemoteSettings.log(outbox, { at = 250, key = "cre_font", source = "book", value = "Bookerly" }, json)
-                    return json.encode({ ok = true })
-                end
+                RemoteSettings.log(outbox, { at = 250, key = "cre_font", source = "book", value = "Bookerly" }, json)
                 return json.encode({ plan = { apply = {} } })
             end })
 
