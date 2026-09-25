@@ -183,13 +183,14 @@ local GAP = {
     FOOTER   = "3em",     -- the entry, to the model and timings under it
 }
 
--- The words a dictionary writes in a phrase for whatever fills that slot:
--- "give someone a hand", "make up one's mind". The example says "his" or
--- "her brother", so marking "someone" would mark nothing, and marking "one"
--- would mark the wrong thing.
+-- The words a dictionary writes in a phrase for whatever fills that slot —
+-- "give someone a hand", "make up one's mind" — and the articles. The example
+-- says "his" or "her brother", so marking "someone" would mark nothing, and
+-- marking "a" or "the" would mark every one in the sentence.
 local STAND_INS = {
     someone = true, somebody = true, something = true, ["one's"] = true,
     ["someone's"] = true, oneself = true, one = true, sb = true, sth = true,
+    a = true, an = true, the = true,
 }
 
 -- Control characters stand in for the tags while the text is still raw, so the
@@ -207,10 +208,22 @@ function Format.highlight(text, words)
     local wanted = {}
     for _, word in ipairs(words or {}) do
         -- A phrase is marked word by word: "curl up" lights up both words of
-        -- "curled up", and the "up" of "gave it up" three words on.
-        for part in tostring(word):gmatch("[^%s]+") do
-            if not STAND_INS[part:lower()] then
-                for form in pairs(inflections_of(part)) do wanted[form] = true end
+        -- "curled up", and the "up" of "gave it up" three words on. Only its
+        -- first word inflects; the endings rule run over "of" or "the" makes
+        -- "offer" and "then", which are not the phrase. The stand-ins and the
+        -- articles are left out: they would light up every "a" in the example.
+        local parts = {}
+        for part in tostring(word):gmatch("[^%s]+") do parts[#parts + 1] = part end
+        if #parts == 1 then
+            for form in pairs(inflections_of(parts[1])) do wanted[form] = true end
+        else
+            for i, part in ipairs(parts) do
+                local lower = part:lower()
+                if i == 1 then
+                    for form in pairs(inflections_of(part)) do wanted[form] = true end
+                elseif not STAND_INS[lower] then
+                    wanted[lower] = true
+                end
             end
         end
     end
