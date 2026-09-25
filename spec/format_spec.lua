@@ -305,6 +305,11 @@ describe("format", function()
             assert.are.equal("1.7s total · 1.8s server", Format.timing(1700, 1800))
         end)
 
+        it("adds the round trip to the edge when the edge measured it", function()
+            assert.are.equal("7.0s total · 1.6s server · 180 ms to edge", Format.timing(7000, 1600, 180))
+            assert.are.equal("7.0s total · 1.6s server", Format.timing(7000, 1600, nil))
+        end)
+
         it("has nothing to say without a round trip to describe", function()
             assert.are.equal("", Format.timing(nil, 1800))
         end)

@@ -39,6 +39,7 @@ local Reqid = require("aidict.reqid")
 local Library = require("aidict.library")
 local Kpm = require("aidict.kpm")
 local Look = require("aidict.look")
+local NetCheck = require("aidict.netcheck")
 local Lookup = require("aidict.lookup")
 local Page = require("aidict.page")
 local Prefetch = require("aidict.prefetch")
@@ -723,8 +724,9 @@ function AiDict:askNow(request)
         -- its reviewer made of the answer. One line per lookup, so a slow or
         -- doubtful one can be taken apart afterwards from the device alone.
         local legs = Format.legs(result.legs)
-        local split = string.format("gateway %sms%s",
-            tostring(result.server_ms or "?"), legs ~= "" and (": " .. legs) or "")
+        local split = string.format("gateway %sms%s, edge rtt %sms",
+            tostring(result.server_ms or "?"), legs ~= "" and (": " .. legs) or "",
+            tostring(result.edge_rtt_ms or "?"))
         local judged = ""
         if result.review then
             judged = string.format(" sense=%s ex=%s%s",
@@ -778,6 +780,77 @@ function AiDict:checkForUpdates()
                 text = T(_("Version %1 is the newest on the %2 channel."), info.current, info.channel),
             })
         end
+    end)
+end
+
+--[[--
+Where a lookup's network time goes: DNS, connect, TLS and the request, each
+timed on its own against the AI endpoint, the library and 1.1.1.1. The
+footer only says how much the network took; this says which step took it.
+
+The sockets are luasocket's and luasec's, KOReader's own. The handshake does
+not verify the certificate: this measures the handshake, it sends nothing
+over it, and the request that follows goes through the checked transport.
+--]]--
+function AiDict:networkCheck()
+    if not canAsk() then
+        UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so there is nothing to check.") })
+        return
+    end
+    local targets = NetCheck.targets(self.settings:get("endpoint"), Config.BAKED.library_endpoint)
+
+    Trapper:wrap(function()
+        local completed, outcome = Trapper:dismissableRunInSubprocess(function()
+            local socket = require("socket")
+            local ssl = require("ssl")
+            local TIMEOUT = 10
+            local check = NetCheck.new({
+                clock = function() return time.to_ms(time.now()) end,
+                resolve = function(host) return socket.dns.toip(host) end,
+                connect = function(ip, port)
+                    local sock = socket.tcp()
+                    sock:settimeout(TIMEOUT)
+                    local ok, err = sock:connect(ip, port)
+                    if not ok then
+                        sock:close()
+                        return nil, err
+                    end
+                    return sock
+                end,
+                handshake = function(sock, host)
+                    local conn, err = ssl.wrap(sock, {
+                        mode = "client", protocol = "any", verify = "none",
+                        options = { "all", "no_sslv2", "no_sslv3" },
+                    })
+                    if not conn then return nil, err end
+                    if not host:match("^%d+%.%d+%.%d+%.%d+$") then conn:sni(host) end
+                    conn:settimeout(TIMEOUT)
+                    local ok, hs_err = conn:dohandshake()
+                    -- Closed here, the wrapper and the socket under it: only
+                    -- the handshake's time is wanted from it.
+                    conn:close()
+                    return ok, hs_err
+                end,
+                close = function(sock) sock:close() end,
+                fetch = function(url)
+                    return http_transport({
+                        url = url, method = "GET", block_timeout = TIMEOUT, total_timeout = 15,
+                    })
+                end,
+            })
+            return NetCheck.report(check:run(targets, 2))
+        end, _("Checking the network…"))
+
+        if not completed then return end
+        if type(outcome) ~= "string" then
+            UIManager:show(InfoMessage:new{ text = _("The network check failed.") })
+            return
+        end
+        logger.info("aidict: network check\n" .. outcome)
+        UIManager:show(TextViewer:new{
+            title = _("Network check"),
+            text = outcome,
+        })
     end)
 end
 
@@ -1472,6 +1545,13 @@ function AiDict:addToMainMenu(menu_items)
                 keep_menu_open = true,
                 separator = true,
                 callback = function() self:checkForUpdates() end,
+            },
+            {
+                text = _("Network check"),
+                help_text = _("Time each step of reaching the AI endpoint, the library and the internet: DNS, connect, TLS and the request. Shows which one a slow lookup is waiting on."),
+                keep_menu_open = true,
+                separator = true,
+                callback = function() self:networkCheck() end,
             },
             {
                 text_func = function()

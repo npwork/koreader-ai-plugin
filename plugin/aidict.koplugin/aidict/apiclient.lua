@@ -15,6 +15,7 @@ encoding as `json`, so this module is plain Lua and fully unit-testable.
 --]]--
 
 local Version = require("aidict.version")
+local NetCheck = require("aidict.netcheck")
 
 local ApiClient = {}
 ApiClient.__index = ApiClient
@@ -304,6 +305,10 @@ function ApiClient:define(request)
         model = type(decoded.model) == "string" and decoded.model or nil,
         elapsed_ms = elapsed_ms,
         server_ms = server_ms,
+        -- The Kindle's TCP round trip to Cloudflare's edge, as the edge
+        -- measured it: the one piece of the gap between the two numbers
+        -- above that has a name.
+        edge_rtt_ms = NetCheck.edge_rtt_of(response),
         legs = legs,
         review = review,
         request_id = request_id,

@@ -28,16 +28,21 @@ subtract, knowing what they have subtracted.
 
 @param elapsed_ms number  the whole round trip, as the device measured it
 @param server_ms  number  what the gateway says it spent, when it says
+@param edge_rtt_ms number the device's TCP round trip to Cloudflare's edge, as
+                          the edge measured it, when it says
 @treturn string
 --]]--
-function Format.timing(elapsed_ms, server_ms)
+function Format.timing(elapsed_ms, server_ms, edge_rtt_ms)
     local total = Format.duration(elapsed_ms)
     if total == "" then return "" end
 
+    local text = total
     local server = Format.duration(server_ms)
-    if server == "" then return total end
+    if server ~= "" then text = total .. " total · " .. server .. " server" end
 
-    return total .. " total · " .. server .. " server"
+    local rtt = tonumber(edge_rtt_ms)
+    if rtt then text = text .. string.format(" · %d ms to edge", math.floor(rtt + 0.5)) end
+    return text
 end
 
 --[[--
@@ -323,7 +328,7 @@ function Format.result(result, opts)
         footer[#footer + 1] = opts.source
     end
     if result.elapsed_ms then
-        footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms)
+        footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms, result.edge_rtt_ms)
     end
     if #footer > 0 then
         -- Bookkeeping, not part of the entry: small, and set well apart from
