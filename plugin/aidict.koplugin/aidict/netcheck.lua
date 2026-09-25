@@ -84,7 +84,10 @@ function NetCheck.targets(endpoint, library_endpoint)
         end
     end
     if type(endpoint) == "string" and endpoint ~= "" then
-        add("AI", (endpoint:gsub("/+$", "")) .. "/health")
+        -- The route goes before any query, the way ApiClient:url_for puts it:
+        -- an endpoint carrying ?token= keeps it after /health.
+        local base, query = endpoint:match("^([^?]*)(.*)$")
+        add("AI", (base:gsub("/+$", "")) .. "/health" .. query)
     end
     if type(library_endpoint) == "string" and library_endpoint ~= "" then
         add("Library", library_endpoint)
@@ -192,7 +195,17 @@ function NetCheck.report(results)
             lines[#lines + 1] = string.format("  round trip to the edge, as Cloudflare saw it: %s ms", tostring(r.edge_rtt_ms))
         end
         if r.err then lines[#lines + 1] = "  failed at " .. r.err end
-        for _, step in ipairs({ { "DNS", r.dns_ms }, { "connect", r.tcp_ms }, { "TLS", r.tls_ms } }) do
+        -- The request repeats DNS, connect and TLS before the server works,
+        -- so what it adds is its time less theirs: the server and the
+        -- transfer. Counted as a step so a slow server can be the answer.
+        local rest
+        if r.request_ms then
+            rest = math.max(0, r.request_ms - (r.dns_ms or 0) - (r.tcp_ms or 0) - (r.tls_ms or 0))
+        end
+        for _, step in ipairs({
+            { "DNS", r.dns_ms }, { "connect", r.tcp_ms }, { "TLS", r.tls_ms },
+            { "server and transfer", rest },
+        }) do
             if step[2] and step[2] > slowest_ms then
                 slowest, slowest_ms = string.format("%s to %s", step[1], r.name), step[2]
             end

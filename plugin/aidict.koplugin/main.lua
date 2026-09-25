@@ -825,7 +825,11 @@ function AiDict:networkCheck()
                     if not conn then return nil, err end
                     if not host:match("^%d+%.%d+%.%d+%.%d+$") then conn:sni(host) end
                     conn:settimeout(TIMEOUT)
-                    return conn:dohandshake()
+                    local ok, hs_err = conn:dohandshake()
+                    -- Closed here, the wrapper and the socket under it: only
+                    -- the handshake's time is wanted from it.
+                    conn:close()
+                    return ok, hs_err
                 end,
                 close = function(sock) sock:close() end,
                 fetch = function(url)
