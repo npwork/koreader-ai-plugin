@@ -306,8 +306,24 @@ describe("format", function()
         end)
 
         it("adds the round trip to the edge when the edge measured it", function()
-            assert.are.equal("7.0s total · 1.6s server · 180 ms to edge", Format.timing(7000, 1600, 180))
+            assert.are.equal("1.8s total · 1.6s server · 40 ms to edge", Format.timing(1800, 1600, 40))
             assert.are.equal("7.0s total · 1.6s server", Format.timing(7000, 1600, nil))
+        end)
+
+        it("estimates what the flight does not explain", function()
+            -- 7000 - 1600 - 3 round trips of 180 = 4860: DNS, the Kindle's
+            -- TLS work and Wi-Fi loss, which no server clock can see.
+            assert.are.equal("7.0s total · 1.6s server · 180 ms to edge · ~4.9s DNS & Kindle",
+                Format.timing(7000, 1600, 180))
+        end)
+
+        it("leaves out a remainder too small to be more than skew", function()
+            assert.are.equal("2.0s total · 1.6s server · 50 ms to edge", Format.timing(2000, 1600, 50))
+            assert.are.equal("1.5s total · 1.6s server · 50 ms to edge", Format.timing(1500, 1600, 50))
+        end)
+
+        it("does not guess a remainder without the server's time", function()
+            assert.are.equal("7.0s · 180 ms to edge", Format.timing(7000, nil, 180))
         end)
 
         it("has nothing to say without a round trip to describe", function()
