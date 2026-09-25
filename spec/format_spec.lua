@@ -383,6 +383,31 @@ describe("format", function()
             assert.are.equal("a &lt; b &amp; <b>want</b>", marked)
         end)
 
+        it("marks every word of a phrase, however it is split", function()
+            assert.are.equal("The dog <b>curled</b> <b>up</b> on the rug.",
+                Format.highlight("The dog curled up on the rug.", { "curl up" }))
+            assert.are.equal("She <b>gave</b> it <b>up</b>.",
+                Format.highlight("She gave it up.", { "give up", "gave" }))
+        end)
+
+        it("leaves the stand-in words of a phrase unmarked", function()
+            assert.are.equal("He <b>made</b> <b>up</b> his <b>mind</b>.",
+                Format.highlight("He made up his mind.", { "make up one's mind", "made" }))
+        end)
+
+        it("marks the small words of a phrase as they are, never inflected", function()
+            -- "of" would become "offer", "the" would become "then".
+            assert.are.equal("Then it came <b>out</b> <b>of</b> the <b>blue</b>, an offer.",
+                Format.highlight("Then it came out of the blue, an offer.", { "out of the blue" }))
+            assert.are.equal("He <b>gave</b> me a <b>hand</b> as ever.",
+                Format.highlight("He gave me a hand as ever.", { "give someone a hand", "gave" }))
+        end)
+
+        it("still marks a stand-in word looked up on its own", function()
+            assert.are.equal("<b>Something</b> moved.",
+                Format.highlight("Something moved.", { "something" }))
+        end)
+
         it("leaves the sentence alone when there is nothing to look for", function()
             assert.are.equal("A sentence.", Format.highlight("A sentence.", {}))
             assert.are.equal("", Format.highlight(nil, { "want" }))
