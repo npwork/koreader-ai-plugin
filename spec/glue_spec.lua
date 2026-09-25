@@ -1225,9 +1225,11 @@ describe("the KOReader layer", function()
                 reader.ui.font = { font_face = font }
             end
 
-            it("opens a book without its own look, so it takes the defaults", function()
+            it("opens a book with the defaults written over its own look", function()
                 build()
                 open_book({ h_page_margins = { 20, 20 }, font_size = 22 }, "Literata")
+                kor.global_settings.data.copt_h_page_margins = { 20, 20 }
+                kor.global_settings.data.cre_font = "Bookerly"
                 local sidecar = helpers.store({
                     copt_font_size = 30, copt_h_page_margins = { 5, 5 }, font_face = "Noto Serif",
                     copt_rotation_mode = 1, percent_finished = 0.5,
@@ -1235,7 +1237,24 @@ describe("the KOReader layer", function()
 
                 plugin:onDocSettingsLoad(sidecar, reader.ui.document)
 
-                assert.are.same({ copt_rotation_mode = 1, percent_finished = 0.5 }, sidecar.data)
+                assert.are.same({
+                    copt_h_page_margins = { 20, 20 }, font_face = "Bookerly",
+                    copt_rotation_mode = 1, percent_finished = 0.5,
+                }, sidecar.data)
+            end)
+
+            it("keeps a book it has read before in web rendering, not KOReader's legacy fallback", function()
+                build()
+                reader.ui.config = { options = { prefix = "copt", { options = { { name = "block_rendering_mode" } } } } }
+                reader.ui.document = { configurable = { block_rendering_mode = 3 } }
+                local sidecar = helpers.store({ copt_block_rendering_mode = 3, last_xpointer = "/body/p[4]" })
+
+                plugin:onDocSettingsLoad(sidecar, reader.ui.document)
+                assert.are.same({ copt_block_rendering_mode = 3, last_xpointer = "/body/p[4]" }, sidecar.data)
+
+                kor.global_settings.data.copt_block_rendering_mode = 2
+                plugin:onDocSettingsLoad(sidecar, reader.ui.document)
+                assert.are.equal(2, sidecar.data.copt_block_rendering_mode)
             end)
 
             it("makes a change made in the book the default for every book", function()
