@@ -75,10 +75,16 @@ function Look.is_global(options)
     return type(options) == "table" and options.prefix == "copt"
 end
 
+-- What KOReader gives a book it has never opened, for the options it does not
+-- fall back to the global default on once the book has been read: without its
+-- own `copt_block_rendering_mode`, a book with a `last_xpointer` opens in
+-- legacy mode 0 (ReaderTypeset:onReadSettings), a new one in web mode 3.
+local NEW_BOOK = { block_rendering_mode = 3 }
+
 --[[--
 The look a book opens with, keyed as its sidecar keeps it: each of its own
-keys with the global default to write over it, or nil to drop it when there
-is no default.
+keys with the global default to write over it, or what a new book gets
+when there is no global default, or nil to drop it.
 
 Writing the default in rather than dropping the key matters: KOReader does
 not always fall back to the global value. A book it has opened before and
@@ -96,7 +102,9 @@ function Look.book_look(options, default)
         for _, option in ipairs(tab.options or {}) do
             if option.name and not SKIP[option.name] then
                 local key = prefix .. option.name
-                out[#out + 1] = { key = key, value = copy(default(key)) }
+                local value = default(key)
+                if value == nil then value = NEW_BOOK[option.name] end
+                out[#out + 1] = { key = key, value = copy(value) }
             end
         end
     end

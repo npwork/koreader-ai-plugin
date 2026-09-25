@@ -92,6 +92,14 @@ describe("one look for every book", function()
         assert.are.same({ 20, 20 }, defaults.copt_h_page_margins)
     end)
 
+    it("opens a book in web rendering when there is no global render mode, as KOReader opens a new one", function()
+        local options = { prefix = "copt", { options = { { name = "block_rendering_mode" } } } }
+        assert.are.same({ { key = "copt_block_rendering_mode", value = 3 }, { key = "font_face" } },
+            Look.book_look(options, function() return nil end))
+        assert.are.same({ { key = "copt_block_rendering_mode", value = 1 }, { key = "font_face" } },
+            Look.book_look(options, function(key) return key == "copt_block_rendering_mode" and 1 or nil end))
+    end)
+
     it("gives only what changed since it last looked, and remembers it", function()
         local seen = {}
         Look.changed(seen, { { key = "copt_font_size", value = 22 }, { key = "copt_h_page_margins", value = { 20, 20 } } })
