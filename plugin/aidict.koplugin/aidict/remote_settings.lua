@@ -193,6 +193,53 @@ RemoteSettings.SEEN_KEY = "settings_seen"
 RemoteSettings.CHANGED_KEY = "settings_changed_at"
 
 --[[--
+Every change to a setting this Kindle saw, oldest first, until a report takes
+it to the library: `{ n, at, key, source, value | removed, previous? }`, `at` in
+Unix seconds by this Kindle's clock. `source` says who changed it: "sync" (the
+library's queued change, applied), "book" (the look changed in an open book,
+made the default), or "kindle" (anything else, seen when KOReader saved its
+settings). Secrets are never logged.
+--]]--
+RemoteSettings.LOG_KEY = "settings_log"
+
+--- Only the newest entries are kept when reports keep failing.
+RemoteSettings.LOG_KEPT = 300
+
+--- The number the next entry gets, so a report can drop exactly the entries it sent.
+RemoteSettings.LOG_NEXT_KEY = "settings_log_next"
+
+--- A value as the library may see it: nil for a secret, or for what JSON cannot carry.
+local function visible(key, value, json)
+    return RemoteSettings.snapshot({ [key] = value }, json)[key]
+end
+
+--[[--
+Add one change to the log. A secret's key is left out altogether.
+
+@param outbox table the plugin's own store
+@param entry  table `{ at, key, source, value | removed = true, previous? }`
+@param json   table the codec, to leave out what it cannot encode
+--]]--
+function RemoteSettings.log(outbox, entry, json)
+    if is_secret(entry.key) then return end
+    local line = { at = entry.at, key = entry.key, source = entry.source }
+    if entry.removed then
+        line.removed = true
+    else
+        line.value = visible(entry.key, entry.value, json)
+    end
+    if entry.previous ~= nil then line.previous = visible(entry.key, entry.previous, json) end
+    local n = tonumber(outbox:readSetting(RemoteSettings.LOG_NEXT_KEY)) or 1
+    line.n = n
+    outbox:saveSetting(RemoteSettings.LOG_NEXT_KEY, n + 1)
+    local log = outbox:readSetting(RemoteSettings.LOG_KEY)
+    if type(log) ~= "table" then log = {} end
+    log[#log + 1] = line
+    while #log > RemoteSettings.LOG_KEPT do table.remove(log, 1) end
+    outbox:saveSetting(RemoteSettings.LOG_KEY, log)
+end
+
+--[[--
 A value as one string that is the same whenever the value is: a table's keys
 sorted, since `pairs` walks them in no fixed order.
 --]]--
@@ -227,16 +274,23 @@ function RemoteSettings.notice(data, outbox, json, now)
     local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
     if type(changed) ~= "table" then changed = {} end
 
+    local values = RemoteSettings.snapshot(data, json)
     local current, moved = {}, false
-    for key, value in pairs(RemoteSettings.snapshot(data, json)) do
+    for key, value in pairs(values) do
         current[key] = canonical(value)
     end
     if type(seen) == "table" then
         for key, form in pairs(current) do
-            if seen[key] ~= form then changed[key], moved = now, true end
+            if seen[key] ~= form then
+                changed[key], moved = now, true
+                RemoteSettings.log(outbox, { at = now, key = key, source = "kindle", value = values[key] }, json)
+            end
         end
         for key in pairs(seen) do
-            if current[key] == nil then changed[key], moved = now, true end
+            if current[key] == nil then
+                changed[key], moved = now, true
+                RemoteSettings.log(outbox, { at = now, key = key, source = "kindle", removed = true }, json)
+            end
         end
     end
     if moved or type(seen) ~= "table" then
@@ -259,11 +313,9 @@ local function absorb(outbox, applied, json)
     if type(seen) ~= "table" then seen = {} end
     if type(changed) ~= "table" then changed = {} end
     for _, entry in ipairs(applied) do
-        local visible
-        if not entry.reset then
-            visible = RemoteSettings.snapshot({ [entry.key] = entry.value }, json)[entry.key]
-        end
-        if visible == nil then seen[entry.key] = nil else seen[entry.key] = canonical(visible) end
+        local shown
+        if not entry.reset then shown = visible(entry.key, entry.value, json) end
+        if shown == nil then seen[entry.key] = nil else seen[entry.key] = canonical(shown) end
         changed[entry.key] = nil
     end
     outbox:saveSetting(RemoteSettings.SEEN_KEY, seen)
@@ -368,6 +420,12 @@ function RemoteSettings:sync(store, opts)
     local applied = RemoteSettings.apply(store, fetched.plan.apply)
     if #applied > 0 and store.flush then store:flush() end
     absorb(outbox, applied, self.json)
+    for _, entry in ipairs(applied) do
+        RemoteSettings.log(outbox, {
+            at = clock, key = entry.key, source = "sync",
+            value = entry.value, removed = entry.reset, previous = entry.previous,
+        }, self.json)
+    end
 
     local unreported = outbox:readSetting(RemoteSettings.OUTBOX_KEY)
     local changes = outgoing(type(unreported) == "table" and unreported or {}, applied)
@@ -377,11 +435,17 @@ function RemoteSettings:sync(store, opts)
     -- The stamps this report answers; one taken while it is on its way is not.
     local answered = {}
     for key, at in pairs(outbox:readSetting(RemoteSettings.CHANGED_KEY) or {}) do answered[key] = at end
+    -- A copy: the store's own list grows if a change is logged while the report is on its way.
+    local log = {}
+    for i, line in ipairs(outbox:readSetting(RemoteSettings.LOG_KEY) or {}) do log[i] = line end
+    local last_sent = #log > 0 and tonumber(log[#log].n) or 0
     local report = {
         values = RemoteSettings.snapshot(store.data, self.json),
         plugin_version = Version.string,
+        now = now(),
     }
     if #changes > 0 then report.applied = changes end
+    if #log > 0 then report.log = log end
 
     local ok, body = pcall(self.json.encode, report)
     if not ok then
@@ -396,6 +460,15 @@ function RemoteSettings:sync(store, opts)
         -- The library's copy now has everything, the Kindle's own changes
         -- included: nothing is waiting, and no change is newer than it.
         outbox:delSetting(RemoteSettings.OUTBOX_KEY)
+        -- Only what went: a change logged while the report was on its way stays for the next one.
+        local left = outbox:readSetting(RemoteSettings.LOG_KEY)
+        if type(left) == "table" then
+            local rest = {}
+            for _, line in ipairs(left) do
+                if type(line) == "table" and (tonumber(line.n) or 0) > last_sent then rest[#rest + 1] = line end
+            end
+            outbox:saveSetting(RemoteSettings.LOG_KEY, rest)
+        end
         local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
         if type(changed) == "table" then
             for key, at in pairs(answered) do

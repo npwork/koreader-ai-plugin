@@ -1269,6 +1269,12 @@ describe("the KOReader layer", function()
 
                 assert.are.same({ copt_font_size = 26, cre_font = "Bookerly" }, kor.global_settings.data)
                 assert.are.equal(1, kor.global_settings.flushed)
+
+                local logged = {}
+                for _, line in ipairs(plugin.store:readSetting("settings_log")) do
+                    if line.source == "book" then logged[line.key] = line.value end
+                end
+                assert.are.same({ copt_font_size = 26, cre_font = "Bookerly" }, logged)
             end)
 
             it("leaves a default set by Sync alone while the book shows its older value", function()
