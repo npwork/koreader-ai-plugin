@@ -389,6 +389,23 @@ describe("settings from the library", function()
             }, log(outbox))
         end)
 
+        it("does not log a change Sync applies again over its own value", function()
+            local store = helpers.store({ copt_font_size = 24, cre_font = "Literata" })
+            local outbox = helpers.store()
+            remote({
+                planned({
+                    { key = "copt_font_size", value = 24 },
+                    { key = "style_tweaks", reset = true },
+                    { key = "cre_font", value = "Bookerly" },
+                }),
+                { err = "timeout" },
+            }):sync(store, { outbox = outbox, now = function() return 200 end })
+
+            assert.are.same({
+                { n = 1, at = 200, key = "cre_font", source = "sync", value = "Bookerly", previous = "Literata" },
+            }, log(outbox))
+        end)
+
         it("sends the log with the report, and keeps it while the report has not arrived", function()
             local outbox = helpers.store()
             RemoteSettings.log(outbox, { at = 100, key = "copt_font_size", source = "book", value = 26 }, json)

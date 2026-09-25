@@ -448,10 +448,16 @@ function RemoteSettings:sync(store, opts)
     if #applied > 0 and store.flush then store:flush() end
     absorb(outbox, applied, self.json)
     for _, entry in ipairs(applied) do
-        RemoteSettings.log(outbox, {
-            at = clock, key = entry.key, source = "sync",
-            value = entry.value, removed = entry.reset, previous = entry.previous,
-        }, self.json)
+        -- A change applied again, its first report lost, finds its own value in place: nothing changed.
+        local after, before
+        if not entry.reset then after = canonical(visible(entry.key, entry.value, self.json)) end
+        if entry.previous ~= nil then before = canonical(visible(entry.key, entry.previous, self.json)) end
+        if after ~= before then
+            RemoteSettings.log(outbox, {
+                at = clock, key = entry.key, source = "sync",
+                value = entry.value, removed = entry.reset, previous = entry.previous,
+            }, self.json)
+        end
     end
 
     local unreported = outbox:readSetting(RemoteSettings.OUTBOX_KEY)
