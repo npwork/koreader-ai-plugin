@@ -183,6 +183,15 @@ local GAP = {
     FOOTER   = "3em",     -- the entry, to the model and timings under it
 }
 
+-- The words a dictionary writes in a phrase for whatever fills that slot:
+-- "give someone a hand", "make up one's mind". The example says "his" or
+-- "her brother", so marking "someone" would mark nothing, and marking "one"
+-- would mark the wrong thing.
+local STAND_INS = {
+    someone = true, somebody = true, something = true, ["one's"] = true,
+    ["someone's"] = true, oneself = true, one = true, sb = true, sth = true,
+}
+
 -- Control characters stand in for the tags while the text is still raw, so the
 -- escaping that follows cannot eat them and cannot be fooled by them.
 local OPEN, CLOSE = "\1", "\2"
@@ -197,7 +206,13 @@ function Format.highlight(text, words)
 
     local wanted = {}
     for _, word in ipairs(words or {}) do
-        for form in pairs(inflections_of(word)) do wanted[form] = true end
+        -- A phrase is marked word by word: "curl up" lights up both words of
+        -- "curled up", and the "up" of "gave it up" three words on.
+        for part in tostring(word):gmatch("[^%s]+") do
+            if not STAND_INS[part:lower()] then
+                for form in pairs(inflections_of(part)) do wanted[form] = true end
+            end
+        end
     end
     if not next(wanted) then return Format.escape(text) end
 
