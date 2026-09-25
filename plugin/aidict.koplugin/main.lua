@@ -1377,10 +1377,10 @@ end
 -- Look
 ----------------------------------------------------------------------------
 
---- The open book's look as default settings, or nil in the file manager.
+--- The open book's look as default settings; nil in the file manager, or for a PDF.
 function AiDict:openBookLook()
     local config, document = self.ui.config, self.ui.document
-    if not (config and config.options and document and document.configurable) then return nil end
+    if not (config and Look.is_global(config.options) and document and document.configurable) then return nil end
     return Look.defaults(config.options, document.configurable, self.ui.font and self.ui.font.font_face)
 end
 
@@ -1391,7 +1391,7 @@ plugins are loaded and before any module reads the book's settings.
 --]]--
 function AiDict:onDocSettingsLoad(doc_settings)
     local config = self.ui and self.ui.config
-    if not (doc_settings and config and config.options) then return end
+    if not (doc_settings and config and Look.is_global(config.options)) then return end
     for _, key in ipairs(Look.book_keys(config.options)) do
         doc_settings:delSetting(key)
     end

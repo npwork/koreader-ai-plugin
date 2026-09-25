@@ -67,6 +67,15 @@ function Look.defaults(options, configurable, font_face)
 end
 
 --[[--
+Whether a document's look is made global: books read by crengine (EPUB,
+FB2…), whose options are `copt`. A PDF's `kopt` options are its crop, zoom,
+contrast and reflow, which belong to that one scan, so they stay its own.
+--]]--
+function Look.is_global(options)
+    return type(options) == "table" and options.prefix == "copt"
+end
+
+--[[--
 The keys a book keeps its own look under, in its sidecar.
 
 @param options table config options, as for `defaults`

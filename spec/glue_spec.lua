@@ -1264,6 +1264,21 @@ describe("the KOReader layer", function()
                 assert.are.equal(0, kor.global_settings.flushed)
             end)
 
+            it("leaves a PDF's own crop, zoom and contrast alone", function()
+                build()
+                reader.ui.config = { options = { prefix = "kopt", { options = { { name = "zoom_mode" }, { name = "contrast" } } } } }
+                reader.ui.document = { configurable = { zoom_mode = "page", contrast = 1.2 } }
+                local sidecar = helpers.store({ kopt_zoom_mode = "content", kopt_contrast = 1.5 })
+
+                plugin:onDocSettingsLoad(sidecar, reader.ui.document)
+                plugin:onReadSettings()
+                reader.ui.document.configurable.contrast = 2
+                plugin:onFlushSettings()
+
+                assert.are.same({ kopt_zoom_mode = "content", kopt_contrast = 1.5 }, sidecar.data)
+                assert.are.same({}, kor.global_settings.data)
+            end)
+
             it("does nothing in the file manager", function()
                 build()
                 plugin:onDocSettingsLoad(helpers.store({ copt_font_size = 30 }))
