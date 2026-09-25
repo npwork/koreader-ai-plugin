@@ -724,8 +724,9 @@ function AiDict:askNow(request)
         -- its reviewer made of the answer. One line per lookup, so a slow or
         -- doubtful one can be taken apart afterwards from the device alone.
         local legs = Format.legs(result.legs)
-        local split = string.format("gateway %sms%s",
-            tostring(result.server_ms or "?"), legs ~= "" and (": " .. legs) or "")
+        local split = string.format("gateway %sms%s, edge rtt %sms",
+            tostring(result.server_ms or "?"), legs ~= "" and (": " .. legs) or "",
+            tostring(result.edge_rtt_ms or "?"))
         local judged = ""
         if result.review then
             judged = string.format(" sense=%s ex=%s%s",

@@ -17,7 +17,9 @@ local function fake(steps, overrides)
         handshake = takes(steps.tls or 0, function() return true end),
         close = function() end,
         fetch = takes(steps.request or 0, function()
-            return { status = 200, body = "", headers = { ["cf-ray"] = "a400d1578e720387-SIN" } }
+            return { status = 200, body = "", headers = {
+                ["cf-ray"] = "a400d1578e720387-SIN", ["server-timing"] = 'edge;dur=23;desc="SIN"',
+            } }
         end),
     }
     for k, v in pairs(overrides or {}) do deps[k] = v end
@@ -56,6 +58,20 @@ describe("netcheck", function()
         it("says nothing when there is nothing to say", function()
             assert.is_nil(NetCheck.colo_of({ headers = {}, body = "" }))
             assert.is_nil(NetCheck.colo_of(nil))
+        end)
+    end)
+
+    describe("edge_rtt_of", function()
+        it("reads the edge round trip off Server-Timing", function()
+            assert.are.equal(23, NetCheck.edge_rtt_of({ headers = { ["server-timing"] = 'edge;dur=23;desc="SIN"' } }))
+        end)
+
+        it("finds it among other entries", function()
+            assert.are.equal(180, NetCheck.edge_rtt_of({ headers = { ["server-timing"] = 'app;dur=5, edge;dur=180;desc="SIN"' } }))
+        end)
+
+        it("says nothing without it", function()
+            assert.is_nil(NetCheck.edge_rtt_of({ headers = {} }))
         end)
     end)
 
@@ -112,6 +128,7 @@ describe("netcheck", function()
             local text = NetCheck.report(results)
             assert.is_truthy(text:find("DNS 3000 ms · connect 40 ms · TLS 600 ms · request 1700 ms (HTTP 200)", 1, true))
             assert.is_truthy(text:find("via SIN", 1, true))
+            assert.is_truthy(text:find("as Cloudflare saw it: 23 ms", 1, true))
             assert.is_truthy(text:find("Slowest step: DNS to AI, 3000 ms.", 1, true))
         end)
 

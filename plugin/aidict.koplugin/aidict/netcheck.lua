@@ -59,6 +59,18 @@ function NetCheck.colo_of(response)
 end
 
 --[[--
+The device's TCP round trip to the edge, as Cloudflare measured it, when the
+AI endpoint says so in `Server-Timing: edge;dur=23;desc="SIN"`. It is the
+network's share with the Kindle's own DNS and TLS work taken out.
+--]]--
+function NetCheck.edge_rtt_of(response)
+    if type(response) ~= "table" or type(response.headers) ~= "table" then return nil end
+    local header = response.headers["server-timing"] or response.headers["Server-Timing"]
+    if type(header) ~= "string" then return nil end
+    return tonumber(header:match("edge;[^,]*dur=([%d%.]+)"))
+end
+
+--[[--
 The places worth timing. The AI endpoint and the library are ours; 1.1.1.1
 is Cloudflare's resolver, reached by address so it needs no DNS, and its
 trace page names the location the Wi-Fi's route leads to.
@@ -138,6 +150,7 @@ function NetCheck:probe(target)
         end
         result.status = response.status
         result.colo = NetCheck.colo_of(response)
+        result.edge_rtt_ms = NetCheck.edge_rtt_of(response)
     end
     return result
 end
@@ -175,6 +188,9 @@ function NetCheck.report(results)
         lines[#lines + 1] = string.format("  DNS %s · connect %s · TLS %s · request %s%s",
             ms(r.dns_ms), ms(r.tcp_ms), ms(r.tls_ms), ms(r.request_ms),
             r.status and (" (HTTP " .. tostring(r.status) .. ")") or "")
+        if r.edge_rtt_ms then
+            lines[#lines + 1] = string.format("  round trip to the edge, as Cloudflare saw it: %s ms", tostring(r.edge_rtt_ms))
+        end
         if r.err then lines[#lines + 1] = "  failed at " .. r.err end
         for _, step in ipairs({ { "DNS", r.dns_ms }, { "connect", r.tcp_ms }, { "TLS", r.tls_ms } }) do
             if step[2] and step[2] > slowest_ms then
