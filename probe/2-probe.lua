@@ -23,6 +23,9 @@ if phase == "sync" then
         new.margin_body_0 = true
         G_reader_settings:saveSetting("style_tweaks", new)
         G_reader_settings:flush()
+        local ui = require("apps/reader/readerui").instance
+        print("PROBE adopt", tostring(ui.aidict and ui.aidict.adoptStyleTweaks))
+        if ui.aidict then ui.aidict:adoptStyleTweaks({ { key = "style_tweaks" } }) end
         report("synced")
     end)
     UIManager:scheduleIn(14, function() print("PROBE restarting") UIManager:broadcastEvent(Event:new("Restart")) end)
