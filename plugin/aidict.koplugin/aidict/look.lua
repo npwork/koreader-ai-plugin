@@ -7,9 +7,9 @@ changes the open book only, saved in its sidecar as `<prefix>_<option name>`
 with the global default, the same key in the reader's settings
 (`copt_font_size`, and `cre_font` for the font).
 
-The plugin makes the look global instead: a book opens with its own keys
-dropped (`book_keys`), so it takes the defaults, and a change made in it
-becomes the default (`defaults`, `changed`).
+The plugin makes the look global instead: a book opens with the defaults
+written over its own keys (`book_look`), and a change made in it becomes the
+default (`defaults`, `changed`).
 
 Takes KOReader's own tables rather than requiring them: `options` is the
 reader's config options (`CreOptions`, or `KoptOptions` for PDFs), and
@@ -76,20 +76,31 @@ function Look.is_global(options)
 end
 
 --[[--
-The keys a book keeps its own look under, in its sidecar.
+The look a book opens with, keyed as its sidecar keeps it: each of its own
+keys with the global default to write over it, or nil to drop it when there
+is no default.
+
+Writing the default in rather than dropping the key matters: KOReader does
+not always fall back to the global value. A book it has opened before and
+that has no `copt_block_rendering_mode` of its own opens in legacy rendering
+(mode 0), which draws margins differently and asks to reload the document.
 
 @param options table config options, as for `defaults`
-@treturn table list of keys
+@tparam function default reads a global setting by key
+@treturn table list of { key = <sidecar key>, value = <default or nil> }
 --]]--
-function Look.book_keys(options)
+function Look.book_look(options, default)
     local out = {}
     local prefix = options.prefix .. "_"
     for _, tab in ipairs(options) do
         for _, option in ipairs(tab.options or {}) do
-            if option.name and not SKIP[option.name] then out[#out + 1] = prefix .. option.name end
+            if option.name and not SKIP[option.name] then
+                local key = prefix .. option.name
+                out[#out + 1] = { key = key, value = copy(default(key)) }
+            end
         end
     end
-    out[#out + 1] = "font_face"
+    out[#out + 1] = { key = "font_face", value = copy(default("cre_font")) }
     return out
 end
 

@@ -75,11 +75,21 @@ describe("a book's look as defaults", function()
 end)
 
 describe("one look for every book", function()
-    it("names the keys a book keeps its own look under, the font included", function()
+    it("gives every key a book keeps its look under the default to open with, the font included", function()
+        local defaults = { copt_h_page_margins = { 20, 20 }, copt_font_size = 22, cre_font = "Bookerly" }
+        local look = Look.book_look(creoptions(), function(key) return defaults[key] end)
         assert.are.same({
-            "copt_visible_pages", "copt_h_page_margins", "copt_t_page_margin", "copt_b_page_margin",
-            "copt_line_spacing", "copt_font_size", "copt_word_spacing", "font_face",
-        }, Look.book_keys(creoptions()))
+            { key = "copt_visible_pages" },
+            { key = "copt_h_page_margins", value = { 20, 20 } },
+            { key = "copt_t_page_margin" },
+            { key = "copt_b_page_margin" },
+            { key = "copt_line_spacing" },
+            { key = "copt_font_size", value = 22 },
+            { key = "copt_word_spacing" },
+            { key = "font_face", value = "Bookerly" },
+        }, look)
+        look[2].value[1] = 5
+        assert.are.same({ 20, 20 }, defaults.copt_h_page_margins)
     end)
 
     it("gives only what changed since it last looked, and remembers it", function()

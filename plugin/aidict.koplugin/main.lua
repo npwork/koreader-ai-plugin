@@ -1460,15 +1460,20 @@ function AiDict:openBookLook()
 end
 
 --[[--
-A book opens with the global look: its own is dropped before KOReader reads
-it, so every option falls back to the default. KOReader sends this after the
-plugins are loaded and before any module reads the book's settings.
+A book opens with the global look: the defaults are written over its own
+before KOReader reads them. KOReader sends this after the plugins are loaded
+and before any module reads the book's settings.
 --]]--
 function AiDict:onDocSettingsLoad(doc_settings)
     local config = self.ui and self.ui.config
     if not (doc_settings and config and Look.is_global(config.options)) then return end
-    for _, key in ipairs(Look.book_keys(config.options)) do
-        doc_settings:delSetting(key)
+    local function default(key) return G_reader_settings:readSetting(key) end
+    for _, entry in ipairs(Look.book_look(config.options, default)) do
+        if entry.value == nil then
+            doc_settings:delSetting(entry.key)
+        else
+            doc_settings:saveSetting(entry.key, entry.value)
+        end
     end
 end
 
