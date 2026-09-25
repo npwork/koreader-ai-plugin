@@ -1262,19 +1262,27 @@ describe("the KOReader layer", function()
                 local look = { h_page_margins = { 20, 20 }, font_size = 22 }
                 open_book(look, "Literata")
                 plugin:onReadSettings()
+                -- The first save only takes in what the Kindle already has.
+                plugin:onFlushSettings()
 
                 look.font_size = 26
                 reader.ui.font.font_face = "Bookerly"
+                plugin:onFlushSettings()
                 plugin:onFlushSettings()
 
                 assert.are.same({ copt_font_size = 26, cre_font = "Bookerly" }, kor.global_settings.data)
                 assert.are.equal(1, kor.global_settings.flushed)
 
+                -- Logged once each, as the book's, not again as the Kindle's.
                 local logged = {}
                 for _, line in ipairs(plugin.store:readSetting("settings_log")) do
-                    if line.source == "book" then logged[line.key] = line.value end
+                    logged[#logged + 1] = line.source .. " " .. line.key .. " " .. tostring(line.value)
                 end
-                assert.are.same({ copt_font_size = 26, cre_font = "Bookerly" }, logged)
+                table.sort(logged)
+                assert.are.same({ "book copt_font_size 26", "book cre_font Bookerly" }, logged)
+                local stamped = plugin.store:readSetting("settings_changed_at")
+                assert.are.equal("number", type(stamped.copt_font_size))
+                assert.are.equal("number", type(stamped.cre_font))
             end)
 
             it("leaves a default set by Sync alone while the book shows its older value", function()

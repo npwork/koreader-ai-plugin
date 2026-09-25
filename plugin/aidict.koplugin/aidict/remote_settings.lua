@@ -302,6 +302,33 @@ function RemoteSettings.notice(data, outbox, json, now)
 end
 
 --[[--
+Changes the plugin itself made on the Kindle's behalf (`source` says how, e.g.
+"book" for the open book's look kept as the default): logged once, stamped
+and seen as `notice` would, so its next look finds nothing new and does not
+log them a second time as "kindle". Before the first look there is nothing to
+compare against, and that look takes them in with the rest.
+--]]--
+function RemoteSettings.adopt(outbox, entries, json, now, source)
+    local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
+    local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
+    if type(changed) ~= "table" then changed = {} end
+    for _, entry in ipairs(entries) do
+        RemoteSettings.log(outbox, { at = now, key = entry.key, source = source, value = entry.value }, json)
+        if type(seen) == "table" then
+            local shown = visible(entry.key, entry.value, json)
+            if shown ~= nil then
+                seen[entry.key] = canonical(shown)
+                changed[entry.key] = now
+            end
+        end
+    end
+    if type(seen) == "table" then
+        outbox:saveSetting(RemoteSettings.SEEN_KEY, seen)
+        outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
+    end
+end
+
+--[[--
 The library's changes are not the Kindle's own: seen as they now are, no
 stamp. Seen in the form `notice` compares, the secrets left out, or the next
 look would take the difference for a change.
