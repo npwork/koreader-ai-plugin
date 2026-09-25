@@ -328,11 +328,13 @@ function AiDict:stopPrefetching()
 end
 
 function AiDict:onCloseDocument()
+    self:keepLookGlobal()
     self:stopPrefetching()
     self:saveCache()
 end
 
 function AiDict:onFlushSettings()
+    self:keepLookGlobal()
     self:saveCache()
     -- KOReader keeps no time for a setting's change; this save is the nearest
     -- one, and Sync needs it to decide who changed a key last.
@@ -1383,25 +1385,41 @@ function AiDict:openBookLook()
 end
 
 --[[--
-Save the open book's look as KOReader's defaults for new books.
-
-What a long-press on every value in the bottom menu, and on the font in the
-font list, would save — the same settings, under the same names.
+A book opens with the global look: its own is dropped before KOReader reads
+it, so every option falls back to the default. KOReader sends this after the
+plugins are loaded and before any module reads the book's settings.
 --]]--
-function AiDict:useLookForNewBooks()
-    local defaults = self:openBookLook()
-    if not defaults then return end
-    UIManager:show(ConfirmBox:new{
-        text = _("Open every new book with this book's font, size, margins and spacing?\n\nBooks you have already opened keep their own."),
-        ok_text = _("Use for new books"),
-        ok_callback = function()
-            for _, entry in ipairs(defaults) do
-                G_reader_settings:saveSetting(entry.key, entry.value)
-            end
-            G_reader_settings:flush()
-            UIManager:show(InfoMessage:new{ text = _("New books will open looking like this one.") })
-        end,
-    })
+function AiDict:onDocSettingsLoad(doc_settings)
+    local config = self.ui and self.ui.config
+    if not (doc_settings and config and config.options) then return end
+    for _, key in ipairs(Look.book_keys(config.options)) do
+        doc_settings:delSetting(key)
+    end
+end
+
+--- The look the book opened with, so only what the reader changes goes global.
+function AiDict:onReadSettings()
+    local look = self:openBookLook()
+    if not look then return end
+    self.look_seen = {}
+    Look.changed(self.look_seen, look)
+end
+
+--[[--
+What the reader changed in the open book becomes the default for every book.
+
+Only what changed since it opened: a default Sync applied meanwhile shows in
+the book after a restart, and the book's older value must not undo it.
+--]]--
+function AiDict:keepLookGlobal()
+    if not self.look_seen then return end
+    local look = self:openBookLook()
+    if not look then return end
+    local changed = Look.changed(self.look_seen, look)
+    for _, entry in ipairs(changed) do
+        G_reader_settings:saveSetting(entry.key, entry.value)
+    end
+    if #changed > 0 then G_reader_settings:flush() end
 end
 
 ----------------------------------------------------------------------------
@@ -1456,13 +1474,6 @@ function AiDict:addToMainMenu(menu_items)
                 help_text = _("Download new books and apply the library's moves, apply the KOReader settings set from the library and send this Kindle's back, and send the words looked up in the Kindle's own reader to the word inbox."),
                 keep_menu_open = true,
                 callback = function() self:sync() end,
-            },
-            {
-                text = _("Use this book's look for new books"),
-                help_text = _("Make the open book's font, size, margins and spacing the defaults that every new book opens with. Books already opened keep their own."),
-                enabled_func = function() return self:openBookLook() ~= nil end,
-                keep_menu_open = true,
-                callback = function() self:useLookForNewBooks() end,
             },
             {
                 -- The version is on the label because this is the one entry

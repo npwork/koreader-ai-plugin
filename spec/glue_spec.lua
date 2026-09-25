@@ -1214,47 +1214,62 @@ describe("the KOReader layer", function()
             end)
         end)
 
-        describe("using the open book's look for new books", function()
-            local function open_book()
+        describe("one look for every book", function()
+            local function open_book(values, font)
                 reader.ui.config = { options = {
                     prefix = "copt",
-                    { options = { { name = "h_page_margins" } } },
+                    { options = { { name = "rotation_mode" }, { name = "h_page_margins" } } },
                     { options = { { name = "font_size" } } },
                 } }
-                reader.ui.document = { configurable = { h_page_margins = { 20, 20 }, font_size = 22 } }
-                reader.ui.font = { font_face = "Literata" }
+                reader.ui.document = { configurable = values }
+                reader.ui.font = { font_face = font }
             end
 
-            it("is greyed out with no book open", function()
+            it("opens a book without its own look, so it takes the defaults", function()
                 build()
-                assert.is_false(menu_item("look for new books").enabled_func())
+                open_book({ h_page_margins = { 20, 20 }, font_size = 22 }, "Literata")
+                local sidecar = helpers.store({
+                    copt_font_size = 30, copt_h_page_margins = { 5, 5 }, font_face = "Noto Serif",
+                    copt_rotation_mode = 1, percent_finished = 0.5,
+                })
+
+                plugin:onDocSettingsLoad(sidecar, reader.ui.document)
+
+                assert.are.same({ copt_rotation_mode = 1, percent_finished = 0.5 }, sidecar.data)
             end)
 
-            it("asks first, and saves nothing until confirmed", function()
+            it("makes a change made in the book the default for every book", function()
                 build()
-                open_book()
-                local item = menu_item("look for new books")
-                assert.is_true(item.enabled_func())
+                local look = { h_page_margins = { 20, 20 }, font_size = 22 }
+                open_book(look, "Literata")
+                plugin:onReadSettings()
 
-                item.callback()
+                look.font_size = 26
+                reader.ui.font.font_face = "Bookerly"
+                plugin:onFlushSettings()
 
-                assert.are.equal("ConfirmBox", last_shown().widget_kind)
-                assert.are.same({}, kor.global_settings.data)
-            end)
-
-            it("saves the book's options and font as KOReader's defaults", function()
-                build()
-                open_book()
-                menu_item("look for new books").callback()
-                last_shown().ok_callback()
-
-                assert.are.same({
-                    copt_h_page_margins = { 20, 20 },
-                    copt_font_size = 22,
-                    cre_font = "Literata",
-                }, kor.global_settings.data)
+                assert.are.same({ copt_font_size = 26, cre_font = "Bookerly" }, kor.global_settings.data)
                 assert.are.equal(1, kor.global_settings.flushed)
-                assert.are.equal("New books will open looking like this one.", last_shown().text)
+            end)
+
+            it("leaves a default set by Sync alone while the book shows its older value", function()
+                build()
+                open_book({ h_page_margins = { 20, 20 }, font_size = 22 }, "Literata")
+                plugin:onReadSettings()
+
+                kor.global_settings.data.copt_font_size = 24
+                plugin:onCloseDocument()
+
+                assert.are.same({ copt_font_size = 24 }, kor.global_settings.data)
+                assert.are.equal(0, kor.global_settings.flushed)
+            end)
+
+            it("does nothing in the file manager", function()
+                build()
+                plugin:onDocSettingsLoad(helpers.store({ copt_font_size = 30 }))
+                plugin:onReadSettings()
+                plugin:onFlushSettings()
+                assert.are.same({}, kor.global_settings.data)
             end)
         end)
     end)
@@ -1418,19 +1433,18 @@ describe("the KOReader layer", function()
             assert.are.equal("AI dictionary", items().aidict.text)
         end)
 
-        it("opens with the three actions, Sync first", function()
+        it("opens with the two actions, Sync first", function()
             build()
             local sub = items().aidict.sub_item_table
 
             assert.are.equal("Sync", sub[1].text)
-            assert.are.equal("Use this book's look for new books", sub[2].text)
             -- The version rides on the label: after an update and a restart,
             -- the menu itself is the receipt.
-            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[3].text_func())
-            assert.is_true(sub[3].separator)
+            assert.are.equal("Update the plugin (" .. Version.string .. ")", sub[2].text_func())
+            assert.is_true(sub[2].separator)
         end)
 
-        -- The update line already carries it, second from the top.
+        -- The update line already carries it, under Sync.
         it("does not repeat the version on a line of its own", function()
             build()
             for _, item in ipairs(items().aidict.sub_item_table) do
