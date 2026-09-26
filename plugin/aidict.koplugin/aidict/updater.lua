@@ -1,14 +1,3 @@
---[[--
-The update check.
-
-Installing is `kpm`'s job — this only answers "is there something newer on
-the channel I follow?", by reading the `version.json` that
-`scripts/kpmrepo.py` writes next to each channel's manifest.
-
-Pure Lua: the transport and the JSON codec are injected, exactly as in
-`apiclient.lua`.
---]]--
-
 local Version = require("aidict.version")
 
 local Updater = {}
@@ -16,7 +5,7 @@ Updater.__index = Updater
 
 Updater.PACKAGE_ID = "koreader-aidict"
 
---- Parse "1.2.3" into `{1, 2, 3}`; nil when it is not a version.
+-- nil when it is not a version.
 function Updater.parse(text)
     if type(text) ~= "string" then return nil end
     local major, minor, patch = text:match("^(%d+)%.(%d+)%.(%d+)$")
@@ -35,8 +24,7 @@ function Updater.compare(a, b)
     return 0
 end
 
---- `latest` when it is a version newer than `current` (this plugin's own by
---- default), for Sync to offer; nil otherwise.
+-- `current` defaults to this plugin's own version.
 function Updater.newer(latest, current)
     local wanted = Updater.parse(latest)
     local have = Updater.parse(current or Version.string)
@@ -62,12 +50,6 @@ function Updater.url_for(repo_url, channel)
     return (tostring(repo_url or ""):gsub("/+$", "")) .. "/" .. tostring(channel or "stable") .. "/version.json"
 end
 
---[[--
-@string repo_url  root of the KPM repository
-@string channel   "stable" or "dev"
-@treturn table    { available, current, latest, url, sha256, channel }
-@treturn table    err { code, message }
---]]--
 function Updater:check(repo_url, channel)
     local url = Updater.url_for(repo_url, channel)
     local response, transport_err = self.transport({

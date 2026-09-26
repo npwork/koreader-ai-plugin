@@ -1,13 +1,3 @@
---[[--
-AI dictionary: explains the word you tapped, in context, by asking a remote
-AI service.
-
-Everything in this file is KOReader glue — widgets, menus, events. The
-behaviour lives in `aidict/`, which is plain Lua and covered by `spec/`.
-
-@module koplugin.aidict
---]]--
-
 local DataStorage = require("datastorage")
 local DictQuickLookup = require("ui/widget/dictquicklookup")
 local Device = require("device")
@@ -51,32 +41,16 @@ local Version = require("aidict.version")
 local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
 
--- Renamed whenever the answers kept under it change: the old keys hold
--- entries without their headword, pronunciation and etymology, and then ones
--- with Wiktionary's whole etymology and its ɹ, which the cache would
--- otherwise serve for a month.
+-- Rename when the shape of cached answers changes, or stale ones are served for a month.
 local CACHE_KEY = "entries"
--- Old answer caches, and the endpoint earlier versions let the reader type in:
--- the package's own address is the only one now.
 local DEAD_KEYS = { "cache_entries", "answers", "endpoint" }
 
---- The plugin's two entries in the main menu: Sync, then everything else inside AI dictionary.
 local SYNC_MENU_ID = "aidict_sync"
 local MENU_ID = "aidict"
 
---[[--
-Put Sync and "AI dictionary" at the top of the Tools tab rather than three taps deep.
-
-A plugin's menu item is *appended* to whatever section its `sorting_hint`
-names (see `MenuSorter:sort`), and Tools is already two pages long — so the
-hint alone would land it on the second page, inside More tools. The order
-tables are cached by `require`, though, and KOReader's own
-`ui/plugin/insert_menu` edits them the same way. Sync, the one pressed
-most, goes first, one tap into Tools; the rest waits inside AI dictionary.
-
-Idempotent on purpose: `init` runs once per FileManager and once per Reader,
-and this must not add the entries twice.
---]]--
+-- A sorting_hint alone appends to Tools' second page. The order tables are cached by
+-- `require`, so edit them (as KOReader's insert_menu does). Idempotent: init runs
+-- once per FileManager and once per Reader.
 local function claimMenuPosition()
     for _, order in ipairs({
         require("ui/elements/reader_menu_order"),
@@ -92,12 +66,8 @@ local function claimMenuPosition()
     end
 end
 
--- How often a prefetch in the background is checked on. Nothing is waiting on
--- it, so this is about not spinning rather than about being quick.
 local PREFETCH_POLL_SECONDS = 0.5
 
---- The ids a finished lookup is known by, for the log line.
--- The request id is always there; the ray only once Cloudflare saw it.
 local function marks(source, request)
     source = source or {}
     local id = tostring(source.request_id or (request and request.request_id) or "?")
@@ -107,9 +77,7 @@ end
 
 local showResult
 
---- Whether asking is possible at all right now.
--- Cheap on purpose: NetworkMgr:isOnline() resolves a hostname, which is far
--- too slow to decide whether to draw a button.
+-- isConnected, not isOnline: isOnline resolves a hostname, too slow to decide whether to draw a button.
 local function canAsk()
     return NetworkMgr:isConnected()
 end
@@ -119,8 +87,7 @@ local AiDict = WidgetContainer:extend{
 }
 
 function AiDict:init()
-    -- LuaJIT hands out the same sequence to every run otherwise, and request
-    -- ids that repeat across sessions are worse than none.
+    -- Otherwise LuaJIT repeats the sequence every run, and request ids would repeat.
     math.randomseed(os.time())
 
     self.store = LuaSettings:open(DataStorage:getSettingsDir() .. "/aidict.lua")
@@ -138,15 +105,10 @@ function AiDict:init()
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
     self.prefetch = Prefetch.new({ settings = self.settings })
     self.prefetch_jobs = {}
-    -- AI pages in dictionary popups still waiting for their answer.
     self.ai_pages = {}
-    -- Named rather than called directly so a spec can move it: the give-up
-    -- branch below is otherwise half a minute away.
+    -- A field so a spec can move the clock past the give-up deadline.
     self.now = os.time
 
-    -- So the sync can be a gesture rather than three taps into a menu: the
-    -- Kindle has no keyboard to reach for and this is the one action worth
-    -- doing from anywhere.
     Dispatcher:registerAction("aidict_sync", {
         category = "none",
         event = "AiDictSync",
@@ -166,20 +128,13 @@ function AiDict:init()
     end
 end
 
---- Persist the cache so an answer survives closing the book.
 function AiDict:saveCache()
     self.store:saveSetting(CACHE_KEY, self.lookup:dump_cache())
     self.store:flush()
 end
 
---[[--
-KOReader announces every dictionary lookup, before it has even searched. That
-is the earliest the word is known, so it is the moment to start asking: the
-popup that opens a moment later shows the AI page first, and every
-millisecond spent here is one the reader does not spend looking at "Asking".
-
-Nothing here may block: the dictionary window is opening behind it.
---]]--
+-- Fired before the dictionary searches: the earliest the word is known, so start asking.
+-- Must not block: the dictionary window is opening behind it.
 function AiDict:onWordLookedUp(word)
     if not (self.prefetch and self.lookup) then return end
 
@@ -190,8 +145,7 @@ function AiDict:onWordLookedUp(word)
         cached = request ~= nil and self.lookup:peek(request) ~= nil,
     })
     if not wanted then
-        -- dbg, not info: this fires on every dictionary lookup, and the
-        -- commonest answer is "already cached".
+        -- dbg, not info: this fires on every dictionary lookup.
         logger.dbg("aidict: not fetching ahead:", why)
         return false
     end
@@ -200,21 +154,13 @@ function AiDict:onWordLookedUp(word)
     return false
 end
 
---[[--
-Fork, ask, and let it finish on its own.
-
-This is the same work the highlight menu's Explain does, minus everything that
-waits or draws: `Trapper` exists to show a dismissable progress window, and
-here the popup's AI page is what the reader watches instead.
---]]--
+-- Explain's work minus Trapper's progress window: the popup's AI page is what the reader watches.
 function AiDict:startPrefetch(request, key)
     local ffiutil = require("ffi/util")
     local lookup, codec = self.lookup, json
 
     local ok, pid, fd = pcall(ffiutil.runInSubProcess, function(_, child_write_fd)
         local outcome = lookup:fetch(request)
-        -- JSON rather than the serialiser Trapper uses: the payload is plain
-        -- data, and the codec is already a dependency of everything here.
         local encoded, payload = pcall(codec.encode, outcome)
         ffiutil.writeToFD(child_write_fd, encoded and payload or "", true)
     end, true)
@@ -230,10 +176,8 @@ function AiDict:startPrefetch(request, key)
         request = request,
         pid = pid,
         fd = fd,
-        -- Not the HTTP timeouts, which allow half a minute: a reader is
-        -- looking at "Asking" all that time, with the dictionary behind it.
-        -- This is also the backstop for a subprocess that is wedged, or stuck
-        -- resolving a name, which no socket timeout covers.
+        -- Shorter than the HTTP timeouts, and the backstop for a wedged subprocess
+        -- (e.g. stuck resolving a name), which no socket timeout covers.
         deadline = self.now() + Page.PATIENCE,
     }
     self.prefetch_jobs[key] = job
@@ -255,8 +199,7 @@ function AiDict:pollPrefetch(job)
             job.fd = nil
             self:finishPrefetch(job, raw)
             if not finished then
-                -- It wrote before exiting; collect it shortly so it does not
-                -- linger as a zombie.
+                -- Reap it shortly so it does not linger as a zombie.
                 UIManager:scheduleIn(1, function() ffiutil.isSubProcessDone(job.pid) end)
             end
             return
@@ -280,12 +223,7 @@ function AiDict:pollPrefetch(job)
     end)
 end
 
---[[--
-Put what came back into the cache, and onto any AI page waiting for it.
-
-Every way out of here fills the pages, the failures included: a page left
-saying "Asking" is a page that lies.
---]]--
+-- Every way out fills the waiting pages, failures included: a page left saying "Asking" lies.
 function AiDict:finishPrefetch(job, raw, why, failed)
     self.prefetch_jobs[job.key] = nil
     self.prefetch:ended(job.key)
@@ -313,8 +251,7 @@ function AiDict:finishPrefetch(job, raw, why, failed)
 
     self.lookup:remember(job.request, outcome.result)
     self:saveCache()
-    -- So a popup that opens after this does not call it "cached": it was
-    -- asked for this very lookup, only quicker than the dictionary.
+    -- So a popup opening after this does not call it "cached": it was asked for this lookup.
     self.just_landed = job.key
     logger.info(string.format("aidict: %s fetched ahead in %sms, waiting in the cache [%s]",
         job.request.word, tostring(outcome.result.elapsed_ms or "?"),
@@ -322,7 +259,6 @@ function AiDict:finishPrefetch(job, raw, why, failed)
     self:fillPages(job.key, outcome)
 end
 
---- Kill anything still in the air. A closed document has nowhere to put it.
 function AiDict:stopPrefetching()
     if not self.prefetch_jobs then return end
     local ffiutil = require("ffi/util")
@@ -344,24 +280,12 @@ end
 function AiDict:onFlushSettings()
     self:keepLookGlobal()
     self:saveCache()
-    -- KOReader keeps no time for a setting's change; this save is the nearest
-    -- one, and Sync needs it to decide who changed a key last.
+    -- KOReader keeps no time for a setting's change; this save is the nearest, and Sync needs one.
     RemoteSettings.notice(G_reader_settings.data, self.store, json, os.time())
 end
 
-----------------------------------------------------------------------------
--- Entry points
-----------------------------------------------------------------------------
-
---[[--
-Leave KOReader's "(query : word)" line off the AI page.
-
-KOReader adds it to the popup's first page in `addQueryWordToResult`, a
-method kept separate so it can be patched. It runs while the popup is being
-built, before `showDict` hands the popup back, so it is the class that is
-wrapped, once per KOReader run: the plugin is initialised again for every
-book.
---]]--
+-- The class is patched, once per run (the plugin is re-initialised per book), because
+-- addQueryWordToResult runs while the popup is built, before showDict returns it.
 local function keepQueryLineOffAiPage()
     local add = DictQuickLookup.addQueryWordToResult
     if type(add) ~= "function" or DictQuickLookup.aidict_query_line then return end
@@ -372,18 +296,8 @@ local function keepQueryLineOffAiPage()
     end
 end
 
---[[--
-Put the AI page first in KOReader's dictionary popup.
-
-KOReader has no hook for adding a result, so this wraps the dictionary's
-`showDict`, which is handed the results just before it builds the popup. Only
-this reader's dictionary is wrapped, not the class: Wikipedia shares the class
-and should stay as it is.
-
-Anything unexpected in there — a KOReader that has moved things around — must
-cost the AI page and nothing else, so the plugin's own part is guarded and the
-dictionary always gets its call.
---]]--
+-- KOReader has no hook for adding a result, so wrap this reader's showDict (not the class:
+-- Wikipedia shares it). The plugin's part is guarded so a changed KOReader costs only the AI page.
 function AiDict:joinDictionaryPopup()
     keepQueryLineOffAiPage()
     local dictionary = self.ui.dictionary
@@ -406,15 +320,7 @@ function AiDict:joinDictionaryPopup()
     end
 end
 
---[[--
-Decide the AI page for a popup about to open, and put it first in its results.
-
-The request normally went out a moment ago, from `onWordLookedUp`; this starts
-it only when that did not happen.
-
-@treturn table|nil the page to keep an eye on, when it is still waiting
-@treturn table|nil the results with the page in them, when there is a page
---]]--
+-- Returns the page to keep watching (nil unless still asking), and the results with the page in them.
 function AiDict:openPage(word, results)
     local request = self:requestFor(word, self.ui and self.ui.highlight)
     if not request then return nil end
@@ -427,9 +333,7 @@ function AiDict:openPage(word, results)
         wanted, why = self.prefetch:wanted(key, { offline = not canAsk() })
         if wanted then
             wanted = self:startPrefetch(request, key)
-            -- It can land before this line, where the scheduler runs things
-            -- at once; a page that says "Asking" over a cached answer would
-            -- wait for an update that already happened.
+            -- The scheduler may run it at once, so it can already be cached here.
             cached = self.lookup:peek(request)
             fresh = cached ~= nil
         end
@@ -448,7 +352,6 @@ function AiDict:openPage(word, results)
     return { key = key, word = request.word }, results
 end
 
---- Remember the popup a waiting page ended up in, so the answer can find it.
 function AiDict:trackPage(page, popup)
     if not (popup and Page.index_in(popup.results)) then
         -- The page would say "Asking" forever; the log is where that shows.
@@ -459,14 +362,7 @@ function AiDict:trackPage(page, popup)
     self.ai_pages[#self.ai_pages + 1] = page
 end
 
---[[--
-Give every page waiting on `key` what came back, and redraw the one the
-reader is looking at.
-
-A page the reader has paged away from is only rewritten: the popup reads its
-results again when it pages back. A reader still on a page that failed is
-moved on to the dictionary behind it, rather than left reading why not.
---]]--
+-- A reader still on a page that failed is moved on to the dictionary behind it.
 function AiDict:fillPages(key, outcome)
     local still = {}
     for _, page in ipairs(self.ai_pages) do
@@ -510,19 +406,8 @@ function AiDict:registerHighlightButton()
     end)
 end
 
-----------------------------------------------------------------------------
--- Context
-----------------------------------------------------------------------------
-
---[[--
-The paragraph a selection sits in.
-
-crengine can hand back the HTML of the block element containing a position —
-which is the paragraph — so this is the real passage the reader is looking at,
-not just the sentence. That is what lets the other side tell which sense of a
-word is meant. Empty when the document cannot produce it (a paged PDF, an
-older build).
---]]--
+-- The selection's block element, i.e. its paragraph; empty when the document cannot
+-- produce it (a paged PDF).
 function AiDict:paragraphFor(highlight)
     local selected = highlight and highlight.selected_text
     if not (selected and selected.pos0) then return "" end
@@ -537,15 +422,8 @@ function AiDict:paragraphFor(highlight)
     return Context.cleanup(util.htmlToPlainText(html))
 end
 
---[[--
-What gets sent with the word: the paragraph, and the sentence inside it.
-
-The sentence is cut out of the paragraph here rather than asked of KOReader,
-whose `extendXPointersToSentenceSegment` only stretches a selection over the
-punctuation around it: every tap on the Kindle filed the word as its own
-sentence. The Words inbox takes the sentence first, so that was all the
-catalog would have had to go on.
---]]--
+-- The sentence is cut here, not by extendXPointersToSentenceSegment, which only stretches
+-- a selection over the punctuation around it.
 function AiDict:contextFor(highlight, word)
     local budget = self.settings:get("context_chars")
     if budget <= 0 then return "", "" end
@@ -565,20 +443,8 @@ function AiDict:bookProps()
     }
 end
 
-----------------------------------------------------------------------------
--- The lookup itself
-----------------------------------------------------------------------------
-
---[[--
-Everything the gateway is asked, in one place.
-
-The lookup announcement, the popup's AI page and the highlight menu all build
-their request here, and that is not tidiness: the cache key is the word plus
-its passage, so an answer fetched ahead is only ever found again if they agree
-character for character on what the passage was.
-
-@treturn table the request, or nil when there is nothing to look up
---]]--
+-- Every caller must build its request here: the cache key is the word plus its passage, so
+-- an answer fetched ahead is only found again if they agree character for character.
 function AiDict:requestFor(word, highlight)
     word = Context.cleanup(word)
     if word == "" then return nil end
@@ -592,8 +458,7 @@ function AiDict:requestFor(word, highlight)
         title = props.title,
         author = props.author,
         source_lang = props.source_lang,
-        -- Minted here rather than in the subprocess: a fork inherits the
-        -- random seed, so ids made after the fork would repeat.
+        -- Minted before any fork: a fork inherits the random seed, so ids made after it would repeat.
         request_id = Reqid.generate(os.time(), math.random),
     }
 end
@@ -620,10 +485,8 @@ function AiDict:explain(request)
         return
     end
 
-    -- This exact question is already in the air: the dictionary opened a
-    -- moment ago and the request went out then. Waiting for that answer beats
-    -- asking again — it is most of the way here, and a second identical
-    -- request would cost twice over and arrive no sooner.
+    -- Already in the air from the dictionary: wait for it rather than paying twice for an
+    -- answer that would arrive no sooner.
     local pending = Lookup.key(request)
     if self.prefetch:is_pending(pending) then
         self:joinPrefetch(request, pending)
@@ -633,13 +496,6 @@ function AiDict:explain(request)
     self:askNow(request)
 end
 
---[[--
-Wait for a prefetch already in flight rather than starting a second request.
-
-The prefetch has its own poll running on the scheduler and writes the answer
-to the cache when it lands, so there is nothing to do here but watch for it —
-and get out of the way if it fails, or if the reader gives up.
---]]--
 function AiDict:joinPrefetch(request, key)
     local word = request.word
     logger.info(string.format("aidict: %s already on its way, waiting for it", word))
@@ -652,8 +508,7 @@ function AiDict:joinPrefetch(request, key)
     waiting.dismiss_callback = function() given_up = true end
     UIManager:show(waiting)
 
-    -- The prefetch's own deadline plus a moment, so this never outlives the
-    -- thing it is waiting for.
+    -- The prefetch's own deadline plus a moment, so this never outlives it.
     local deadline = self.now() + self.settings:get("total_timeout") + 6
 
     local function look()
@@ -666,16 +521,12 @@ function AiDict:joinPrefetch(request, key)
         if cached then
             UIManager:close(waiting)
             logger.info(string.format("aidict: %s caught the one already asked", word))
-            -- Not "cached": the reader watched a spinner for this one. It was
-            -- on its way before they asked, which is a different thing and
-            -- the only way to see the prefetch working.
+            -- Not "cached": it was on its way before they asked, the only way to see the prefetch working.
             showResult(word, cached, "prefetch")
             return
         end
 
         if not self.prefetch:is_pending(key) then
-            -- It finished without an answer. Ask properly rather than leaving
-            -- the reader with nothing.
             UIManager:close(waiting)
             logger.info(string.format("aidict: %s came to nothing ahead, asking now", word))
             self:askNow(request)
@@ -695,19 +546,16 @@ function AiDict:joinPrefetch(request, key)
     UIManager:scheduleIn(PREFETCH_POLL_SECONDS, look)
 end
 
---- Ask the gateway now, showing a progress the reader can dismiss.
 function AiDict:askNow(request)
     local word = request.word
 
     if not canAsk() then
-        -- Deliberately not offering to turn Wi-Fi on: the reader asked for a
-        -- word, not for a connection.
+        -- Deliberately not offering to turn Wi-Fi on: the reader asked for a word, not a connection.
         logger.warn(string.format("aidict: %s not asked: offline", word))
         UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so there is nothing to ask.") })
         return
     end
 
-    -- Wrapped so the subprocess doing the request can be dismissed.
     Trapper:wrap(function()
         local completed, outcome = Trapper:dismissableRunInSubprocess(function()
             return self.lookup:fetch(request)
@@ -735,9 +583,7 @@ function AiDict:askNow(request)
         self:saveCache()
 
         local result = outcome.result
-        -- Everything the gateway told us about where its time went, plus what
-        -- its reviewer made of the answer. One line per lookup, so a slow or
-        -- doubtful one can be taken apart afterwards from the device alone.
+        -- One line per lookup, so a slow or doubtful one can be taken apart from the device alone.
         local legs = Format.legs(result.legs)
         local split = string.format("gateway %sms%s, edge rtt %sms",
             tostring(result.server_ms or "?"), legs ~= "" and (": " .. legs) or "",
@@ -757,13 +603,8 @@ function AiDict:askNow(request)
     end)
 end
 
---[[--
-The newest plugin on this Kindle's channel, asked of the release repository
-itself: what Sync falls back on when the library could not say, so a gateway
-that is down never stands between the reader and the update that fixes it.
-Inside Sync's Trapper coroutine; nil when it could not be read or the reader
-dismissed it.
---]]--
+-- Asked of the release repository itself, so a gateway that is down never blocks the update
+-- that fixes it. Runs inside Trapper's coroutine; nil when unreadable or dismissed.
 function AiDict:latestPlugin()
     local updater = Updater.new({ transport = http_transport, json = json })
     local repo_url, channel = self.settings:get("repo_url"), self.settings:get("channel")
@@ -778,15 +619,7 @@ function AiDict:latestPlugin()
     return outcome.latest
 end
 
---[[--
-Where a lookup's network time goes: DNS, connect, TLS and the request, each
-timed on its own against the AI endpoint, the library and 1.1.1.1. The
-footer only says how much the network took; this says which step took it.
-
-The sockets are luasocket's and luasec's, KOReader's own. The handshake does
-not verify the certificate: this measures the handshake, it sends nothing
-over it, and the request that follows goes through the checked transport.
---]]--
+-- The handshake does not verify the certificate: it is only timed and nothing is sent over it.
 function AiDict:networkCheck()
     if not canAsk() then
         UIManager:show(InfoMessage:new{ text = _("No Wi-Fi, so there is nothing to check.") })
@@ -821,8 +654,6 @@ function AiDict:networkCheck()
                     if not host:match("^%d+%.%d+%.%d+%.%d+$") then conn:sni(host) end
                     conn:settimeout(TIMEOUT)
                     local ok, hs_err = conn:dohandshake()
-                    -- Closed here, the wrapper and the socket under it: only
-                    -- the handshake's time is wanted from it.
                     conn:close()
                     return ok, hs_err
                 end,
@@ -849,12 +680,6 @@ function AiDict:networkCheck()
     end)
 end
 
---[[--
-The real filesystem, in the five calls `library.lua` asks for.
-
-KOReader bundles lfs; `spec/` passes a table of fake files instead, which is
-the whole reason the library module never requires it.
---]]--
 local function deviceFilesystem()
     local lfs = require("libs/libkoreader-lfs")
     return {
@@ -870,16 +695,7 @@ local function deviceFilesystem()
     }
 end
 
---[[--
-The book being read, if any.
-
-`ReaderUI.instance` is the open reader wherever the sync was started from;
-the plugin's own `ui` is the same reader when the sync was started inside a
-book, and is asked too, so the check does not rest on one field alone.
-Required when asked rather than at the top, the way KOReader's own file
-manager reaches the reader: the two modules load each other's worlds, and a
-plugin loaded by both should not be what ties them together.
---]]--
+-- Required lazily, as KOReader's file manager does: readerui and filemanager load each other.
 local function openBookIn(ui)
     local loaded, ReaderUI = pcall(require, "apps/reader/readerui")
     local reader = loaded and type(ReaderUI) == "table" and ReaderUI.instance or nil
@@ -896,42 +712,28 @@ local function isOpen(ui, path)
     local open = openBookIn(ui)
     if not open then return false end
     if open == path then return true end
-    -- The reader may hold the path through a symlink the books folder does
-    -- not, or the other way round.
+    -- Either side may hold the path through a symlink.
     local realpath = require("ffi/util").realpath
     if type(realpath) ~= "function" then return false end
     return (realpath(open) or open) == (realpath(path) or path)
 end
 
---- One piece of KOReader's bookkeeping. The file itself has already moved
---- or gone by the time this runs, so a failure here is logged rather than
---- turned into a failed move: undoing the file would only lose more.
+-- The file has already moved or gone, so a failure is logged rather than undoing it.
 local function bookkeep(what, fn, ...)
     local ok, err = pcall(fn, ...)
     if not ok then logger.warn("aidict: library", what, "failed:", tostring(err)) end
 end
 
---[[--
-Move and delete a book the way KOReader's own file manager does, so what goes
-with the book goes with it: the `.sdr` beside it (page, bookmarks,
-highlights), its line in History and its place in any collection.
-
-The book that is open is refused with "open", for `Library:settle` to leave
-for the next sync. The reader writes its sidecar when it closes, to the path
-it opened — so moving the file under it would leave the reading state behind
-at the old path, and deleting it would bring a sidecar back for a book that
-is gone.
---]]--
+-- The open book is refused with "open", left for the next sync: the reader writes its sidecar
+-- to the path it opened when it closes.
 local function bookOps(ui)
     return {
         relocate = function(from, to)
             if isOpen(ui, from) then return false, "open" end
             local ok, err = os.rename(from, to)
             if not ok then return false, tostring(err or "could not move the file") end
-            -- The sidecar is the reading position itself, so it is the one
-            -- step that must not fail quietly: put the file back and report
-            -- the move failed, and the index keeps the old path for the next
-            -- sync to try again, sidecar and all.
+            -- The sidecar is the reading position, so its failure undoes the move and the
+            -- index keeps the old path for the next sync.
             local moved, sidecar_err = pcall(DocSettings.updateLocation, from, to)
             if not moved then
                 logger.warn("aidict: library sidecar move failed:", tostring(sidecar_err))
@@ -946,7 +748,6 @@ local function bookOps(ui)
             if isOpen(ui, path) then return false, "open" end
             local ok, err = os.remove(path)
             if not ok then return false, tostring(err or "could not delete the file") end
-            -- The cover-browser cache, where the KOReader in use has one.
             local has_booklist, BookList = pcall(require, "ui/widget/booklist")
             if has_booklist and type(BookList) == "table" and BookList.resetBookInfoCache then
                 bookkeep("book info reset", BookList.resetBookInfoCache, path)
@@ -959,15 +760,8 @@ local function bookOps(ui)
     }
 end
 
---[[--
-What earlier syncs placed in the books folder: the only files a sync will
-ever move or delete.
-
-Its own file rather than a key in `aidict.lua`: it is a few hundred rows the
-settings have no use for. It belongs to one folder — pointing the sync at
-another starts a fresh index, so the books left in the old folder are never
-taken for books this one lost.
---]]--
+-- The only files a sync may move or delete. Tied to one folder: another folder starts a
+-- fresh index, so books left in the old one are not taken for lost.
 local LIBRARY_INDEX = "aidict_library.lua"
 
 function AiDict:libraryIndexStore()
@@ -994,7 +788,7 @@ local function basename(path)
     return path:match("([^/]*)$")
 end
 
---- What the sync changed, in the words the InfoMessage uses; false when nothing did.
+-- False when nothing changed.
 local function describeSync(report, settled)
     local lines = {}
     if report.downloaded == 0 and #report.failed == 0 and settled.moved == 0 and settled.deleted == 0 then
@@ -1033,14 +827,8 @@ local function describeSync(report, settled)
     return table.concat(lines, "\n\n")
 end
 
---[[--
-Mirror the gateway's library from what Sync's request brought back. The
-downloads already happened in that request's subprocess (`got`, from
-`Library:sync`); the moves and deletes happen here, where KOReader keeps its
-bookkeeping (see `Library:settle`).
-
-Returns what changed, or false when nothing did.
---]]--
+-- Downloads already happened in the exchange's subprocess; moves and deletes happen here,
+-- where KOReader keeps its bookkeeping. False when nothing changed.
 function AiDict:settleLibrary(dir, library, index, got)
     if type(got) ~= "table" or not got.ok then
         return Format.error(type(got) == "table" and got.err or nil, _("The library sync failed."))
@@ -1058,9 +846,7 @@ function AiDict:settleLibrary(dir, library, index, got)
         report.downloaded, settled.moved, settled.deleted, report.have, #report.failed,
         report.dropped or 0, #settled.deferred + #settled.failed))
 
-    -- The file browser is very likely sitting on the folder that just gained
-    -- ten books — or on one a move just emptied and removed, which has
-    -- nothing left to show but the library above it.
+    -- The browser may be on a folder that just changed, or on one a move emptied and removed.
     local browser = self.ui and self.ui.file_chooser
     if browser and browser.path and browser.path:find(dir, 1, true) == 1 then
         local lfs = require("libs/libkoreader-lfs")
@@ -1073,14 +859,7 @@ function AiDict:settleLibrary(dir, library, index, got)
     return describeSync(report, settled)
 end
 
---[[--
-`vocab.db`, read the way `Vocab.upload` asks: every lookup since `since`, as
-positional rows. Here and not in `aidict/` because it is the one place that
-opens SQLite, which only KOReader has.
-
-Read-only, because the Kindle's own reader owns the file and may be writing
-to it; a read never takes a lock that could make that fail.
---]]--
+-- Read-only: the Kindle's own reader owns vocab.db and may be writing to it.
 local function readVocab(since)
     local lfs = require("libs/libkoreader-lfs")
     if lfs.attributes(Vocab.PATH, "mode") ~= "file" then
@@ -1108,13 +887,8 @@ local function readVocab(since)
     return rows
 end
 
---[[--
-Four bytes of the kernel's randomness, for seeding a forked child.
-
-A child starts from the parent's random state, and the parent's does not move
-when the child draws: two uploads in one session would mint the same request
-ids, and the inbox would answer the second with the first's receipt.
---]]--
+-- A forked child inherits the parent's random state; without a fresh seed two uploads in one
+-- session would mint the same request ids.
 local function freshSeed()
     local file = io.open("/dev/urandom", "rb")
     if file then
@@ -1128,13 +902,7 @@ local function freshSeed()
     return os.time()
 end
 
---[[--
-Send the words looked up in the Kindle's own reader since the last upload.
-
-A step of `sync`, run only where the Kindle's reader left a `vocab.db`:
-returns what it sent, false when there was nothing to send, or nil when the
-reader dismissed it.
---]]--
+-- Returns the message, false when there was nothing to send, nil when dismissed.
 function AiDict:lookupsStep()
     local since = self.settings:get("vocab_uploaded_through")
     local rows, err = readVocab(since)
@@ -1150,10 +918,8 @@ function AiDict:lookupsStep()
         json = json,
         random = math.random,
     })
-    -- In a subprocess so the reader can give up on it: the first upload is
-    -- the whole archive, a few dozen requests over the Kindle's radio. What
-    -- already arrived stays arrived; the next upload sends it again and the
-    -- server writes nothing.
+    -- A subprocess so the reader can give up on a first upload of the whole archive;
+    -- resending what arrived is harmless.
     local completed, outcome = Trapper:dismissableRunInSubprocess(function()
         math.randomseed(freshSeed())
         local report, upload_err = vocab:upload(function() return rows end, since)
@@ -1186,35 +952,17 @@ function AiDict:lookupsStep()
     return T(_("Sent %1 lookups: %2 new, %3 already there."), report.rows, report.created, report.existing)
 end
 
---[[--
-Run KPM on this device and hand back what it said.
-
-Forked, because the download and the unpacking both block, and the reader
-should be able to give up on them. Whatever KPM wrote to disk stays written
-either way — it is the package manager's own business, not a transaction we
-opened.
---]]--
 local function runKpm(command)
     local pipe = io.popen(command)
     if not pipe then return nil end
     local output = pipe:read("*a")
-    -- Lua 5.1's close() returns only a boolean; the exit status is the
-    -- tiebreaker anyway, never the verdict on its own.
+    -- Lua 5.1's close() returns only a boolean; Kpm.interpret uses it as a tiebreaker.
     local closed = pipe:close()
     return { output = output or "", ok_status = closed ~= false }
 end
 
---[[--
-Update the package this plugin ships in, without leaving KOReader.
-
-The alternative is the Kindle's search bar — leave the book, wake the home
-screen, type `;kpm install koreader-aidict` correctly — which is enough
-friction that an update waits weeks.
-
-KPM replaces `aidict.koplugin` underneath a running KOReader, which is safe:
-the Lua already loaded stays loaded, and the new files are picked up at the
-next restart. So the restart is offered rather than taken.
---]]--
+-- Replacing aidict.koplugin under a running KOReader is safe: loaded Lua stays loaded until
+-- a restart, so the restart is offered rather than taken.
 function AiDict:installUpdate(version)
     local lfs = require("libs/libkoreader-lfs")
     local binary = Kpm.find(function(path) return lfs.attributes(path, "mode") == "file" end)
@@ -1229,8 +977,6 @@ function AiDict:installUpdate(version)
     local command = Kpm.command(binary, Updater.PACKAGE_ID)
     NetworkMgr:runWhenConnected(function()
         Trapper:wrap(function()
-            -- Which channel it is coming from, because "installing 0.2.50"
-            -- means something different on dev than on stable.
             local progress = version
                 and T(_("Installing %1 from the %2 channel…"), version, self.settings:get("channel"))
                 or T(_("Installing %1…"), Updater.PACKAGE_ID)
@@ -1275,41 +1021,20 @@ function showResult(word, result, source)
     UIManager:show(TextViewer:new{
         title = Format.title(result, word),
         text = Format.result(result, { word = word, source = source }),
-        -- "lookup" is what KOReader uses for dictionary results: same font
-        -- size as book info, left-aligned rather than justified.
+        -- KOReader's dictionary-result style: left-aligned, book-info font size.
         text_type = "lookup",
-        -- The entry is markup, not a wall of one typeface: TextViewer renders
-        -- it through crengine when told the format, the same engine that draws
-        -- the book underneath it.
         text_format = "html",
     })
 end
 
-----------------------------------------------------------------------------
--- Settings from the library
-----------------------------------------------------------------------------
-
---- The names of the settings a sync changed, for the message that reports it.
 local function changedKeys(applied)
     local keys = {}
     for _, change in ipairs(applied) do keys[#keys + 1] = change.key end
     return table.concat(keys, ", ")
 end
 
---[[--
-Everything Sync asks the library, in one request: this Kindle's settings, its
-log of changes and its plugin version go out; the manifest, the settings to
-apply and the newest plugin come back. The books the manifest calls for
-download in that request's subprocess, so a slow gateway or a first sync's
-minutes of downloads never freeze the reader, and the reader can give up on
-them. The settings are written here, because a change to `G_reader_settings`
-made in a forked child dies with it; a second request reports them only when
-Sync changed any.
-
-@treturn table `{ library = text|false, settings = text|false, changed,
-    dismissed, plugin = { version, channel }|nil }`; nil when the reader
-    dismissed the request
---]]--
+-- Settings are written here, not in the subprocess: a change to G_reader_settings made in a
+-- forked child dies with it. Nil when the reader dismissed the request.
 function AiDict:exchange(endpoint)
     -- A change made in the open book since the last save is this Kindle's too.
     self:keepLookGlobal()
@@ -1368,12 +1093,8 @@ function AiDict:exchange(endpoint)
     }
 end
 
---[[--
-The open book's style tweaks module keeps its own copy of the global tweaks
-and writes it back over `style_tweaks` when the book is saved or closed, so
-the restart that would show the tweaks Sync applied undid them first. Hand it
-the applied ones instead.
---]]--
+-- The open book's styletweak writes its copy of the global tweaks back on save, undoing what
+-- Sync applied; hand it the applied ones.
 function AiDict:adoptStyleTweaks(applied)
     local styletweak = self.ui and self.ui.styletweak
     if not (styletweak and styletweak.global_tweaks) then return end
@@ -1389,12 +1110,6 @@ function AiDict:adoptStyleTweaks(applied)
     end
 end
 
---[[--
-Everything that goes between this Kindle and the gateway, in one go: the
-library, KOReader's settings, the Kindle's own lookups, and last, the offer of
-a newer plugin. How the steps combine is `aidict.sync`; what each does is its
-step here.
---]]--
 function AiDict:sync()
     local endpoint = Library.endpoint_from(Config.BAKED.library_endpoint)
     local lfs = require("libs/libkoreader-lfs")
@@ -1432,7 +1147,6 @@ function AiDict:sync()
             local latest = exchanged and exchanged.plugin and exchanged.plugin.version or self:latestPlugin()
             local update = Updater.newer(latest)
 
-            -- What Sync said, then the restart the new settings want, in one box.
             local function conclude(said)
                 if outcome.changed == 0 then
                     if said ~= "" then UIManager:show(InfoMessage:new{ text = said }) end
@@ -1472,28 +1186,20 @@ function AiDict:sync()
     end)
 end
 
---- The gesture, if the reader bound one.
 function AiDict:onAiDictSync()
     self:sync()
     return true
 end
 
-----------------------------------------------------------------------------
--- Look
-----------------------------------------------------------------------------
-
---- The open book's look as default settings; nil in the file manager, or for a PDF.
+-- nil in the file manager, or for a PDF.
 function AiDict:openBookLook()
     local config, document = self.ui.config, self.ui.document
     if not (config and Look.is_global(config.options) and document and document.configurable) then return nil end
     return Look.defaults(config.options, document.configurable, self.ui.font and self.ui.font.font_face)
 end
 
---[[--
-A book opens with the global look: the defaults are written over its own
-before KOReader reads them. KOReader sends this after the plugins are loaded
-and before any module reads the book's settings.
---]]--
+-- Sent after plugins load and before any module reads the book's settings, so the global
+-- look can be written over the book's own.
 function AiDict:onDocSettingsLoad(doc_settings)
     local config = self.ui and self.ui.config
     if not (doc_settings and config and Look.is_global(config.options)) then return end
@@ -1507,7 +1213,7 @@ function AiDict:onDocSettingsLoad(doc_settings)
     end
 end
 
---- The look the book opened with, so only what the reader changes goes global.
+-- The baseline for keepLookGlobal: only what the reader changes goes global.
 function AiDict:onReadSettings()
     local look = self:openBookLook()
     if not look then return end
@@ -1515,12 +1221,8 @@ function AiDict:onReadSettings()
     Look.changed(self.look_seen, look)
 end
 
---[[--
-What the reader changed in the open book becomes the default for every book.
-
-Only what changed since it opened: a default Sync applied meanwhile shows in
-the book after a restart, and the book's older value must not undo it.
---]]--
+-- Only what changed since opening: a default Sync applied meanwhile must not be undone by
+-- the book's older value.
 function AiDict:keepLookGlobal()
     if not self.look_seen then return end
     local look = self:openBookLook()
@@ -1535,10 +1237,6 @@ function AiDict:keepLookGlobal()
         if self.store.flush then self.store:flush() end
     end
 end
-
-----------------------------------------------------------------------------
--- Menu
-----------------------------------------------------------------------------
 
 function AiDict:editSetting(key, title, opts)
     opts = opts or {}
@@ -1577,9 +1275,7 @@ function AiDict:editSetting(key, title, opts)
 end
 
 function AiDict:addToMainMenu(menu_items)
-    -- Sync first in Tools, because it is what gets pressed; the rest waits
-    -- inside AI dictionary. The addresses and the books folder are not shown:
-    -- they come with the package, from its build secrets.
+    -- The addresses and books folder are not shown: they come from the package's build secrets.
     menu_items[SYNC_MENU_ID] = {
         text = _("Sync"),
         sorting_hint = "tools",

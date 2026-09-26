@@ -22,19 +22,14 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-
 LAST_REQUEST = {}
 
-# The books the library manifest offers. `claimed` is what the manifest says
-# the file is; where it differs from the bytes actually served, the client is
-# being shown a download that arrives truncated — the case that must never
-# become a book on the device.
+# `claimed` is the manifest's size; where it differs from the bytes served, the download arrives truncated.
 BOOKS = {
     "Lem/Solaris.epub": {"body": b"SOLARIS" * 10, "claimed": 70},
     "Borges/Ficciones.epub": {"body": b"FICCIONES", "claimed": 9},
     "Broken/Half.epub": {"body": b"only ten!!", "claimed": 4096},
 }
-
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -47,8 +42,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        # The real gateway adopts the client's id and echoes it back; without
-        # that here the client could not be shown reading it off the wire.
+        # Echoed back so the client can be shown reading it off the wire.
         sent = self.headers.get("X-Request-Id")
         self.send_header("X-Request-Id", sent or "gateway-minted")
         self.end_headers()
@@ -135,7 +129,6 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         self._send(404, {"error": "no such path"})
-
 
 if __name__ == "__main__":
     port = int(sys.argv[1])

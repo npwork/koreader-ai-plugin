@@ -1,9 +1,4 @@
---[[--
-Single source of truth for the plugin version.
-
-`scripts/kpmrepo.py` reads this file to name the .kpkg and to fill the KPM
-manifest, so the number here is the number that ships.
---]]--
+-- scripts/kpmrepo.py reads this file to name the .kpkg and fill the KPM manifest.
 
 return {
     string = "0.2.0",

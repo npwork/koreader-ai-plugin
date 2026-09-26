@@ -1,36 +1,15 @@
---[[--
-Where a slow lookup's time goes before the gateway ever sees it.
-
-The footer's "7.0s total · 1.6s server" says the network ate five seconds and
-nothing more. A lookup opens a fresh connection every time, so that network
-time is a DNS lookup, a TCP connect, a TLS handshake and the request itself,
-and each of those fails differently: slow DNS is the hotel's resolver, a slow
-connect is the Wi-Fi or the route, a slow handshake is the Kindle's CPU. This
-times each step separately, against the AI endpoint, the library, and
-1.1.1.1 as a plain-internet baseline that has nothing of ours in it.
-
-Everything that touches a socket is handed in, so the arithmetic and the
-report are tested without one; main.lua wires in luasocket and luasec.
---]]--
+-- Times DNS, connect, TLS and the request separately: each is slow for a different reason
+-- (the resolver, the route, the Kindle's CPU).
 
 local NetCheck = {}
 NetCheck.__index = NetCheck
 
---[[--
-@param deps table {
-  clock     func() -> milliseconds, monotonic
-  resolve   func(host) -> ip | nil, err
-  connect   func(ip, port) -> sock | nil, err
-  handshake func(sock, host) -> true | nil, err
-  close     func(sock)
-  fetch     func(url) -> { status, body, headers } | nil, err
-}
---]]--
+-- deps: clock() -> monotonic ms, resolve(host) -> ip, connect(ip, port) -> sock, handshake(sock, host),
+-- close(sock), fetch(url) -> response; a failing step returns nil, err.
 function NetCheck.new(deps)
     return setmetatable({ deps = deps }, NetCheck)
 end
 
---- The host part of an http(s) URL, and the port it implies.
 function NetCheck.host_of(url)
     if type(url) ~= "string" then return nil end
     local scheme, host, port = url:match("^(https?)://([^/:?#]+):?(%d*)")
@@ -39,11 +18,7 @@ function NetCheck.host_of(url)
     return host, port, scheme == "https"
 end
 
---[[--
-The Cloudflare location that answered, when one did: the three letters after
-the dash in `cf-ray`, or `colo=` in a /cdn-cgi/trace body. It says whether the
-Kindle is reaching Singapore or somewhere much further away.
---]]--
+-- The three letters after the dash in `cf-ray`, or `colo=` in a /cdn-cgi/trace body.
 function NetCheck.colo_of(response)
     if type(response) ~= "table" then return nil end
     local headers = type(response.headers) == "table" and response.headers or {}
@@ -58,11 +33,7 @@ function NetCheck.colo_of(response)
     return nil
 end
 
---[[--
-The device's TCP round trip to the edge, as Cloudflare measured it, when the
-AI endpoint says so in `Server-Timing: edge;dur=23;desc="SIN"`. It is the
-network's share with the Kindle's own DNS and TLS work taken out.
---]]--
+-- From `Server-Timing: edge;dur=23;desc="SIN"`: the network's share without the Kindle's DNS and TLS work.
 function NetCheck.edge_rtt_of(response)
     if type(response) ~= "table" or type(response.headers) ~= "table" then return nil end
     local header = response.headers["server-timing"] or response.headers["Server-Timing"]
@@ -70,11 +41,7 @@ function NetCheck.edge_rtt_of(response)
     return tonumber(header:match("edge;[^,]*dur=([%d%.]+)"))
 end
 
---[[--
-The places worth timing. The AI endpoint and the library are ours; 1.1.1.1
-is Cloudflare's resolver, reached by address so it needs no DNS, and its
-trace page names the location the Wi-Fi's route leads to.
---]]--
+-- 1.1.1.1 is reached by address, so it needs no DNS, and its trace page names the colo.
 function NetCheck.targets(endpoint, library_endpoint)
     local targets = {}
     local function add(name, url)
@@ -84,8 +51,7 @@ function NetCheck.targets(endpoint, library_endpoint)
         end
     end
     if type(endpoint) == "string" and endpoint ~= "" then
-        -- The route goes before any query, the way ApiClient:url_for puts it:
-        -- an endpoint carrying ?token= keeps it after /health.
+        -- An endpoint carrying ?token= keeps it after /health, as ApiClient:url_for does.
         local base, query = endpoint:match("^([^?]*)(.*)$")
         add("AI", (base:gsub("/+$", "")) .. "/health" .. query)
     end
@@ -100,12 +66,8 @@ local function is_address(host)
     return host:match("^%d+%.%d+%.%d+%.%d+$") ~= nil
 end
 
---[[--
-One target, one step at a time, each timed on its own. A step that fails
-stops the ones that need it and says which it was. The request at the end is
-the plugin's own transport, so it pays for DNS, connect and TLS again: that
-number is what a lookup against this host costs before the server works.
---]]--
+-- The request goes through the plugin's own transport, so it pays DNS, connect and TLS again:
+-- what a lookup costs before the server works.
 function NetCheck:probe(target)
     local d = self.deps
     local result = { name = target.name, host = target.host }
@@ -158,7 +120,7 @@ function NetCheck:probe(target)
     return result
 end
 
---- Every target, `rounds` times over, so a first-time cost shows as one.
+-- `rounds` times over, so a first-time cost shows as one.
 function NetCheck:run(targets, rounds)
     local results = {}
     for round = 1, rounds or 2 do
@@ -175,19 +137,13 @@ local function ms(value)
     return value and (tostring(value) .. " ms") or "–"
 end
 
---[[--
-Plain text for a TextViewer and for the log: one block per probe, then a
-line saying which step was slowest overall, which is the answer the reader
-opened this for.
---]]--
 function NetCheck.report(results)
     local lines = {}
     local slowest, slowest_ms = nil, -1
     for _, r in ipairs(results) do
         lines[#lines + 1] = string.format("%s — round %d%s", r.name, r.round or 1,
             r.colo and (" · via " .. r.colo) or "")
-        -- The status too: a hotel's captive portal answers fast, and with
-        -- something that is not ours.
+        -- The status too: a hotel's captive portal answers fast, with something not ours.
         lines[#lines + 1] = string.format("  DNS %s · connect %s · TLS %s · request %s%s",
             ms(r.dns_ms), ms(r.tcp_ms), ms(r.tls_ms), ms(r.request_ms),
             r.status and (" (HTTP " .. tostring(r.status) .. ")") or "")
@@ -195,9 +151,7 @@ function NetCheck.report(results)
             lines[#lines + 1] = string.format("  round trip to the edge, as Cloudflare saw it: %s ms", tostring(r.edge_rtt_ms))
         end
         if r.err then lines[#lines + 1] = "  failed at " .. r.err end
-        -- The request repeats DNS, connect and TLS before the server works,
-        -- so what it adds is its time less theirs: the server and the
-        -- transfer. Counted as a step so a slow server can be the answer.
+        -- The request repeats DNS, connect and TLS, so what it adds is the server and the transfer.
         local rest
         if r.request_ms then
             rest = math.max(0, r.request_ms - (r.dns_ms or 0) - (r.tcp_ms or 0) - (r.tls_ms or 0))

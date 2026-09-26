@@ -1,20 +1,12 @@
---[[--
-The book sync over a real socket, writing real files.
-
-`spec/library_spec.lua` proves the decisions; this proves the plumbing —
-`ltn12.sink.file` streaming a body to disk through the same
-`http_transport.lua` that runs on the Kindle, the `.part` rename that keeps a
-half-arrived book from looking like a finished one, and a move and a delete
-that leave no empty folder behind.
---]]--
+-- The plumbing library_spec.lua cannot prove: ltn12 streaming to disk through the real
+-- http_transport.lua, the `.part` rename, and folder pruning.
 
 local gateway = require("support.gateway")
 local helpers = require("support.helpers")
 
 local PORT = tonumber(os.getenv("AIDICT_TEST_PORT") or "8732") + 1
 
---- The filesystem, for a machine that is not a Kindle: no lfs in the suite,
---- so size comes from a seek and mkdir from the shell.
+-- No lfs in the suite, so size comes from a seek and mkdir from the shell.
 local function filesystem()
     return {
         size = function(path)
@@ -27,8 +19,7 @@ local function filesystem()
         mkdir = function(path) os.execute("mkdir -p '" .. path .. "' 2>/dev/null") end,
         rename = function(from, to) return os.rename(from, to) end,
         remove = function(path) os.remove(path) end,
-        -- Lua 5.1 hands back the exit status; `rmdir` itself is what refuses
-        -- a folder that is not empty.
+        -- `rmdir` itself is what refuses a folder that is not empty.
         rmdir = function(path)
             local status = os.execute("rmdir '" .. path .. "' 2>/dev/null")
             return status == 0 or status == true
@@ -60,8 +51,7 @@ describe("library sync, end to end", function()
 
     setup(function()
         server = gateway.start(PORT)
-        -- Required after the stubs are in place: the transport requires
-        -- `logger` at load time.
+        -- After the stubs: the transport requires `logger` at load time.
         Library = require("aidict.library")
         transport = require("aidict.http_transport")
     end)
@@ -80,8 +70,6 @@ describe("library sync, end to end", function()
         os.execute("rm -rf '" .. dir .. "'")
     end)
 
-    -- The manifest arrives with the library's answer to Sync, the one
-    -- request the plugin makes; the library then only downloads.
     local function library()
         local lib = Library.new({ transport = transport, fs = filesystem() })
         local sync = lib.sync
@@ -105,9 +93,7 @@ describe("library sync, end to end", function()
         assert.are.equal("SOLARIS", contents(dir .. "/Lem/Solaris.epub"):sub(1, 7))
         assert.are.equal("FICCIONES", contents(dir .. "/Borges/Ficciones.epub"))
 
-        -- The third book's manifest size does not match what arrives, so it
-        -- is thrown away rather than becoming a truncated file the reader
-        -- opens to find empty.
+        -- The third book's size does not match what arrives, so it is thrown away.
         assert.are.equal(1, #report.failed)
         assert.are.equal("Broken/Half.epub", report.failed[1].path)
         assert.is_nil(contents(dir .. "/Broken/Half.epub"))

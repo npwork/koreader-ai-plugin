@@ -4,12 +4,7 @@ local helpers = require("support.helpers")
 
 local GOOD_BODY = helpers.body({ word = "fox", definition = "A wild animal.", model = "m" })
 
---[[--
-One lookup, in the order `main.lua` performs it: peek in the main process,
-fetch in the forked one, remember what came back. There is no single call
-that does all three — see lookup.lua — so the specs perform the sequence
-themselves, which is also the only way they can be about the real path.
---]]--
+-- The order main.lua performs: peek in the main process, fetch in the fork, remember the result.
 local function ask(l, request, opts)
     opts = opts or {}
     if not opts.skip_cache then

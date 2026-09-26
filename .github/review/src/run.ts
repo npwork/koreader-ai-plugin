@@ -172,7 +172,7 @@ if (reviews.length > 0) {
 let verifyRun: Run | undefined;
 if (merged && args.verify && merged.findings.length > 0) {
   const verifyText = readFileSync(args.verify, "utf8");
-  const candidates = merged.findings.map((f, i) => ({ index: i, path: f.path, startLine: f.startLine, endLine: f.endLine, severity: f.severity, score: f.score, title: f.title, body: f.body, evidence: f.evidence }));
+  const candidates = merged.findings.map((f, i) => ({ index: i, path: f.path, startLine: f.startLine, endLine: f.endLine, severity: f.severity, score: f.score, category: f.category, title: f.title, body: f.body, evidence: f.evidence }));
   const prompt = `${collectContext(meta, baseRef, verifyText, spillPath, 0).prompt}\n# Candidate findings\n\n\`\`\`json\n${JSON.stringify(candidates, null, 2)}\n\`\`\`\n`;
   verifyRun = await claude(prompt, VERIFY_SCHEMA, args["verify-model"] || args.model!, args["verify-effort"]!);
   writeFileSync(join(out, "messages-verify.json"), JSON.stringify(verifyRun.messages));

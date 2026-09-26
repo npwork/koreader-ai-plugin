@@ -32,9 +32,13 @@ For each candidate:
      or newly reachable;
    - it follows a rule of this repository's `CLAUDE.md` (no backward
      compatibility, no feature flags for rollout, delete dead code).
-4. Mark `nit` when the finding is about style, naming, readability,
-   wording that misleads no one, a missing test where no path is broken, or
-   a suggestion. A nit is never posted, however sure you are of it.
+   A `comments` finding is the exception to style: keep it when the quoted
+   comment plainly breaks a rule in the root `CLAUDE.md` "Comments" section,
+   and drop it when the comment carries a real, non-obvious why. Score it
+   by how plainly it breaks the rule, and keep its severity `low`.
+4. Mark `nit` when the finding (other than `comments`) is about style,
+   naming, readability, wording that misleads no one, a missing test where
+   no path is broken, or a suggestion. A nit is never posted, however sure you are of it.
 5. Re-score what you keep, 0-10: how sure you are that the code misbehaves
    when the trigger happens. A rare trigger does not lower the score (a
    failure path is a failure path); only a guard you found does. Re-judge

@@ -1,21 +1,12 @@
---[[--
-Test doubles: a settings store, a clock and a transport, all plain tables.
-No KOReader module is ever loaded by the suite.
---]]--
-
 local Settings = require("aidict.settings")
 
 local helpers = {}
 
---- The endpoint the source deliberately leaves empty — it is baked into the
---- package at build time, so the specs supply their own.
+-- The source leaves it empty (baked in at build time), so the specs supply their own.
 helpers.ENDPOINT = "https://gw.test/koreader-ai"
 
---- The library's, which is its own address rather than the one above with a
---- path segment swapped: the dictionary is a Worker and the library is not.
 helpers.LIBRARY_ENDPOINT = "https://gw.test/koreader-library"
 
---- A LuaSettings-shaped store backed by a table.
 function helpers.store(initial)
     local data = {}
     for k, v in pairs(initial or {}) do data[k] = v end
@@ -33,7 +24,6 @@ function helpers.settings(initial)
     return Settings.new(helpers.store(initial))
 end
 
---- A clock the test moves by hand.
 function helpers.clock(start)
     local t = start or 1000
     return {
@@ -43,13 +33,7 @@ function helpers.clock(start)
     }
 end
 
---[[--
-A transport that answers from a queue and records what it was asked.
-
-    local tr = helpers.transport({ { status = 200, body = "{}" } })
-    tr.fn -> the function to hand to ApiClient
-    tr.requests -> every request it received
---]]--
+-- tr.fn is the function to hand over; tr.requests is every request it received.
 function helpers.transport(responses)
     local tr = { requests = {}, responses = responses or {}, calls = 0 }
     tr.fn = function(request)
@@ -67,14 +51,8 @@ function helpers.transport(responses)
     return tr
 end
 
---[[--
-A filesystem in a table: the five calls `library.lua` asks the device for.
-
-`files` maps an absolute path to its size, so a spec says "this book is here
-and half-written" by putting a number in it. A folder exists if `mkdir` made
-it or a file is under it, and `rmdir` refuses one that still holds anything —
-the one property of the real call the library leans on.
---]]--
+-- `files` maps an absolute path to its size. A folder exists if `mkdir` made it or a file is under
+-- it, and `rmdir` refuses one that holds anything, as the library relies on.
 function helpers.filesystem(files)
     local fs = { files = {}, dirs = {}, removed = {}, rmdirs = {} }
     for path, size in pairs(files or {}) do fs.files[path] = size end
@@ -108,7 +86,6 @@ end
 
 helpers.json = require("dkjson")
 
---- A JSON body, as the gateway would send it.
 function helpers.body(tbl)
     return helpers.json.encode(tbl)
 end

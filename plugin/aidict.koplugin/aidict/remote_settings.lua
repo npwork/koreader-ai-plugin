@@ -1,34 +1,17 @@
---[[--
-KOReader's settings, set from the library server.
-
-KOReader keeps its global settings in one store (`G_reader_settings`, the file
-`settings.reader.lua`): plain key → value. The owner queues changes to it
-through the library's MCP (`kindle_settings_set`); "Sync" sends every
-setting and when this Kindle changed each, gets back what to apply, writes it
-into that store, and reports back what it changed — with the value each one
-replaced, so it can be undone — and every setting the store now holds, except
-the secrets other plugins keep there. That report is the library's copy, so
-it goes both ways; when both sides changed a key, the later change wins.
-
-Takes the store, a transport and a JSON codec as arguments, like
-`library.lua`, so the specs run it without KOReader.
---]]--
+-- Sync sends every setting with when this Kindle changed it, and applies what the library queued;
+-- when both sides changed a key, the later change wins.
 
 local Version = require("aidict.version")
 
 local RemoteSettings = {}
 RemoteSettings.__index = RemoteSettings
 
---- The gateway accepts nothing else, and neither do we: KOReader's keys are identifiers.
+-- The gateway accepts nothing else.
 local function is_key(key)
     return type(key) == "string" and key:match("^[A-Za-z_][A-Za-z0-9_]*$") ~= nil and #key <= 100
 end
 
---[[--
-A value JSON can carry both ways: a finite number, a string, a boolean, or a
-table of those. Functions, userdata (a JSON null among them) and cycles are
-not; neither is anything nested deeper than any real setting is.
---]]--
+-- JSON-safe both ways: functions, userdata (a JSON null among them) and cycles are not.
 local function is_plain(value, depth)
     local kind = type(value)
     if kind == "string" or kind == "boolean" then return true end
@@ -42,7 +25,7 @@ local function is_plain(value, depth)
     return true
 end
 
---- A fresh copy without metatables: the codec's arrays carry one, and the store must not keep it.
+-- Without metatables: the codec's arrays carry one, and the store must not keep it.
 local function copy(value)
     if type(value) ~= "table" then return value end
     local out = {}
@@ -50,13 +33,7 @@ local function copy(value)
     return out
 end
 
---[[--
-Write the queued changes into the store.
-
-@param store   table  `readSetting`, `saveSetting`, `delSetting`
-@param pending table  list of `{ key, value }` or `{ key, reset = true }`
-@treturn table list of what was changed: `{ key, value | reset, previous }`
---]]--
+-- pending: `{ key, value }` or `{ key, reset = true }`. Returns what changed, with `previous`.
 function RemoteSettings.apply(store, pending)
     local applied = {}
     for _, change in ipairs(type(pending) == "table" and pending or {}) do
@@ -78,11 +55,8 @@ function RemoteSettings.apply(store, pending)
     return applied
 end
 
---[[--
-Names that hold a secret. Other plugins keep theirs in the same store —
-kosync's `userkey`, the exporter's Readwise and Joplin tokens — and those stay
-on the device: the report ends up in an MCP client's context.
---]]--
+-- Other plugins keep secrets here too (kosync's `userkey`, Readwise tokens); they stay on the
+-- device, since the report ends up in an MCP client's context.
 local SECRET = { "password", "passwd", "secret", "token", "userkey", "api_key", "apikey", "auth", "cookie", "credential" }
 
 local function is_secret(name)
@@ -94,7 +68,6 @@ local function is_secret(name)
     return false
 end
 
---- A copy with every field named like a secret left out, at any depth.
 local function without_secrets(value)
     if type(value) ~= "table" then return value end
     local out = {}
@@ -104,12 +77,7 @@ local function without_secrets(value)
     return out
 end
 
---[[--
-Every setting in the store that can travel as JSON, secrets left out.
-
-@param data  table  the store's own table (`G_reader_settings.data`)
-@param json  table  the codec, to drop a value it cannot encode
---]]--
+-- `data` is the store's own table (G_reader_settings.data).
 function RemoteSettings.snapshot(data, json)
     local values = {}
     for key, value in pairs(type(data) == "table" and data or {}) do
@@ -136,7 +104,7 @@ function RemoteSettings.new(opts)
     }, RemoteSettings)
 end
 
---- `<endpoint><path>`, keeping a `?token=` the address may carry at the end.
+-- Keeps a `?token=` the address may carry at the end.
 function RemoteSettings:url(path)
     local base, query = self.endpoint or "", ""
     local mark = base:find("?", 1, true)
@@ -147,7 +115,7 @@ function RemoteSettings:url(path)
     return (base:gsub("/+$", "")) .. path .. query
 end
 
---- One request to the library, decoded; nil and `{ code, message }` when it failed.
+-- nil and `{ code, message }` when it failed.
 function RemoteSettings:request(method, body, path)
     local headers = { ["Accept"] = "application/json", ["User-Agent"] = self.user_agent }
     if type(self.api_key) == "string" and self.api_key ~= "" then
@@ -185,41 +153,28 @@ function RemoteSettings:request(method, body, path)
     return decoded
 end
 
---- Where changes wait while the library has not heard of them, in the plugin's own store.
+-- In the plugin's own store: changes the library has not heard of yet.
 RemoteSettings.OUTBOX_KEY = "settings_unreported"
 
---- What the settings looked like when last seen, and when each changed; in the plugin's own store.
+-- In the plugin's own store: the settings as last seen, and when each changed.
 RemoteSettings.SEEN_KEY = "settings_seen"
 RemoteSettings.CHANGED_KEY = "settings_changed_at"
 
---[[--
-Every change to a setting this Kindle saw, oldest first, until a report takes
-it to the library: `{ n, at, key, source, value | removed, previous? }`, `at` in
-Unix seconds by this Kindle's clock. `source` says who changed it: "sync" (the
-library's queued change, applied), "book" (the look changed in an open book,
-made the default), or "kindle" (anything else, seen when KOReader saved its
-settings). Secrets are never logged.
---]]--
+-- Oldest first until reported: `{ n, at, key, source, value | removed, previous? }`, `at` in Unix
+-- seconds by the Kindle's clock, source "sync", "book" or "kindle". Secrets are never logged.
 RemoteSettings.LOG_KEY = "settings_log"
 
---- Only the newest entries are kept when reports keep failing.
+-- Only the newest entries are kept when reports keep failing.
 RemoteSettings.LOG_KEPT = 300
 
---- The number the next entry gets, so a report can drop exactly the entries it sent.
+-- So a report can drop exactly the entries it sent.
 RemoteSettings.LOG_NEXT_KEY = "settings_log_next"
 
---- A value as the library may see it: nil for a secret, or for what JSON cannot carry.
+-- nil for a secret, or for what JSON cannot carry.
 local function visible(key, value, json)
     return RemoteSettings.snapshot({ [key] = value }, json)[key]
 end
 
---[[--
-Add one change to the log. A secret's key is left out altogether.
-
-@param outbox table the plugin's own store
-@param entry  table `{ at, key, source, value | removed = true, previous? }`
-@param json   table the codec, to leave out what it cannot encode
---]]--
 function RemoteSettings.log(outbox, entry, json)
     if is_secret(entry.key) then return end
     local line = { at = entry.at, key = entry.key, source = entry.source }
@@ -239,10 +194,7 @@ function RemoteSettings.log(outbox, entry, json)
     outbox:saveSetting(RemoteSettings.LOG_KEY, log)
 end
 
---[[--
-A value as one string that is the same whenever the value is: a table's keys
-sorted, since `pairs` walks them in no fixed order.
---]]--
+-- Table keys sorted, since `pairs` walks them in no fixed order.
 local function canonical(value)
     -- Quoted, so no string can pass for the separators around it.
     if type(value) == "string" then return string.format("%q", value) end
@@ -260,15 +212,8 @@ local function canonical(value)
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
---[[--
-Note when each of this Kindle's own settings changed: compare what the store
-holds with what was seen last time, and stamp what differs with `now`.
-KOReader records no time for a change, so the plugin looks whenever KOReader
-saves its settings, and before every sync; a stamp is the first look that
-saw the change, not the tap itself.
-
-The first look only records. Returns the stamps, key → Unix seconds.
---]]--
+-- KOReader records no time for a change, so a stamp is the first look that saw it, not the tap.
+-- The first look only records. Returns key -> Unix seconds.
 function RemoteSettings.notice(data, outbox, json, now)
     local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
     local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
@@ -301,13 +246,8 @@ function RemoteSettings.notice(data, outbox, json, now)
     return changed
 end
 
---[[--
-Changes the plugin itself made on the Kindle's behalf (`source` says how, e.g.
-"book" for the open book's look kept as the default): logged once, stamped
-and seen as `notice` would, so its next look finds nothing new and does not
-log them a second time as "kindle". Before the first look there is nothing to
-compare against, and that look takes them in with the rest.
---]]--
+-- Changes the plugin made on the Kindle's behalf: logged once and marked seen, so `notice` does
+-- not log them again as "kindle".
 function RemoteSettings.adopt(outbox, entries, json, now, source)
     local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
     local changed = outbox:readSetting(RemoteSettings.CHANGED_KEY)
@@ -328,11 +268,8 @@ function RemoteSettings.adopt(outbox, entries, json, now, source)
     end
 end
 
---[[--
-The library's changes are not the Kindle's own: seen as they now are, no
-stamp. Seen in the form `notice` compares, the secrets left out, or the next
-look would take the difference for a change.
---]]--
+-- The library's changes are not the Kindle's own: marked seen, unstamped, in `notice`'s form so
+-- the next look does not take the difference for a change.
 local function absorb(outbox, applied, json)
     if #applied == 0 then return end
     local seen = outbox:readSetting(RemoteSettings.SEEN_KEY)
@@ -349,12 +286,8 @@ local function absorb(outbox, applied, json)
     outbox:saveSetting(RemoteSettings.CHANGED_KEY, changed)
 end
 
---[[--
-The changes to report: those still waiting from a sync whose report never
-arrived, then this sync's. A change applied again because its first report was
-lost keeps the value it first replaced — the second time round, the store
-already holds the new value, and that is no use for undoing it.
---]]--
+-- A change reapplied because its first report was lost keeps the value it first replaced: the
+-- store already holds the new one, which is no use for undoing it.
 local function outgoing(unreported, applied)
     local first = {}
     for _, entry in ipairs(unreported) do
@@ -374,10 +307,7 @@ local function outgoing(unreported, applied)
     return out
 end
 
---[[--
-Run a request through `offload`, which may run it in another process: the
-answer crosses as JSON, the way the prefetch's does. Nil when it was cancelled.
---]]--
+-- `offload` may run fn in another process, so the answer crosses as JSON. Nil when cancelled.
 function RemoteSettings:offloaded(offload, fn)
     local codec = self.json
     local function task()
@@ -397,8 +327,7 @@ end
 
 local CANCELLED = { code = "cancelled", message = "the sync was cancelled" }
 
---- Forget what a request the library answered took there: the log lines it
---- carried, and the stamps of changes it now holds.
+-- Drops the log lines and stamps the library now holds.
 local function delivered(outbox, sent)
     local left = outbox:readSetting(RemoteSettings.LOG_KEY)
     if type(left) == "table" then
@@ -417,8 +346,7 @@ local function delivered(outbox, sent)
     end
 end
 
---- What a request is about to take to the library. Copies, because the
---- store's own lists grow if a change is logged while it is on its way.
+-- Copies: the store's lists grow if a change is logged while this is on its way.
 local function sending(outbox)
     local stamps, log = {}, {}
     for key, at in pairs(outbox:readSetting(RemoteSettings.CHANGED_KEY) or {}) do stamps[key] = at end
@@ -426,34 +354,9 @@ local function sending(outbox)
     return { stamps = stamps, log = log, last_logged = #log > 0 and tonumber(log[#log].n) or 0 }
 end
 
---[[--
-One sync, both ways: one request, and a second only when this Kindle changed.
-
-1. Note this Kindle's own changes since the last look (`notice`).
-2. Send every setting, when each of its own changes was seen, and the log of
-   them to the library's `/sync`. It keeps what was sent as this Kindle's
-   settings now, and answers with what to apply: its queued changes, less
-   those the Kindle changed later itself.
-3. Apply them here. Only when that changed something, or an earlier report
-   never arrived, report back what changed and every setting now.
-
-The requests go through `opts.offload`, so KOReader can run them in a
-subprocess and a slow gateway never freezes the reader; the writes to the
-store happen here, because a change made in a forked child dies with it.
-`opts.also(answer)` runs in that same subprocess once the library answered,
-for the rest of the Sync that needs the answer (the books to download); what
-it returns comes back as `answer.also`.
-
-@param store table  `readSetting`, `saveSetting`, `delSetting`, `flush`, and
-                    `data`, the table holding every setting
-@param opts  table  `outbox`: the plugin's own store, for the changes not yet
-                    reported and the stamps; `offload`: `function(task) →
-                    task's string | nil if cancelled`; `now`: Unix seconds;
-                    `ask`: more to send beside the settings; `also`: see above
-@treturn table `{ applied = { … }, reported = bool, report_error = err|nil,
-                answer = the library's answer, less the manifest }`
-@treturn table err when nothing could be fetched, so nothing changed
---]]--
+-- A second request (the report) goes only when something was applied or an earlier report was
+-- lost. Requests go through opts.offload (a subprocess); store writes happen here, as a forked
+-- child's die with it. opts.also(answer) runs in that subprocess and comes back as answer.also.
 function RemoteSettings:sync(store, opts)
     assert(type(opts) == "table" and opts.outbox, "RemoteSettings:sync needs an outbox")
     if type(self.endpoint) ~= "string" or not self.endpoint:match("^https?://") then

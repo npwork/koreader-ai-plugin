@@ -1,43 +1,18 @@
---[[--
-Kindle's own vocabulary, sent to the word inbox from the device.
-
-The Kindle's reader writes every dictionary lookup into `vocab.db`, and
-getting those into the Words inbox used to mean pulling the file off the
-device. This reads it where it lives and sends only the lookups newer than
-the last upload, a batch at a time, to the dictionary's `/vocab`, which files
-them in the inbox. The server maps each row and keys it on its lookup id, so
-a row sent twice is written once: the cursor is only there to save the
-radio, and losing it costs a longer upload, never a duplicate.
-
-Everything that touches the world is injected — `transport` for HTTP,
-`json` for encoding, `read` for the database, `random` for the request ids —
-so `spec/` drives the whole upload against tables.
-
-    read(since_ms) -> rows, err
-      rows = list of { lookup_id, position, usage, timestamp, word, stem,
-                       lang, book_asin, book_title, book_authors }
-             oldest first, timestamp >= since_ms
---]]--
+-- read(since_ms) -> rows oldest first with timestamp >= since_ms, positional as Vocab.COLUMNS, or
+-- nil, err. The server keys rows on their lookup id, so resending is harmless.
 
 local Version = require("aidict.version")
 
 local Vocab = {}
 Vocab.__index = Vocab
 
---- Where the Kindle's reader keeps it.
 Vocab.PATH = "/mnt/us/system/vocabulary/vocab.db"
 
---- Rows per request; the server takes at most this many.
+-- The server takes at most this many rows per request.
 Vocab.BATCH = 100
 
---[[--
-The lookups the pipeline wants: English looked up in an English dictionary,
-which is the extractor's own filter, oldest first.
-
-`>=` rather than `>`: two lookups can share a millisecond, and a batch that
-ends between them would otherwise lose the second. The server already has
-the one sent before, so the overlap costs a row, not a duplicate.
---]]--
+-- The extractor's own filter. `>=`, not `>`: two lookups can share a millisecond, and a batch that
+-- ends between them would lose the second.
 Vocab.QUERY = [[
 SELECT l.id, l.pos, l.usage, l.timestamp,
        w.word, w.stem, w.lang,
@@ -50,7 +25,7 @@ WHERE d.langin = 'en' AND d.langout = 'en' AND l.timestamp >= ?
 ORDER BY l.timestamp, l.id
 ]]
 
---- The columns of `QUERY`, in order, as the server names them.
+-- As the server names them.
 Vocab.COLUMNS = {
     "lookup_id", "position", "usage", "timestamp",
     "word", "stem", "lang",
@@ -66,14 +41,8 @@ local function text(value)
     return tostring(value)
 end
 
---[[--
-One row of `QUERY` as the server wants it.
-
-SQLite's integers arrive as 64-bit cdata from the real driver, which no JSON
-encoder knows; `tonumber` makes the timestamp a number, which holds a
-millisecond clock exactly. A NULL is an empty string, as the extractor
-reads it.
---]]--
+-- tonumber makes the timestamp a number, which holds a millisecond clock exactly; NULL becomes "",
+-- as the extractor reads it.
 function Vocab.row(values)
     local row = {}
     for index, name in ipairs(Vocab.COLUMNS) do
@@ -83,12 +52,7 @@ function Vocab.row(values)
     return row
 end
 
---[[--
-How many of `rows` the server has not had yet: the ones strictly after the
-cursor. The query takes `>=` so a shared millisecond is not lost, which means
-the lookup the cursor points at comes back every time — it is overlap, not
-news, and it must not turn "nothing new" into "1 new".
---]]--
+-- Strictly after the cursor: the query's `>=` returns the cursor's own lookup every time.
 function Vocab.pending(rows, since_ms)
     since_ms = tonumber(since_ms) or 0
     local count = 0
@@ -99,11 +63,7 @@ function Vocab.pending(rows, since_ms)
     return count
 end
 
---[[--
-A UUID v4, because that is the only request id the inbox accepts. Random
-rather than derived: the rows carry their own identity, and this only lets a
-retried request replay its answer.
---]]--
+-- A UUID v4: the only request id the inbox accepts.
 function Vocab.request_id(random)
     local function hex(digits)
         local out = {}
@@ -114,14 +74,6 @@ function Vocab.request_id(random)
         hex(8), hex(4), hex(3), 8 + random(0, 3), hex(3), hex(12))
 end
 
---[[--
-@param opts table
-  endpoint  string the dictionary's address, as `ApiClient` takes it
-  api_key   string
-  transport func
-  json      table
-  random    func   random(lo, hi), math.random fits
---]]--
 function Vocab.new(opts)
     opts = opts or {}
     assert(type(opts.transport) == "function", "Vocab needs a transport function")
@@ -134,14 +86,13 @@ function Vocab.new(opts)
         json = opts.json,
         random = opts.random,
         block_timeout = opts.block_timeout or 15,
-        -- A hundred rows is one transaction on the server, behind a function
-        -- that may be starting cold.
+        -- A hundred rows is one server transaction, behind a function that may start cold.
         total_timeout = opts.total_timeout or 60,
         user_agent = opts.user_agent or ("koreader-aidict/" .. Version.string),
     }, Vocab)
 end
 
---- The endpoint plus `vocab`, keeping a `?token=` query at the end.
+-- Keeps a `?token=` query at the end.
 function Vocab:url()
     local base = self.endpoint or ""
     local query = ""
@@ -161,7 +112,6 @@ local function error_message(json, body)
     return type(message) == "string" and message or nil
 end
 
---- Sends one batch. @treturn table counts @treturn table err
 function Vocab:send(rows)
     local ok, body = pcall(self.json.encode, {
         request_id = Vocab.request_id(self.random),
@@ -219,15 +169,8 @@ function Vocab:send(rows)
     }
 end
 
---[[--
-Everything since `since_ms`, in batches, oldest first.
-
-@treturn table report { rows, created, existing, skipped, batches, cursor }
-               `cursor` is the newest timestamp the server has acknowledged,
-               and is the one to store — also after a failure, so the next
-               upload resumes past what already arrived.
-@treturn table err    set when a read or a batch failed
---]]--
+-- The report's `cursor` is the newest timestamp the server acknowledged; store it even after a
+-- failure, so the next upload resumes past what arrived.
 function Vocab:upload(read, since_ms)
     since_ms = tonumber(since_ms) or 0
     local report = { rows = 0, created = 0, existing = 0, skipped = 0, batches = 0, cursor = since_ms }

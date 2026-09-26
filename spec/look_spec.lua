@@ -1,7 +1,6 @@
 local Look = require("aidict.look")
 
--- The shape of KOReader's ui/data/creoptions.lua: tabs, each with a list of
--- options, and the prefix every default is saved under.
+-- The shape of KOReader's ui/data/creoptions.lua.
 local function creoptions()
     return {
         prefix = "copt",

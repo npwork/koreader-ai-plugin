@@ -28,8 +28,7 @@ describe("plan", function()
     end)
 
     it("re-downloads a file the last sync left half-written", function()
-        -- The whole reason this compares sizes instead of asking whether the
-        -- file exists: a Kindle that lost Wi-Fi leaves one that does.
+        -- A Kindle that lost Wi-Fi mid-download leaves a file that exists.
         local plan = Plan.build({ entry("A.epub", 10) }, holding({ ["A.epub"] = 4 }))
 
         assert.are.equal(1, #plan.downloads)
@@ -88,8 +87,6 @@ describe("plan", function()
             assert.are.equal(0, plan.bytes)
         end)
 
-        -- A store may hand a copied object a new etag; the name and the size
-        -- together are still the same book.
         it("moves a book by its name when the etag changed", function()
             local plan = Plan.build(
                 { entry("Business/x.epub", 10, "new") },
@@ -143,7 +140,6 @@ describe("plan", function()
 
         it("keeps a book whose row this device could not use", function()
             -- The server still lists it; only this side dropped the row.
-            -- Reading it as deleted would throw away the copy and its pages.
             local plan = Plan.build(
                 { entry("A.epub", 10, "a") },
                 holding({ ["A.epub"] = 10, ["Odd.epub"] = 20 }),
@@ -155,9 +151,7 @@ describe("plan", function()
         end)
 
         it("never deletes the old path of a rename that only changed case", function()
-            -- FAT, the Kindle's storage: English/x.epub is english/x.epub, so
-            -- the new path is already here and deleting the old one would
-            -- delete the book itself.
+            -- FAT: English/x.epub is english/x.epub.
             local fat = function(path)
                 local files = { ["english/x.epub"] = 10 }
                 for name, size in pairs(files) do
@@ -186,8 +180,6 @@ describe("plan", function()
         end)
 
         it("never touches a file the owner put there by hand", function()
-            -- Not in the index, so neither a thing to delete nor a book to
-            -- move — even with the very name the manifest now wants.
             local plan = Plan.build(
                 { entry("Business/x.epub", 10, "e1") },
                 holding({ ["Fiction/x.epub"] = 10, ["Mine.pdf"] = 5 }),
@@ -252,8 +244,7 @@ describe("plan", function()
         end)
 
         it("prefers the etag to the name when both would match", function()
-            -- Same name, same size: only the etag says which one moved. The
-            -- first entry must not take by name the file the second is.
+            -- Same name and size: only the etag says which one moved.
             local plan = Plan.build(
                 { entry("Archive/Notes.epub", 10, "n2") },
                 holding({ ["A/Notes.epub"] = 10, ["B/Notes.epub"] = 10 }),
@@ -284,9 +275,6 @@ describe("plan", function()
             assert.are.equal("B/x.epub", plan.downloads[1].path)
         end)
 
-        -- Two placed books of one name and size, neither with a matching
-        -- etag: the name cannot say which one moved, and guessing could put
-        -- the wrong book's pages and reading state at the new path.
         it("downloads rather than guess between two books the name cannot tell apart", function()
             local plan = Plan.build(
                 { entry("C/Notes.epub", 10, "new") },

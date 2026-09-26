@@ -1,10 +1,6 @@
 #!/bin/sh
-# End-to-end test of the distribution half, with the real package manager.
-#
-# Serves a generated KPM repository over HTTP on localhost and drives the KPM
-# built by scripts/kpm-host-build.sh through the whole lifecycle: add the
-# repository, install the plugin, publish a newer version, upgrade to it, then
-# uninstall. Everything lands in .kpm/sandbox, never in /mnt/us.
+# Drives the real KPM through add, install, upgrade and uninstall against a local HTTP repository,
+# all inside .kpm/sandbox.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,9 +48,8 @@ mkdir -p "${SANDBOX}/packages" "${SANDBOX}/koreader/plugins"
 PLUGIN_DIR="${SANDBOX}/koreader/plugins/aidict.koplugin"
 export KOREADER_DIR="${SANDBOX}/koreader"
 
-# KPM seeds the official repository into every fresh database, and this
-# sandbox cannot reach it. The "could not fetch" lines about
-# repo.kindlemodding.org below are that, and are not this test failing.
+# KPM seeds the official repository, which the sandbox cannot reach: its "could not fetch" lines
+# are not this test failing.
 
 echo "==> kpm add-repo"
 "${KPM}" -y add-repo "${BASE_URL}/stable/manifest.json"

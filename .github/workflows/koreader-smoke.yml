@@ -1,11 +1,6 @@
 name: koreader smoke
 
-# Loads the plugin into a real KOReader and checks that KOReader accepts it.
-#
-# The specs stub KOReader's API; this is the only thing that proves the stubs
-# still match it. It runs on a GitHub runner rather than in a cloud session
-# because that is where a KOReader build can actually be downloaded — see
-# docs/emulator.md.
+# The specs stub KOReader's API; this proves the stubs still match it.
 
 on:
   push:
@@ -56,22 +51,11 @@ jobs:
       - name: Start KOReader with the plugin, headlessly
         run: |
           mkdir -p books
-          # A minimal document to open, so KOReader starts the reader rather
-          # than sitting in the file manager.
+          # A document to open, so KOReader starts the reader rather than the file manager.
           printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
 
-          # KOReader treats the TERM as a close request and shuts down the way
-          # it would on the device, which also runs the plugin's
-          # onCloseDocument and onFlushSettings handlers.
-          #
-          # timeout goes *inside* xvfb-run, not around it. xvfb-run kills its
-          # X server from an EXIT trap, so signalling xvfb-run pulls the
-          # display out from under KOReader mid-teardown and it dies with
-          # "XIO: fatal IO error" instead of shutting down — which is exactly
-          # the thing this job is here to check. This way the signal reaches
-          # reader.lua, and the display outlives it.
-          # Do not sweep for orphans here either: killing what is left cuts
-          # the teardown short. --kill-after is the backstop instead.
+          # timeout goes inside xvfb-run: signalling xvfb-run pulls the X server out from under KOReader
+          # mid-teardown ("XIO: fatal IO error"). Do not sweep for orphans either; --kill-after is the backstop.
           set +e
           cd "${KOREADER_DIR}"
           xvfb-run -a --server-args="-screen 0 600x800x24" \
@@ -83,8 +67,7 @@ jobs:
 
       - name: The plugin must have loaded, and KOReader must have survived it
         run: |
-          # xvfb-run only returns once reader.lua has exited, so the log is
-          # complete by the time this step runs.
+          # xvfb-run returns only once reader.lua has exited, so the log is complete.
           tail -c 20000 koreader.log || true
 
           grep -q "Plugin loaded[[:space:]]*aidict" koreader.log \
@@ -95,15 +78,12 @@ jobs:
             exit 1
           fi
 
-          # The AI page rides on the dictionary's showDict. Without it the
-          # plugin still loads, and the popup silently loses its AI page.
+          # Without showDict the plugin still loads, and the popup silently loses its AI page.
           if grep -q "aidict: this KOReader's dictionary has no showDict" koreader.log; then
             echo "::error::KOReader's dictionary has no showDict for the AI page to hook"
             exit 1
           fi
 
-          # A clean teardown means the plugin's close handlers ran without
-          # taking KOReader down with them.
           grep -q "Tearing down UIManager with exit code: 0" koreader.log \
             || { echo "::error::KOReader did not shut down cleanly"; exit 1; }
 

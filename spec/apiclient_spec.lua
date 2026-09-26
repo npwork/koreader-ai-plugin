@@ -53,8 +53,6 @@ describe("api client", function()
         end)
 
         it("keeps a query string at the end, where the gateway looks for it", function()
-            -- The key can ride in the baked-in URL instead of a header, which
-            -- is one secret to inject at build time instead of two.
             local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
             client(tr, { endpoint = "https://gw.test/koreader-ai?token=s3cret" })
                 :define({ word = "fox" })
@@ -150,8 +148,6 @@ describe("api client", function()
         end)
 
         it("survives on an error, which is when it matters most", function()
-            -- The gateway may have answered after the device gave up; ours is
-            -- the only thing that ties the two halves together.
             local tr = helpers.transport({ { err = "timeout" } })
             local _, e = client(tr):define({ word = "fox", request_id = "ours" })
             assert.are.equal("ours", e.request_id)
@@ -164,8 +160,7 @@ describe("api client", function()
             })
             local result = client(tr):define({ word = "fox", request_id = "ours" })
             assert.are.equal("a3e2705c8ddcdda5-IAD", result.cf_ray)
-            -- The ray never displaces ours: it only exists once the request
-            -- arrived, and the one worth correlating is the one that did not.
+            -- The ray only exists once the request arrived, so it never displaces ours.
             assert.are.equal("ours", result.request_id)
         end)
 
@@ -350,8 +345,6 @@ describe("api client", function()
         end)
 
         it("reads the gateway's own split out of the answer, longest leg first", function()
-            -- A JSON object arrives as a Lua table with no order, and the only
-            -- reason to read this is to find out what took the time.
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({
                     definition = "d",
@@ -406,8 +399,6 @@ describe("api client", function()
         end)
 
         it("has an empty list when the gateway named none", function()
-            -- The gateway may legitimately send none, and the device then
-            -- falls back to what it can work out from the headword.
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({ definition = "d" }) },
             })
@@ -455,8 +446,6 @@ describe("api client", function()
         end)
 
         it("says how long a failure took, not just that it failed", function()
-            -- A 30-second timeout and an instant "no route to host" are
-            -- different problems wearing the same error code.
             local watch = stopwatch(30000)
             local tr = helpers.transport({ { err = "timeout" } })
             local unwrapped = tr.fn
@@ -493,8 +482,6 @@ describe("api client", function()
         end)
 
         it("keeps our round trip and the gateway's number apart", function()
-            -- The difference between the two is the network and the Kindle's
-            -- radio, which is the number actually worth watching.
             local watch = stopwatch(1200)
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({

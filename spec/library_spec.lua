@@ -16,18 +16,11 @@ local function manifest_body(entries)
     return helpers.body({ version = 1, generated_at = "2026-09-21T11:00:00Z", files = entries })
 end
 
---[[--
-A transport for the downloads, holding the manifest the spec serves: the
-library's answer to Sync carries it, and `library` below hands it over.
-
-A download "arrives" by putting its size into the fake filesystem, which is
-what the real one does through `ltn12.sink.file`. `bytes` says how much
-actually landed, so a truncated transfer is one number.
---]]--
+-- A download "arrives" by putting its size into the fake filesystem; `bytes` says how much
+-- actually landed, so a truncated transfer is one number.
 local function transport(fs, manifest, downloads)
     local tr = { requests = {}, downloads = downloads or {}, sizes = {}, manifest = manifest }
-    -- What each URL is supposed to deliver, read off the manifest being
-    -- served: a download arrives whole unless a spec says otherwise.
+    -- A download arrives whole unless a spec says otherwise.
     if type(manifest.body) == "string" then
         local ok, decoded = pcall(helpers.json.decode, manifest.body)
         if ok and type(decoded) == "table" and type(decoded.files) == "table" then
@@ -48,7 +41,7 @@ local function transport(fs, manifest, downloads)
     return tr
 end
 
---- A library whose `sync` is handed the manifest `tr` serves, as the answer to Sync would.
+-- Handed the manifest `tr` serves, as the answer to Sync would.
 local function library(tr, fs)
     local lib = Library.new({ transport = tr.fn, fs = fs })
     local sync = lib.sync
@@ -78,9 +71,6 @@ describe("library", function()
                 Library.endpoint_from("https://gw.test/koreader-library/?token=abc"))
         end)
 
-        -- The dictionary's address is no longer a route to the library's: one
-        -- is a Worker and the other is the gateway. Handing it this one used
-        -- to yield https://koreader-library, which failed at the fetch.
         it("will not take the dictionary's address for the library's", function()
             assert.are.equal("https://koreader-ai.test",
                 Library.endpoint_from("https://koreader-ai.test"))
@@ -126,8 +116,6 @@ describe("library", function()
         end)
 
         it("sends no key with a download: the URL is already signed", function()
-            -- An Authorization header beside a signed query is how a
-            -- signature stops matching.
             local fs = helpers.filesystem()
             local tr = transport(fs, { status = 200, body = manifest_body({ entry("A.epub", 10) }) })
 
@@ -222,13 +210,8 @@ describe("library", function()
         end)
     end)
 
-    --[[--
-    The moves and deletes, planned in `sync` and carried out by `settle`.
-
-    `relocate` and `discard` stand in for KOReader's own move and delete;
-    here they move and remove entries in the fake filesystem, and refuse the
-    one path a spec calls open.
-    --]]--
+    -- `relocate` and `discard` move and remove entries in the fake filesystem, and refuse the one
+    -- path a spec calls open.
     describe("mirroring moves and deletes", function()
         local function ops(fs, index, open)
             local calls = {}
@@ -341,8 +324,7 @@ describe("library", function()
         end)
 
         it("deletes nothing when the server lists nothing", function()
-            -- A gateway pointed at the wrong bucket, not an owner who deleted
-            -- every book: keep the books, and keep owning them.
+            -- Likelier a gateway on the wrong bucket than an owner who deleted every book.
             local fs = helpers.filesystem({ [BOOKS .. "/A.epub"] = 10 })
             local index = { ["A.epub"] = { size = 10, etag = "a" } }
             local lib = library(served(fs, {}), fs)

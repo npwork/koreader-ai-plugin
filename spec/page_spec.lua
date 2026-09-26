@@ -88,8 +88,6 @@ describe("the AI page", function()
         it("is headed by the dictionary form once it has an answer", function()
             local read = { word = "reading", lemma = "read", definition = "To look at and interpret." }
             local entry = Page.entry("reading", { kind = "answer", result = read })
-            -- The popup's header, which said "reading" over an entry that said
-            -- "read" again.
             assert.are.equal("read", entry.word)
             assert.is_nil(entry.definition:find("<b>read</b>", 1, true))
             assert.is_truthy(entry.definition:find("as “reading”", 1, true))

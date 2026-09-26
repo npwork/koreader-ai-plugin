@@ -1,11 +1,4 @@
---[[--
-The one layer the unit suite cannot reach: a real HTTP request, over a real
-socket, through the same `http_transport.lua` that runs on the Kindle.
-
-The gateway is `spec/support/fake_gateway.py`; the only KOReader pieces stubbed
-are `logger` and `socketutil`, and `socketutil` is stubbed to do what KOReader's
-does — set luasocket's timeout.
---]]--
+-- A real request over a real socket through http_transport.lua, against spec/support/fake_gateway.py.
 
 local gateway = require("support.gateway")
 local helpers = require("support.helpers")
@@ -17,8 +10,7 @@ describe("http transport, end to end", function()
 
     setup(function()
         server = gateway.start(PORT)
-        -- Required after the stubs are in place: the transport requires
-        -- `logger` at load time.
+        -- After the stubs: the transport requires `logger` at load time.
         ApiClient = require("aidict.apiclient")
         transport = require("aidict.http_transport")
     end)

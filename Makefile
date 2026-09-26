@@ -1,5 +1,3 @@
-# Everything here runs in a plain Linux container: no KOReader, no Kindle.
-
 DIST ?= dist
 CHANNEL ?= stable
 BASE_URL ?= https://npwork.github.io/koreader-ai-plugin

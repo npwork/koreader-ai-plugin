@@ -1,22 +1,6 @@
 #!/bin/sh
-# Build the static site that GitHub Pages serves: one KPM repository per
-# channel, side by side.
-#
-#   site/
-#     index.html                 what to type on the Kindle
-#     kpm.json                   short URL for the stable channel
-#     stable/manifest.json       built from the main branch
-#     dev/manifest.json          built from the dev branch
-#     <channel>/packages/…       the .kpkg files themselves
-#
-# Both channels are rebuilt every time, because Pages replaces the whole site
-# on each deployment — building only the branch that changed would delete the
-# other channel.
-#
-# Versions: major.minor come from that branch's version.lua, and the patch is
-# the number of commits on the branch. So every push produces a version higher
-# than the last, which is what `kpm upgrade` compares. Raise major or minor by
-# editing version.lua; nothing else needs a decision.
+# Both channels are rebuilt every time: Pages replaces the whole site on each deploy.
+# The patch is the branch's commit count, so every push outranks the last for `kpm upgrade`.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,8 +15,7 @@ mkdir -p "${SITE}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
-# Which ref holds this branch? Prefer the remote, so a CI checkout of one
-# branch can still build the other.
+# Prefer the remote ref, so a CI checkout of one branch can still build the other.
 resolve_ref() {
     for candidate in "origin/$1" "$1"; do
         if git -C "${ROOT}" rev-parse --verify --quiet "${candidate}" >/dev/null 2>&1; then
@@ -44,7 +27,6 @@ resolve_ref() {
 }
 
 version_for() {
-    # major.minor from the tree's version.lua, patch from the commit count.
     base="$(sed -n 's/.*string = "\([0-9]*\)\.\([0-9]*\)\.[0-9]*".*/\1.\2/p' \
         "$1/plugin/aidict.koplugin/aidict/version.lua")"
     echo "${base}.$2"
@@ -61,8 +43,7 @@ build_channel() {
     count="$(git -C "${ROOT}" rev-list --count "${ref}")"
     version="$(version_for "${tree}" "${count}")"
 
-    # Build with that branch's own packaging script, so what ships is what
-    # that commit would have shipped.
+    # That branch's own packaging script, so what ships is what that commit would have shipped.
     python3 "${tree}/scripts/kpmrepo.py" package \
         --output "${WORK}/pkg-${channel}" --version "${version}" >/dev/null
     python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}/pkg-${channel}"/*.kpkg \
@@ -80,17 +61,13 @@ build_channel stable "${STABLE_REF}"
 if DEV_REF="$(resolve_ref "${DEV_BRANCH}")"; then
     build_channel dev "${DEV_REF}"
 else
-    # No dev branch yet: give the channel the stable build, so it exists and
-    # can already be added on a device.
+    # No dev branch yet: give the channel the stable build, so it can already be added on a device.
     echo "dev: no ${DEV_BRANCH} branch, mirroring stable"
     python3 "${ROOT}/scripts/kpmrepo.py" repo "${WORK}/pkg-stable"/*.kpkg \
         --channel dev --output "${SITE}" --base-url "${BASE_URL}" >/dev/null
 fi
 
-# --- a short entry point, for typing on a Kindle ---------------------------
-# The same repository as stable/manifest.json, but at the site root so the URL
-# typed on the device is shorter. Its artifact URLs have to be absolute, since
-# they no longer sit next to it.
+# stable/manifest.json again at the root, for a shorter URL to type; its artifact URLs must be absolute.
 python3 - "${SITE}" "${BASE_URL}" <<'SHORTCUT'
 import json
 import sys
@@ -108,7 +85,6 @@ with open(f"{site}/kpm.json", "w") as out:
     out.write("\n")
 SHORTCUT
 
-# --- the page a human lands on ---------------------------------------------
 STABLE_VERSION="$(python3 -c "
 import json
 print(json.load(open('${SITE}/stable/version.json'))['packages']['koreader-aidict']['version_string'])

@@ -1,23 +1,7 @@
---[[--
-The library manifest, as the gateway sends it.
-
-One GET gives the device every file in the bucket; this turns that into a
-list it can trust. Pure Lua — the caller decodes the JSON and passes the
-table in, exactly as `apiclient.lua` takes its codec as an argument.
---]]--
-
 local Manifest = {}
 
---[[--
-Whether a path from the manifest may be joined onto the download folder.
-
-`..` is the one that matters: a path like `../../koreader/settings.lua` would
-have the sync overwrite the plugin's own installation. The gateway refuses
-such a key on upload and leaves one out of the manifest if it got into the
-bucket some other way — this is the same rule on this side, because a device
-that trusts a server to have checked is a device that stops working the day
-the server does not.
---]]--
+-- `..` could make a sync overwrite the plugin itself. The gateway checks too; this side does not
+-- trust it to.
 function Manifest.is_safe_path(path)
     if type(path) ~= "string" then return false end
     if path == "" or #path > 1024 then return false end
@@ -39,15 +23,8 @@ local function usable(entry)
         and type(entry.url) == "string" and entry.url:match("^https?://") ~= nil
 end
 
---[[--
-@param decoded table  the manifest, already decoded from JSON
-@treturn table  entries { { path, size, etag, url }, … }
-@treturn number how many entries were dropped, or an err table when the
-                manifest itself was unusable
-@treturn table  { [path] = true } for every row that named a path, usable or
-                not — what the server still holds, even where this device
-                could not take it
---]]--
+-- Second value: the dropped count, or an err table when the manifest is unusable. Third: every path
+-- a row named, usable or not — what the server still holds.
 function Manifest.parse(decoded)
     if type(decoded) ~= "table" or type(decoded.files) ~= "table" then
         return nil, { code = "bad_response", message = "the gateway sent no file list" }
@@ -66,8 +43,7 @@ function Manifest.parse(decoded)
                 url = entry.url,
             }
         else
-            -- Not an error: one unusable row should not cost the reader the
-            -- other two hundred books.
+            -- One unusable row should not cost the reader the other books.
             dropped = dropped + 1
         end
     end

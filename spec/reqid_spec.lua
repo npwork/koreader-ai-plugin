@@ -1,7 +1,6 @@
 local Reqid = require("aidict.reqid")
 
--- The gateway keeps a client-sent id only if it matches this; anything else it
--- replaces, and the two sides stop agreeing.
+-- The gateway replaces a client id that does not match this, and the two sides stop agreeing.
 local GATEWAY_ACCEPTS = "^[A-Za-z0-9%._%-]+$"
 
 describe("request id", function()
@@ -35,8 +34,7 @@ describe("request id", function()
     end)
 
     it("is actually random with the real math.random, not a fixed zero", function()
-        -- The bug this pins: math.random() with no arguments answers a
-        -- fraction below 1, so flooring it made every id end in 000000.
+        -- math.random() with no arguments answers a fraction below 1, which floors to zero.
         math.randomseed(12345)
         local seen = {}
         for _ = 1, 50 do seen[Reqid.generate(100, math.random)] = true end

@@ -1,18 +1,5 @@
---[[--
-Client for the AI gateway.
-
-Everything that touches the network is injected as `transport`, and JSON
-encoding as `json`, so this module is plain Lua and fully unit-testable.
-
-    transport(request) -> response | nil, err
-      request  = { url, method, headers = {}, body = string|nil,
-                   block_timeout, total_timeout }
-      response = { status = int, body = string, headers = table }
-      err      = "timeout" | any other string
-
-    json.encode(table) -> string
-    json.decode(string) -> table | nil, err
---]]--
+-- transport(request) -> { status, body, headers } | nil, err, where request is
+-- { url, method, headers, body, block_timeout, total_timeout } and a timeout's err contains "timeout".
 
 local Version = require("aidict.version")
 local NetCheck = require("aidict.netcheck")
@@ -20,8 +7,6 @@ local NetCheck = require("aidict.netcheck")
 local ApiClient = {}
 ApiClient.__index = ApiClient
 
---- Error codes callers can branch on. Anything user-visible is built from
---- these plus `err.message`.
 ApiClient.ERRORS = {
     INVALID_REQUEST = "invalid_request",
     NOT_CONFIGURED = "not_configured",
@@ -42,18 +27,8 @@ local function err(code, message, extra)
     return nil, e
 end
 
---[[--
-@param opts table
-  endpoint      string base URL of the gateway, baked into the package
-                       at build time
-  api_key       string optional bearer token
-  transport     func   see above, required
-  json          table  encode/decode pair, required
-  block_timeout int    seconds
-  total_timeout int    seconds
-  monotonic     func   optional, returns milliseconds from a monotonic clock;
-                       used to time the round trip
---]]--
+-- opts: endpoint (baked in at build time), api_key, transport, json, block_timeout and
+-- total_timeout in seconds, and monotonic() in milliseconds to time the round trip.
 function ApiClient.new(opts)
     opts = opts or {}
     assert(type(opts.transport) == "function", "ApiClient needs a transport function")
@@ -70,14 +45,7 @@ function ApiClient.new(opts)
     }, ApiClient)
 end
 
---[[--
-Join the endpoint and a path without doubling or dropping the slash.
-
-The endpoint may already carry a query string — the gateway accepts its key
-as `?token=…` as well as a bearer header, and baking the whole URL into the
-package is one secret instead of two. The query has to stay at the end, so it
-is lifted off and put back rather than having the path appended after it.
---]]--
+-- The endpoint may carry a `?token=…` query, which has to stay at the end.
 function ApiClient:url_for(path)
     local base = self.endpoint or ""
     local query = ""
@@ -102,7 +70,6 @@ local function status_to_error(status, message)
     return ApiClient.ERRORS.HTTP_ERROR, message or ("unexpected response (HTTP " .. status .. ")")
 end
 
---- Pull `{"error": ...}` out of a body that may or may not be JSON.
 function ApiClient:_error_message(body)
     if type(body) ~= "string" or body == "" then return nil end
     local ok, decoded = pcall(self.json.decode, body)
@@ -114,21 +81,6 @@ function ApiClient:_error_message(body)
     return nil
 end
 
---[[--
-Ask the gateway to explain a word.
-
-@param request table
-  word         string required
-  context      string optional surrounding paragraph
-  sentence     string optional sentence containing the word
-  source_lang  string optional
-  title        string optional book title, for disambiguation
-  author       string optional
-  request_id   string optional, sent as X-Request-Id so both logs agree
-@treturn table result { word, lemma, pronunciation, etymology, definition, translation,
-                        examples, forms, part_of_speech, model, timings, review }
-@treturn table err    { code, message, status, elapsed_ms, request_id, cf_ray }
---]]--
 function ApiClient:define(request)
     request = request or {}
     if type(request.word) ~= "string" or request.word:gsub("%s", "") == "" then
@@ -177,10 +129,8 @@ function ApiClient:define(request)
         total_timeout = self.total_timeout,
     })
 
-    -- Every failure past this point carries how long it took to fail and which
-    -- request it was. A 30-second timeout and an instant "no route to host"
-    -- are the same error code with very different causes, and the log is where
-    -- that is read.
+    -- Failures carry how long they took: a 30-second timeout and an instant "no route to host"
+    -- share an error code.
     local elapsed_ms = started and self.monotonic and (self.monotonic() - started) or nil
 
     local function header(name, alt)
@@ -190,14 +140,9 @@ function ApiClient:define(request)
         return nil
     end
 
-    -- The gateway echoes the id back; if it never answered, ours is all there
-    -- is — and it is still the id the gateway logged under, if it got that far.
     local request_id = header("x-request-id", "X-Request-Id") or request.request_id
 
-    -- Cloudflare sits in front of the gateway and stamps its own id on the
-    -- request. It exists only once the request arrived, so it can never
-    -- replace ours — but when it is there it is the key into Cloudflare's
-    -- own logs, which nothing else gives us.
+    -- Cloudflare's own id, the key into its logs; there only once the request arrived.
     local cf_ray = header("cf-ray", "CF-Ray")
 
     local function fail(code, message, extra)
@@ -231,8 +176,6 @@ function ApiClient:define(request)
         return fail(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition")
     end
 
-    -- Strings out of a JSON array, keeping only the ones with something in
-    -- them: the gateway may legitimately send an empty list.
     local function strings(value)
         local out = {}
         if type(value) == "table" then
@@ -244,19 +187,10 @@ function ApiClient:define(request)
     end
 
     local examples = strings(decoded.examples)
-    -- Which spellings of the word the examples actually use, said by the model
-    -- that wrote them. Rules about endings never reach "went" from "go".
+    -- From the model: rules about endings never reach "went" from "go".
     local forms = strings(decoded.forms)
 
-    -- The gateway reports where its own time went, leg by leg, and which legs
-    -- there are says which path answered: "sense" and "examples" mean the
-    -- dictionary had the word, "model" means it did not and one was asked
-    -- outright. The difference between its total and our round trip is the
-    -- network and the Kindle's radio.
-    --
-    -- Sorted longest first, because a JSON object arrives as a Lua table with
-    -- no order at all and the only reason to read this line is to find out
-    -- what took the time.
+    -- Sorted longest first: a JSON object arrives unordered, and this is read to find what took the time.
     local server_ms, legs
     if type(decoded.timing) == "table" then
         server_ms = tonumber(decoded.timing.total_ms)
@@ -274,7 +208,7 @@ function ApiClient:define(request)
         end
     end
 
-    -- What the reviewer made of the answer. Logged, never shown.
+    -- Logged, never shown.
     local review
     if type(decoded.review) == "table" then
         review = {
@@ -291,9 +225,6 @@ function ApiClient:define(request)
 
     return {
         word = type(decoded.word) == "string" and decoded.word or request.word,
-        -- The headword, its IPA and its origin. The entry is laid out around
-        -- them; dropping them here is what left every entry filed under the
-        -- tapped form, with no pronunciation and no etymology.
         lemma = text(decoded.lemma),
         pronunciation = text(decoded.pronunciation),
         etymology = text(decoded.etymology),
@@ -305,9 +236,7 @@ function ApiClient:define(request)
         model = type(decoded.model) == "string" and decoded.model or nil,
         elapsed_ms = elapsed_ms,
         server_ms = server_ms,
-        -- The Kindle's TCP round trip to Cloudflare's edge, as the edge
-        -- measured it: the one piece of the gap between the two numbers
-        -- above that has a name.
+        -- The Kindle's TCP round trip to Cloudflare's edge, as the edge measured it.
         edge_rtt_ms = NetCheck.edge_rtt_of(response),
         legs = legs,
         review = review,

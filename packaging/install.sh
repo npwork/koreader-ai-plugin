@@ -1,6 +1,5 @@
 #!/bin/sh
-# Called by KPM once the package is extracted. The working directory is the
-# package directory, so the plugin sits right next to this script.
+# Called by KPM with the package directory as the working directory.
 set -e
 
 KOREADER_DIR="${KOREADER_DIR:-/mnt/us/koreader}"
@@ -14,8 +13,7 @@ if [ ! -d "${KOREADER_DIR}" ]; then
 fi
 
 mkdir -p "${KOREADER_DIR}/plugins"
-# Replace rather than merge: a stale file from an older version is a bug
-# waiting to happen.
+# Replace rather than merge, so no stale file from an older version survives.
 rm -rf "${TARGET}"
 mkdir -p "${TARGET}"
 cp -r "${PLUGIN_NAME}/." "${TARGET}/"
