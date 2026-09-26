@@ -212,8 +212,10 @@ function Format.highlight(text, words)
         -- first word inflects; the endings rule run over "of" or "the" makes
         -- "offer" and "then", which are not the phrase. The stand-ins and the
         -- articles are left out: they would light up every "a" in the example.
+        -- A hyphenated word stays whole: "star-studded" is one word of the
+        -- example, and "well-to-do" split up would light every "to" in it.
         local parts = {}
-        for part in tostring(word):gmatch("[^%s]+") do parts[#parts + 1] = part end
+        for part in tostring(word):gmatch("%S+") do parts[#parts + 1] = part end
         if #parts == 1 then
             for form in pairs(inflections_of(parts[1])) do wanted[form] = true end
         else
@@ -229,9 +231,15 @@ function Format.highlight(text, words)
     end
     if not next(wanted) then return Format.escape(text) end
 
-    local marked = text:gsub("[%a']+", function(token)
+    local function mark(token)
         if wanted[token:lower()] then return OPEN .. token .. CLOSE end
         return token
+    end
+    -- A hyphenated token is marked whole when it is the word itself, else
+    -- word by word: "star" still lights up in "star-studded".
+    local marked = text:gsub("[%a'%-]+", function(token)
+        if wanted[token:lower()] then return OPEN .. token .. CLOSE end
+        return (token:gsub("[%a']+", mark))
     end)
 
     return (Format.escape(marked)
