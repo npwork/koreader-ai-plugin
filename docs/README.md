@@ -26,9 +26,10 @@ The same *Sync* then applies the KOReader settings queued through the library's
 MCP and sends this Kindle's back, and sends the words looked up in the Kindle's
 own reader to the word inbox; one message says what each part did.
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
-if one is bound to it. The plugin has one entry in the menu, **AI dictionary**,
-first in the **Tools** tab; the sync is the first line inside it, two taps
-from the page.
+if one is bound to it. The plugin has two entries at the top of the **Tools**
+tab: **Sync**, one tap in, and **AI dictionary**, which holds the network
+check, the API key and the cache. The addresses and the books folder have no
+line in the menu; they come with the package.
 
 Shipped to a Kindle as a KPM package; the addresses are baked in at build time
 and are not in this repository, and the key is typed in on the device.
@@ -112,12 +113,14 @@ own "API key" field on the device.
 
 The library lives on the gateway, at `POST <library endpoint>/sync`, and its
 address comes only from the `AIDICT_LIBRARY_ENDPOINT` secret, baked into the
-package at build time. It is not a setting: the plugin's menu shows it on the
-"Library" line and cannot change it. A new address reaches the device the way
+package at build time. It is not a setting, and the menu does not show it. A
+new address reaches the device the way
 a new version does — change the secret, rebuild Pages, `;kpm upgrade`.
 
 It used to be derived from the dictionary's by swapping the last path segment,
 which held while both mounts sat on the same gateway. `/koreader-ai` moved to a
 Cloudflare Worker on 2026-09-22 and the library stayed with the books, so the
 two addresses have nothing to do with each other. The dictionary's is still a
-setting the reader can change; the library's is not.
+setting, defaulting to the package's `AIDICT_ENDPOINT`, but the menu no longer
+shows it or lets it be typed in; a value typed into an earlier version stays
+in use.

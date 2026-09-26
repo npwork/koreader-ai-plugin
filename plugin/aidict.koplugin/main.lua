@@ -17,7 +17,6 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
 local NetworkMgr = require("ui/network/manager")
-local PathChooser = require("ui/widget/pathchooser")
 local ReadCollection = require("readcollection")
 local ReadHistory = require("readhistory")
 local TextViewer = require("ui/widget/textviewer")
@@ -59,32 +58,35 @@ local json = require("aidict.json")
 local CACHE_KEY = "entries"
 local DEAD_CACHE_KEYS = { "cache_entries", "answers" }
 
---- The plugin's one entry in the main menu; everything else is inside it.
+--- The plugin's two entries in the main menu: Sync, then everything else inside AI dictionary.
+local SYNC_MENU_ID = "aidict_sync"
 local MENU_ID = "aidict"
 
 --[[--
-Put "AI dictionary" at the top of the Tools tab rather than three taps deep.
+Put Sync and "AI dictionary" at the top of the Tools tab rather than three taps deep.
 
 A plugin's menu item is *appended* to whatever section its `sorting_hint`
 names (see `MenuSorter:sort`), and Tools is already two pages long — so the
 hint alone would land it on the second page, inside More tools. The order
 tables are cached by `require`, though, and KOReader's own
-`ui/plugin/insert_menu` edits them the same way. Inserting at index 1 puts
-Sync, the first line inside, two taps from the reader.
+`ui/plugin/insert_menu` edits them the same way. Sync, the one pressed
+most, goes first, one tap into Tools; the rest waits inside AI dictionary.
 
 Idempotent on purpose: `init` runs once per FileManager and once per Reader,
-and this must not add the entry twice.
+and this must not add the entries twice.
 --]]--
 local function claimMenuPosition()
     for _, order in ipairs({
         require("ui/elements/reader_menu_order"),
         require("ui/elements/filemanager_menu_order"),
     }) do
-        local placed = false
-        for _, id in ipairs(order.tools) do
-            if id == MENU_ID then placed = true break end
+        for position, wanted in ipairs({ SYNC_MENU_ID, MENU_ID }) do
+            local placed = false
+            for _, id in ipairs(order.tools) do
+                if id == wanted then placed = true break end
+            end
+            if not placed then table.insert(order.tools, position, wanted) end
         end
-        if not placed then table.insert(order.tools, 1, MENU_ID) end
     end
 end
 
@@ -595,7 +597,7 @@ function AiDict:explain(request)
     if not self.settings:is_configured() then
         logger.warn("aidict: " .. word .. " not asked: no endpoint configured")
         UIManager:show(InfoMessage:new{
-            text = _("Set the AI endpoint first, in the AI dictionary menu."),
+            text = _("This package was built without an AI endpoint."),
         })
         return
     end
@@ -1174,27 +1176,6 @@ function AiDict:lookupsStep()
 end
 
 --[[--
-Where synced books go, picked rather than typed.
-
-An absolute path on a Kindle keyboard is a typo waiting to happen, and a typo
-here makes a second folder rather than an error.
---]]--
-function AiDict:chooseLibraryFolder()
-    UIManager:show(PathChooser:new{
-        select_file = false,
-        path = self.settings:get("library_dir"),
-        onConfirm = function(path)
-            local ok, reason = self.settings:set("library_dir", path)
-            if not ok then
-                UIManager:show(InfoMessage:new{ text = reason })
-                return
-            end
-            self.settings:flush()
-        end,
-    })
-end
-
---[[--
 Run KPM on this device and hand back what it said.
 
 Forked, because the download and the unpacking both block, and the reader
@@ -1585,19 +1566,20 @@ function AiDict:editSetting(key, title, opts)
 end
 
 function AiDict:addToMainMenu(menu_items)
-    -- One entry, first in Tools. The actions open it, because they are
-    -- what gets pressed; the settings follow.
+    -- Sync first in Tools, because it is what gets pressed; the rest waits
+    -- inside AI dictionary. The addresses and the books folder are not shown:
+    -- they come with the package, from its build secrets.
+    menu_items[SYNC_MENU_ID] = {
+        text = _("Sync"),
+        sorting_hint = "tools",
+        help_text = _("Download new books and apply the library's moves, apply the KOReader settings set from the library and send this Kindle's back, send the words looked up in the Kindle's own reader to the word inbox, and offer a newer plugin when there is one."),
+        keep_menu_open = true,
+        callback = function() self:sync() end,
+    }
     menu_items[MENU_ID] = {
         text = _("AI dictionary"),
         sorting_hint = "tools",
         sub_item_table = {
-            {
-                text = _("Sync"),
-                help_text = _("Download new books and apply the library's moves, apply the KOReader settings set from the library and send this Kindle's back, send the words looked up in the Kindle's own reader to the word inbox, and offer a newer plugin when there is one."),
-                keep_menu_open = true,
-                separator = true,
-                callback = function() self:sync() end,
-            },
             {
                 text = _("Network check"),
                 help_text = _("Time each step of reaching the AI endpoint, the library and the internet: DNS, connect, TLS and the request. Shows which one a slow lookup is waiting on."),
@@ -1607,18 +1589,10 @@ function AiDict:addToMainMenu(menu_items)
             },
             {
                 text_func = function()
-                    return T(_("Endpoint: %1"), self.settings:get("endpoint"))
-                end,
-                keep_menu_open = true,
-                callback = function() self:editSetting("endpoint", _("AI gateway endpoint")) end,
-            },
-            {
-                text_func = function()
                     local key = self.settings:get("api_key")
                     return T(_("API key: %1"), key ~= "" and _("set") or _("none"))
                 end,
                 keep_menu_open = true,
-                separator = true,
                 callback = function()
                     self:editSetting("api_key", _("API key"), { password = true })
                 end,
@@ -1633,23 +1607,6 @@ function AiDict:addToMainMenu(menu_items)
                     self:saveCache()
                     UIManager:show(InfoMessage:new{ text = _("Cached answers cleared.") })
                 end,
-            },
-            {
-                -- Shown, never edited: the address comes with the package,
-                -- from the AIDICT_LIBRARY_ENDPOINT secret, and a new one
-                -- arrives the same way.
-                text_func = function()
-                    local address = Config.BAKED.library_endpoint
-                    return T(_("Library: %1"), address ~= "" and address or _("not set"))
-                end,
-                keep_menu_open = true,
-            },
-            {
-                text_func = function()
-                    return T(_("Books folder: %1"), self.settings:get("library_dir"))
-                end,
-                keep_menu_open = true,
-                callback = function() self:chooseLibraryFolder() end,
             },
         },
     }
