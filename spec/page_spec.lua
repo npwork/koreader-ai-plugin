@@ -43,6 +43,12 @@ describe("the AI page", function()
             assert.are.equal(ANSWER, state.result)
         end)
 
+        it("says how long it waited when it gave up", function()
+            local state = Page.landed(Page.gave_up())
+            assert.are.equal("failed", state.kind)
+            assert.are.equal("no answer in 10 seconds", state.err.message)
+        end)
+
         it("carries the error", function()
             local state = Page.landed({ ok = false, err = { message = "model is down" } })
             assert.are.equal("failed", state.kind)
@@ -131,6 +137,20 @@ describe("the AI page", function()
         it("finds nothing in a popup it is not in", function()
             assert.is_nil(Page.index_in({ { dict = "Oxford" } }))
             assert.is_nil(Page.index_in(nil))
+        end)
+    end)
+
+    describe("what to show instead of a failed page", function()
+        local AI = { dict = "AI", aidict = true }
+        local OXFORD = { dict = "Oxford" }
+
+        it("is the first dictionary behind it", function()
+            assert.are.equal(2, Page.instead({ AI, OXFORD }, 1))
+        end)
+
+        it("is nothing when the AI page is all there is", function()
+            assert.is_nil(Page.instead({ AI }, 1))
+            assert.is_nil(Page.instead(nil, 1))
         end)
     end)
 end)

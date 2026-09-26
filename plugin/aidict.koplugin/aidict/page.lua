@@ -11,6 +11,7 @@ This module decides what the page says. Putting it into the popup, and
 refreshing it, is `main.lua`'s job.
 --]]--
 
+local ApiClient = require("aidict.apiclient")
 local Format = require("aidict.format")
 local Prefetch = require("aidict.prefetch")
 
@@ -18,6 +19,28 @@ local Page = {}
 
 --- What the popup shows as the page's dictionary name.
 Page.DICT = "AI"
+
+--[[--
+Seconds the page waits for its answer before giving up on it.
+
+An answer takes about two seconds on a decent connection. On a phone's hotspot
+in a moving car the request can hang for the half a minute its HTTP timeouts
+allow, and the reader sits on "Asking" the whole time with a dictionary entry
+one page away. Ten seconds is five times the usual wait, so a slow answer still
+gets through, and short enough that giving up beats waiting.
+--]]--
+Page.PATIENCE = 10
+
+--- The outcome a page is given when it stopped waiting, in `landed`'s shape.
+function Page.gave_up()
+    return {
+        ok = false,
+        err = {
+            code = ApiClient.ERRORS.TIMEOUT,
+            message = "no answer in " .. Page.PATIENCE .. " seconds",
+        },
+    }
+end
 
 --[[--
 What the page says when the popup opens, from what the lookup found.
@@ -106,6 +129,25 @@ the word a third time. Other dictionaries' pages keep it.
 --]]--
 function Page.wants_query_line(results)
     return Page.index_in(results) ~= 1
+end
+
+--[[--
+The page to show instead of an AI page that has no answer to give.
+
+A failed page is nothing to read, and the reader looking at it is waiting for
+a definition, so the popup moves on to the first dictionary behind it. The
+failed page stays where it was and says why, for a reader who pages back.
+
+@param results table the popup's results
+@param index   int   where the AI page is in them
+@treturn int|nil the page to turn to, or nil when the AI page is all there is
+--]]--
+function Page.instead(results, index)
+    if type(results) ~= "table" or type(index) ~= "number" then return nil end
+    for i = index + 1, #results do
+        if type(results[i]) == "table" and not results[i].aidict then return i end
+    end
+    return nil
 end
 
 --- Where the AI page sits in a popup's results, if it has one.

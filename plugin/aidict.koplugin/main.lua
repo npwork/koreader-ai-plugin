@@ -230,9 +230,11 @@ function AiDict:startPrefetch(request, key)
         request = request,
         pid = pid,
         fd = fd,
-        -- The subprocess has its own timeouts; this is the backstop for one
-        -- that is wedged rather than slow.
-        deadline = self.now() + self.settings:get("total_timeout") + 5,
+        -- Not the HTTP timeouts, which allow half a minute: a reader is
+        -- looking at "Asking" all that time, with the dictionary behind it.
+        -- This is also the backstop for a subprocess that is wedged, or stuck
+        -- resolving a name, which no socket timeout covers.
+        deadline = self.now() + Page.PATIENCE,
     }
     self.prefetch_jobs[key] = job
     self:pollPrefetch(job)
@@ -270,7 +272,7 @@ function AiDict:pollPrefetch(job)
         if self.now() > job.deadline then
             ffiutil.terminateSubProcess(job.pid)
             if job.fd then ffiutil.readAllFromFD(job.fd); job.fd = nil end
-            self:finishPrefetch(job, nil, "gave up waiting")
+            self:finishPrefetch(job, nil, "gave up waiting after " .. Page.PATIENCE .. "s", Page.gave_up())
             return
         end
 
@@ -284,14 +286,14 @@ Put what came back into the cache, and onto any AI page waiting for it.
 Every way out of here fills the pages, the failures included: a page left
 saying "Asking" is a page that lies.
 --]]--
-function AiDict:finishPrefetch(job, raw, why)
+function AiDict:finishPrefetch(job, raw, why, failed)
     self.prefetch_jobs[job.key] = nil
     self.prefetch:ended(job.key)
 
     if not raw or raw == "" then
         logger.warn(string.format("aidict: fetching %s ahead came to nothing (%s)",
             job.request.word, why or "no data"))
-        self:fillPages(job.key, nil)
+        self:fillPages(job.key, failed)
         return
     end
 
@@ -462,7 +464,8 @@ Give every page waiting on `key` what came back, and redraw the one the
 reader is looking at.
 
 A page the reader has paged away from is only rewritten: the popup reads its
-results again when it pages back.
+results again when it pages back. A reader still on a page that failed is
+moved on to the dictionary behind it, rather than left reading why not.
 --]]--
 function AiDict:fillPages(key, outcome)
     local still = {}
@@ -474,9 +477,14 @@ function AiDict:fillPages(key, outcome)
             local shown = not UIManager.isWidgetShown or UIManager:isWidgetShown(popup)
             local index = shown and Page.index_in(popup.results)
             if index then
-                popup.results[index] = Page.entry(page.word, Page.landed(outcome))
+                local landed = Page.landed(outcome)
+                popup.results[index] = Page.entry(page.word, landed)
                 if popup.dict_index == index and popup.changeDictionary then
-                    popup:changeDictionary(index)
+                    local instead = landed.kind == "failed" and Page.instead(popup.results, index)
+                    if instead then
+                        logger.info("aidict: no AI answer for", page.word, "; showing the dictionary")
+                    end
+                    popup:changeDictionary(instead or index)
                 end
             end
         end
