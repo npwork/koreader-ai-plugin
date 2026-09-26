@@ -563,7 +563,7 @@ describe("the KOReader layer", function()
             assert.is_table(kor.store.data["entries"])
         end)
 
-        it("shows the gateway's error where the answer would be", function()
+        it("turns to the dictionary when the answer fails, leaving the error on the AI page", function()
             build({ responses = { { status = 500, body = helpers.body({ error = "model is down" }) } } })
             kor.defer_scheduled = true
             local popup = look_up("fox")
@@ -571,7 +571,40 @@ describe("the KOReader layer", function()
 
             assert.is_truthy(popup.results[1].definition:find("Model is down.", 1, true))
             assert.are.equal(1, popup.redraws)
+            assert.are.equal(2, popup.dict_index)
             assert.are.equal(OXFORD, popup.results[2])
+        end)
+
+        it("stays on the error when the AI page is the only page", function()
+            build({ responses = { { status = 500, body = helpers.body({ error = "model is down" }) } } })
+            kor.defer_scheduled = true
+            local popup = look_up("fox", {})
+            kor.run_scheduled()
+
+            assert.are.equal(1, popup.dict_index)
+            assert.is_truthy(popup.results[1].definition:find("Model is down.", 1, true))
+        end)
+
+        it("gives up after ten seconds and turns to the dictionary", function()
+            build()
+            kor.defer_scheduled = true
+            kor.never_ready = true
+            local clock = 1000
+            plugin.now = function() return clock end
+            local popup = look_up("fox")
+
+            clock = 1000 + 9               -- slow, but not yet given up on
+            kor.run_scheduled()
+            assert.are.equal(1, popup.dict_index)
+            assert.are.equal(0, kor.terminated)
+
+            clock = 1000 + 11
+            kor.run_scheduled()
+            assert.are.equal(1, kor.terminated)
+            assert.are.equal(2, popup.dict_index)
+            assert.is_truthy(popup.results[1].definition:find("No answer in 10 seconds.", 1, true))
+            -- Nothing is left in the air, so the next word is asked at once.
+            assert.are.equal(0, plugin.prefetch:pending())
         end)
 
         it("shows an answer it already has at once, marked as cached", function()
