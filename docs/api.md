@@ -8,8 +8,8 @@ and `/message-watcher` the same way, so `/koreader-ai` is one more mount).
 ## POST `<endpoint>/define`
 
 The address is not written down in this repository: it is injected into the
-package at build time from the `AIDICT_ENDPOINT` secret, and can be changed on
-the device from the plugin's menu. Since 2026-09-22 it is a Cloudflare Worker
+package at build time from the `AIDICT_ENDPOINT` secret, and nothing on the
+device changes it; one typed into an earlier version is dropped at startup. Since 2026-09-22 it is a Cloudflare Worker
 rather than a gateway mount — the same handler, answering at the edge at
 roughly a third of the latency. The library kept its own address, which comes
 only from `AIDICT_LIBRARY_ENDPOINT`: nothing derives one from the other.
@@ -265,8 +265,8 @@ query is `>=`, so the last lookup is sent again next time and counted as
 # The library contract
 
 Still the gateway, and now its own address. `library_endpoint` is baked into
-the package from `AIDICT_LIBRARY_ENDPOINT` and is not a setting: the menu shows
-it and cannot change it. A `?token=` riding on it is kept at the end, where a
+the package from `AIDICT_LIBRARY_ENDPOINT` and is not a setting; the menu
+does not show it. A `?token=` riding on it is kept at the end, where a
 query has to be. Empty means the package was built without it, and the sync
 says so rather than guessing.
 

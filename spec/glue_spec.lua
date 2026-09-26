@@ -38,11 +38,11 @@ describe("the KOReader layer", function()
     local function build(opts)
         opts = opts or {}
         -- The committed package carries neither address; both are baked in
-        -- at build time. The dictionary's lands in the settings, where the
-        -- reader can change it; the library's is not a setting at all. Give
-        -- the reader both unless the spec is about not having one.
+        -- at build time, the dictionary's as its setting's default and the
+        -- library's as a value that is not a setting at all. Give the reader
+        -- both unless the spec is about not having one.
         local settings = {}
-        if not opts.no_endpoint then settings.endpoint = helpers.ENDPOINT end
+        Config.DEFAULTS.endpoint = opts.no_endpoint and "" or helpers.ENDPOINT
         Config.BAKED.library_endpoint = opts.no_library_endpoint and "" or helpers.LIBRARY_ENDPOINT
         for key, value in pairs(opts.settings or {}) do settings[key] = value end
 
@@ -100,6 +100,7 @@ describe("the KOReader layer", function()
     after_each(function()
         koreader.uninstall()
         Config.BAKED.library_endpoint = ""
+        Config.DEFAULTS.endpoint = ""
     end)
 
     describe("registration", function()
@@ -118,7 +119,8 @@ describe("the KOReader layer", function()
             plugin:addToMainMenu(items)
             assert.is_table(items.aidict)
             assert.are.equal("AI dictionary", items.aidict.text)
-            assert.is_true(#items.aidict.sub_item_table > 5)
+            assert.are.equal(3, #items.aidict.sub_item_table)
+            assert.are.equal("Sync", items.aidict_sync.text)
         end)
 
         it("stays out of the highlight dialog when no document is open", function()
@@ -1022,17 +1024,13 @@ describe("the KOReader layer", function()
         local function menu_item(matcher)
             local items = {}
             plugin:addToMainMenu(items)
-            for _, item in ipairs(items.aidict.sub_item_table) do
+            local all = { items.aidict_sync }
+            for _, item in ipairs(items.aidict.sub_item_table) do all[#all + 1] = item end
+            for _, item in ipairs(all) do
                 local label = item.text_func and item.text_func() or item.text
                 if label:find(matcher) then return item, label end
             end
         end
-
-        it("shows the endpoint it will use", function()
-            build({ settings = { endpoint = "https://gw.test/ai" } })
-            local _, label = menu_item("Endpoint")
-            assert.are.equal("Endpoint: https://gw.test/ai", label)
-        end)
 
         it("hides whether a key is set behind 'set' or 'none'", function()
             build()
@@ -1045,51 +1043,24 @@ describe("the KOReader layer", function()
             assert.are.equal("API key: set", with_key)
         end)
 
-        it("saves a valid endpoint and rebuilds the client with it", function()
-            build()
-            menu_item("Endpoint").callback()
+        -- The addresses and the books folder come with the package, from its
+        -- build secrets; the menu has no line for them.
+        -- Earlier versions let the reader type an endpoint in; with no field
+        -- left to change it, a saved one would win for good.
+        it("drops an endpoint saved on the device for the package's own", function()
+            build({ settings = { endpoint = "https://stale.test/ai" } })
 
-            local dialog = last_shown()
-            dialog.input = "https://other.test/ai"
-            dialog.buttons[1][2].callback()
-
-            assert.are.equal("https://other.test/ai", kor.store.data.endpoint)
-
+            assert.is_nil(kor.store.data.endpoint)
             tap_highlight_button()
-            assert.are.equal("https://other.test/ai/define", kor.transport.requests[1].url)
+            assert.are.equal(helpers.ENDPOINT .. "/define", kor.transport.requests[1].url)
         end)
 
-        it("refuses a bad endpoint and keeps the old one", function()
+        it("shows no address and no books folder", function()
             build()
-            menu_item("Endpoint").callback()
-
-            local dialog = last_shown()
-            dialog.input = "not-a-url"
-            dialog.buttons[1][2].callback()
-
-            assert.are.equal(helpers.ENDPOINT, kor.store.data.endpoint)
-            assert.are.equal("InfoMessage", last_shown().widget_kind)
-            assert.is_truthy(last_shown().text:find("URL", 1, true))
-        end)
-
-        -- The library's address comes with the package, from a CI secret, so
-        -- the menu shows which one this build carries and nothing more.
-        it("shows the library address, and says so when there is none", function()
-            build({ no_library_endpoint = true })
-            local _, missing = menu_item("Library")
-            assert.are.equal("Library: not set", missing)
-
-            koreader.uninstall()
-            build()
-            local _, set = menu_item("Library")
-            assert.are.equal("Library: " .. helpers.LIBRARY_ENDPOINT, set)
-        end)
-
-        it("does not let the library address be edited on the device", function()
-            build()
-            local item = menu_item("Library")
-            assert.is_nil(item.callback)
-            assert.is_true(item.keep_menu_open)
+            assert.is_nil(menu_item("Endpoint"))
+            assert.is_nil(menu_item("Library"))
+            assert.is_nil(menu_item("Books folder"))
+            assert.is_nil(menu_item("https?://"))
         end)
 
         -- 0.2.57 let the address be typed in, so a device may still hold one
@@ -1536,15 +1507,6 @@ describe("the KOReader layer", function()
             return { path = path, size = size, etag = "e", url = "https://r2.test/" .. path .. "?sig=x" }
         end
 
-        local function menu_item(matcher)
-            local items = {}
-            plugin:addToMainMenu(items)
-            for _, item in ipairs(items.aidict.sub_item_table) do
-                local label = item.text_func and item.text_func() or item.text
-                if label:find(matcher) then return item, label end
-            end
-        end
-
         --- The library's own requests: Sync also fetches and reports the settings.
         local function library_calls()
             local count = 0
@@ -1560,23 +1522,24 @@ describe("the KOReader layer", function()
             return registered
         end
 
-        it("puts AI dictionary at the top of Tools, not at the end of it", function()
+        it("puts Sync, then AI dictionary, at the top of Tools, not at the end of it", function()
             build()
 
             -- Appending is what a sorting_hint alone would do, and Tools is
-            -- already two pages long — so the entry has to claim the top.
+            -- already two pages long — so the entries have to claim the top.
             for _, order in pairs(kor.menu_order) do
-                assert.are.equal("aidict", order.tools[1])
+                assert.are.equal("aidict_sync", order.tools[1])
+                assert.are.equal("aidict", order.tools[2])
             end
+            assert.are.equal("Sync", items().aidict_sync.text)
+            assert.is_nil(items().aidict_sync.sub_item_table)
             assert.are.equal("AI dictionary", items().aidict.text)
         end)
 
-        it("opens with Sync, which offers the update too, so there is no update entry", function()
+        it("keeps Sync out of the submenu, and has no update entry: Sync offers it", function()
             build()
             local sub = items().aidict.sub_item_table
 
-            assert.are.equal("Sync", sub[1].text)
-            assert.is_true(sub[1].separator)
             for _, item in ipairs(sub) do
                 local label = item.text_func and item.text_func() or item.text
                 assert.is_nil(label:find("Update", 1, true))
@@ -1596,7 +1559,8 @@ describe("the KOReader layer", function()
             build()
             local ids = {}
             for id in pairs(items()) do ids[#ids + 1] = id end
-            assert.are.same({ "aidict" }, ids)
+            table.sort(ids)
+            assert.are.same({ "aidict", "aidict_sync" }, ids)
         end)
 
         it("claims that place once, however many times it is built", function()
@@ -1606,20 +1570,8 @@ describe("the KOReader layer", function()
             kor.plugin_class:new({ ui = reader.ui, document = reader.document })
 
             assert.are.equal(first, #kor.menu_order.reader.tools)
-            assert.are.equal("aidict", kor.menu_order.reader.tools[1])
-        end)
-
-        it("keeps the folder in the plugin's own settings, and picks it", function()
-            build()
-            local _, label = menu_item("Books folder")
-            assert.are.equal("Books folder: /mnt/us/AI_Books", label)
-
-            menu_item("Books folder").callback()
-            assert.is_not_nil(kor.path_chooser)
-            assert.is_false(kor.path_chooser.select_file)
-
-            kor.path_chooser.onConfirm("/mnt/us/elsewhere")
-            assert.are.equal("/mnt/us/elsewhere", kor.store.data.library_dir)
+            assert.are.equal("aidict_sync", kor.menu_order.reader.tools[1])
+            assert.are.equal("aidict", kor.menu_order.reader.tools[2])
         end)
 
         it("downloads what the device does not have", function()
