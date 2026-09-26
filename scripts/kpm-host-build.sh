@@ -1,15 +1,7 @@
 #!/bin/sh
-# Build the real KPM against the host's system libraries, for testing this
-# repository's packages with the package manager that will actually install
-# them.
-#
-# Upstream links everything statically from meson subprojects, which a
-# sandboxed CI environment cannot fetch. The patch below swaps those
-# subprojects for pkg-config lookups; nothing else about KPM changes, so the
-# repository parsing, download and install paths under test are upstream's.
-#
-#   ./scripts/kpm-host-build.sh          builds into .kpm/build
-#   KPM_REF=v0.2.3 ./scripts/kpm-host-build.sh
+# Builds the real KPM against system libraries: upstream's meson subprojects cannot be fetched in a
+# sandboxed CI, so the patch swaps them for pkg-config lookups and leaves the rest upstream's.
+# KPM_REF picks the version.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -73,8 +65,7 @@ PY
 
 mkdir -p "${SANDBOX}"
 if [ ! -d "${BUILD}" ]; then
-    # fbink is the one subproject left, and its wrap is a git clone rather
-    # than a tarball, so it works where the wrapdb tarballs do not.
+    # fbink's wrap is a git clone rather than a tarball, so it works where the wrapdb tarballs do not.
     meson setup "${BUILD}" "${SRC}" \
         -Ddb_path="${SANDBOX}/kpm.db" \
         -Dpkg_path="${SANDBOX}/packages"

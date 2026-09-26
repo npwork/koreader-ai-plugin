@@ -21,7 +21,6 @@ describe("kpm", function()
 
             assert.is_truthy(command:find("LD_LIBRARY_PATH='/var/local/kmc/kindlehf/lib'", 1, true))
             assert.is_truthy(command:find("-y install 'koreader-aidict'", 1, true))
-            -- KPM's failures are on stderr, and that is the half worth reading.
             assert.is_truthy(command:find("2>&1", 1, true))
         end)
 

@@ -87,8 +87,7 @@ describe("cache", function()
         assert.are.equal(2, cache:get("new"))
     end)
 
-    -- The key is the word plus the passage it was read in: the same word in
-    -- another paragraph is a different question and deserves its own answer.
+    -- The same word in another paragraph is a different question.
     describe("key", function()
         it("ignores case and surrounding whitespace", function()
             assert.are.equal(Cache.key("Fox", " a sentence "), Cache.key("fox", "a sentence"))

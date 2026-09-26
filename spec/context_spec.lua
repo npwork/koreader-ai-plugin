@@ -125,8 +125,6 @@ describe("context", function()
     end)
 
     describe("sentence", function()
-        -- Taken from the book on the Kindle, where every tap came back with
-        -- the word as its own sentence.
         local paragraph = "Halting the ongoing escalation of AI technology, corralling the " ..
             "hardware used to create ever more powerful AI models\226\128\148that is not " ..
             "something that would be easy to do in today\226\128\153s world. But it would " ..

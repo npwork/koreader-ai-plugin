@@ -1,24 +1,6 @@
---[[--
-The book library: ask the gateway what it has, download what this device does
-not, and move or delete what the server moved or deleted.
-
-Everything that touches the world is injected — `transport` for HTTP, `fs`
-for the filesystem, `json` for decoding — so the whole sync is exercised in
-`spec/` against a table of fake files.
-
-    fs.size(path)        -> bytes, or nil when there is no such file
-    fs.mkdir(path)       -> ok            (one level; "already there" is ok)
-    fs.rename(from, to)  -> ok, err
-    fs.remove(path)
-    fs.rmdir(path)       -> ok, err       (fails on a folder that is not empty)
-
-It happens in two halves, because the first runs in a forked subprocess.
-`sync` plans from the manifest the library sent with its answer to Sync, and downloads — the slow part, which the
-reader must be able to give up on. `settle` then runs back in KOReader itself
-and does the moves and deletes: they go through KOReader's own history,
-collections and book settings, and a child process's changes to those would
-be lost with it, or overwritten later by the parent's copy in memory.
---]]--
+-- fs: size(path) -> bytes|nil, mkdir(path) (one level; existing is ok), rename(from, to) -> ok, err,
+-- remove(path), rmdir(path) -> ok, err (fails when not empty). `sync` runs in a forked subprocess;
+-- `settle` runs in KOReader, since a child's changes to history and collections would be lost.
 
 local Manifest = require("aidict.manifest")
 local Plan = require("aidict.plan")
@@ -27,32 +9,15 @@ local Version = require("aidict.version")
 local Library = {}
 Library.__index = Library
 
--- A book is not a definition: a 30 MB file over a Kindle's radio needs room
--- that would be an absurd wait for a word lookup, so these are the library's
--- own rather than the settings the dictionary uses.
+-- A 30 MB book over a Kindle's radio needs far more room than a word lookup.
 local DOWNLOAD_BLOCK_TIMEOUT = 30
 local DOWNLOAD_TOTAL_TIMEOUT = 600
 
---[[--
-Where the library lives.
-
-It used to be worked out from the dictionary's address by swapping the last
-path segment, because both mounts sat side by side on the same gateway. They
-do not any more: `/koreader-ai` moved to a Cloudflare Worker on 2026-09-22 and
-the library stayed on the gateway with the books. A Worker address has no path
-segment to swap, so the old rule produced `https://koreader-library` — an
-address that is not one, failing at the fetch rather than here.
-
-So it is its own setting now, baked into the package the same way the
-dictionary's is. Empty means the device has not been told, and the caller says
-so rather than guessing.
---]]--
 function Library.endpoint_from(library_endpoint)
     if type(library_endpoint) ~= "string" then return nil end
     if not library_endpoint:match("^https?://[^%s]+$") then return nil end
 
-    -- The query has to stay at the end: the mount takes its key as
-    -- `?token=…`, so the baked-in address may carry one.
+    -- The mount takes its key as `?token=…`, which has to stay at the end.
     local base, query = library_endpoint, ""
     local mark = base:find("?", 1, true)
     if mark then
@@ -73,8 +38,6 @@ function Library.new(opts)
     }, Library)
 end
 
---- Create `dir` and every folder above it. The manifest carries shelves, and
---- a book two folders deep must not fail because neither folder exists yet.
 function Library:_ensure_dir(dir)
     local built = ""
     for segment in dir:gmatch("[^/]+") do
@@ -87,16 +50,8 @@ local function parent_of(path)
     return path:match("^(.*)/[^/]*$")
 end
 
---[[--
-One book, into place.
-
-It lands under `.part` first and is renamed only once it is whole. A Kindle
-that loses Wi-Fi mid-download then leaves nothing the file browser will show
-and nothing the next sync will mistake for a finished book.
-
-No key is sent: the URL is presigned, and an Authorization header beside a
-signed query is how a signature stops matching.
---]]--
+-- Lands under `.part` and is renamed once whole, so a dropped download leaves nothing that looks
+-- finished. No key is sent: an Authorization header beside a presigned query breaks the signature.
 function Library:fetch(entry, target)
     local dir = parent_of(target)
     if dir then self:_ensure_dir(dir) end
@@ -121,8 +76,7 @@ function Library:fetch(entry, target)
     end
     local status = tonumber(response.status) or 0
     if status < 200 or status >= 300 then
-        -- A presigned URL expires; the manifest it came from is the fix, and
-        -- saying so beats "HTTP 403" on a Kindle.
+        -- A presigned URL expires; a fresh manifest is the fix.
         if status == 401 or status == 403 then
             return fail("the download link has expired — sync again")
         end
@@ -141,32 +95,12 @@ function Library:fetch(entry, target)
     return true
 end
 
---[[--
-Work out what to do from the manifest, and do the downloads.
-
-The moves are planned before anything downloads, so a book the server moved
-is never fetched again at its new path; they come back in the report, for
-`settle` to carry out where KOReader's bookkeeping lives.
-
-@param dir      string  where books go; the manifest's folders are mirrored under it
-@param manifest table   the manifest, decoded, as the library's answer to Sync carries it
-@param opts     table   {
-    on_progress = function(done, total, path),
-    index = { [relative path] = { size, etag } }  what earlier syncs placed,
-}
-@treturn table report {
-    downloaded, have, failed = { {path, reason}, … }, bytes, dropped, total,
-    moves = { {from, to, entry}, … }, deletes = { path, … },
-    listed = { {path, size, etag}, … }  the manifest, for the next index,
-    unusable = { path, … }  rows the manifest named that this device dropped,
-}
-@treturn table err    { code, message } when the manifest is not one
---]]--
+-- Moves are planned before anything downloads, so a moved book is never fetched again; `settle`
+-- carries them out. opts.index is { [relative path] = { size, etag } } from earlier syncs.
 function Library:sync(dir, manifest, opts)
     opts = opts or {}
     local entries, dropped, named = Manifest.parse(manifest)
-    -- Same pair `Manifest.parse` returns, so with no entries the second
-    -- value is the failure rather than a count.
+    -- With no entries, the second value is the failure rather than a count.
     if not entries then return nil, dropped end
 
     dir = tostring(dir or ""):gsub("/+$", "")
@@ -174,15 +108,13 @@ function Library:sync(dir, manifest, opts)
         return self.fs.size(dir .. "/" .. path)
     end, opts.index, named)
 
-    -- Without the URLs: the report crosses a pipe out of the subprocess, and
-    -- a presigned link is no use to the next sync anyway.
+    -- Without the URLs: the report crosses a pipe, and a presigned link is no use later anyway.
     local listed, usable = {}, {}
     for _, entry in ipairs(entries) do
         listed[#listed + 1] = { path = entry.path, size = entry.size, etag = entry.etag }
         usable[entry.path] = true
     end
-    -- Rows this device dropped: still the server's books, so what the
-    -- plugin placed at those paths stays its own to move or delete later.
+    -- Rows this device dropped are still the server's, so what the plugin placed there stays its own.
     local unusable = {}
     for path in pairs(named or {}) do
         if not usable[path] then unusable[#unusable + 1] = path end
@@ -216,14 +148,8 @@ function Library:sync(dir, manifest, opts)
     return report
 end
 
---[[--
-Remove the folders a move or a delete left empty, from the deepest up.
-
-Never `dir` itself: the reader picked that folder, and an empty library is
-still where the next sync puts books. A folder that is not empty refuses the
-`rmdir`, which is exactly the check wanted — the owner's own files, or a
-sidecar KOReader kept, keep their folder.
---]]--
+-- Never `dir` itself. A non-empty folder refuses rmdir, which is the check wanted: the owner's
+-- files, or a sidecar KOReader kept, keep their folder.
 function Library:_prune(dir, folders)
     local tried = {}
     local order = {}
@@ -239,26 +165,8 @@ function Library:_prune(dir, folders)
     end
 end
 
---[[--
-Carry out the moves and deletes `sync` planned, and work out the next index.
-
-Runs in KOReader rather than the subprocess, with the two acts that touch its
-bookkeeping injected:
-
-    ops.relocate(from, to) -> ok, reason   absolute paths; the parent exists
-    ops.discard(path)      -> ok, reason
-
-A `reason` of "open" means the book is the one being read: it stays where it
-is, and the next sync tries again once it is closed.
-
-@param report table  from `sync`
-@param dir    string the same books folder
-@param ops    table  { relocate, discard, index = the index `sync` was given }
-@treturn table { moved = n, deleted = n,
-                 deferred = { {action, from, to}, … },         the open book
-                 failed = { {action, from, to, reason}, … },
-                 index = { [relative path] = { size, etag } } }
---]]--
+-- ops.relocate(from, to) and ops.discard(path) take absolute paths and return ok, reason; a reason
+-- of "open" defers the book to the next sync. ops.index is the index `sync` was given.
 function Library:settle(report, dir, ops)
     assert(type(ops) == "table" and type(ops.relocate) == "function"
         and type(ops.discard) == "function", "settle needs relocate and discard")
@@ -267,9 +175,8 @@ function Library:settle(report, dir, ops)
     local result = { moved = 0, deleted = 0, deferred = {}, failed = {}, index = {} }
     local emptied = {}
 
-    -- A move or delete that did not happen keeps its old path in the index,
-    -- so the next sync still knows the file is the plugin's to move or
-    -- delete; without that it would look like the owner's, and stay for ever.
+    -- An undone move or delete keeps its old path in the index, or the next sync would take the
+    -- file for the owner's and leave it for ever.
     local function hold(action, from, to, reason, record)
         result.index[from] = previous[from] or record
         local left = { action = action, from = from, to = to, reason = reason }
@@ -304,21 +211,16 @@ function Library:settle(report, dir, ops)
         end
     end
 
-    -- Checked on disk rather than added up from the report: what is at its
-    -- path with the right size now is what this plugin can vouch for, which
-    -- covers what was already here, what downloaded and what moved, and
-    -- leaves out a download that failed. It also takes in, on the first sync
-    -- that keeps an index, the books earlier syncs placed before there was
-    -- one.
+    -- Checked on disk, not added up from the report: only a file at its path with the right size
+    -- can be vouched for.
     for _, entry in ipairs(report.listed or {}) do
         if self.fs.size(dir .. "/" .. entry.path) == entry.size then
             result.index[entry.path] = { size = entry.size, etag = entry.etag }
         end
     end
 
-    -- Still the plugin's own, for a later sync to move or delete: a book
-    -- whose row this device dropped, and — when the manifest named nothing,
-    -- so nothing was deleted — every book already placed.
+    -- Still the plugin's own: books whose rows this device dropped, and every placed book when the
+    -- manifest named nothing (so nothing was deleted).
     local keep = report.unusable or {}
     if #(report.listed or {}) == 0 and #keep == 0 then
         keep = {}

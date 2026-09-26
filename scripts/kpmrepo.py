@@ -43,7 +43,6 @@ REPO_NAME = "npwork packages"
 REPO_DESCRIPTION = "Personal KOReader and Kindle packages"
 CHANNELS = ("stable", "dev")
 
-
 def read_version() -> tuple[int, int, int]:
     """Parse plugin/aidict.koplugin/aidict/version.lua — the single source."""
     text = (PLUGIN_DIR / "aidict" / "version.lua").read_text()
@@ -52,33 +51,22 @@ def read_version() -> tuple[int, int, int]:
         raise SystemExit("could not read the version out of version.lua")
     return tuple(int(part) for part in match.groups())
 
-
 def parse_version(text: str) -> tuple[int, int, int]:
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", text.strip())
     if not match:
         raise SystemExit(f"--version wants major.minor.patch, got {text!r}")
     return tuple(int(part) for part in match.groups())
 
-
 def _bake_address(flag: str, value: str) -> str:
     """Check one address that will be published inside the package."""
-    # A secret pasted into CI usually carries a trailing newline, and that
-    # newline inside a Lua string literal is a syntax error that would only
-    # show up on the device. Anything that cannot sit inside "..." is refused
-    # outright rather than escaped, because none of it belongs in the value.
+    # A CI secret often carries a trailing newline, a Lua syntax error that only shows on the device.
+    # Anything that cannot sit inside "..." is refused, not escaped.
     value = value.strip()
     if not re.match(r"^https?://[^\s\"\\\\]+\Z", value):
         raise SystemExit(f"{flag} wants a plain http(s) URL, got {value!r}")
 
-    # The address is baked in and the key is not — but both mounts also accept
-    # the key as `?token=`, and userinfo is a password in a URL, so an address
-    # carrying either would put the credential straight back into a package
-    # anyone can download. Refuse rather than strip: a CI secret set to such a
-    # URL is a mistake to fix at the source, not to paper over silently.
-    #
-    # None of these belong in these addresses anyway. The plugin appends
-    # `/define` to one and a book's path to the other, so a query string or a
-    # fragment would land in the middle of the path and break both.
+    # Both mounts accept the key as `?token=`, and userinfo is a password, so either would publish
+    # the credential. Refuse rather than strip: such a CI secret is a mistake to fix at the source.
     rest = value.split("://", 1)[1]
     authority = re.split(r"[/?#]", rest, maxsplit=1)[0]
     if "@" in authority:
@@ -93,7 +81,6 @@ def _bake_address(flag: str, value: str) -> str:
                 "bare address here and the key on the device."
             )
     return value
-
 
 def config_lua(endpoint: str | None, library_endpoint: str | None) -> bytes:
     """config.lua with the two addresses baked in.
@@ -123,9 +110,7 @@ def config_lua(endpoint: str | None, library_endpoint: str | None) -> bytes:
         if value is None:
             continue
         value = _bake_address(flag, value)
-        # Anchored on the line: `endpoint = "…"` is a substring of
-        # `library_endpoint = "…"`, and patching the wrong one would ship a
-        # package that looks right and talks to the wrong mount.
+        # Anchored on the line: `endpoint = "…"` is a substring of `library_endpoint = "…"`.
         patched, count = re.subn(
             rf'^(\s*){key}\s*=\s*"[^"]*",',
             lambda match: f'{match.group(1)}{key} = "{value}",',
@@ -139,7 +124,6 @@ def config_lua(endpoint: str | None, library_endpoint: str | None) -> bytes:
 
     return text.encode()
 
-
 def version_lua(version: tuple[int, int, int]) -> bytes:
     """version.lua with `version` in it, for builds that override it."""
     text = (PLUGIN_DIR / "aidict" / "version.lua").read_text()
@@ -148,10 +132,8 @@ def version_lua(version: tuple[int, int, int]) -> bytes:
         text = re.sub(rf"{field}\s*=\s*\d+", f"{field} = {version[index]}", text)
     return text.encode()
 
-
 def version_string(version: tuple[int, int, int]) -> str:
     return ".".join(str(part) for part in version)
-
 
 def display(path: Path) -> str:
     """Path relative to the repo when it is inside it, absolute otherwise."""
@@ -160,14 +142,12 @@ def display(path: Path) -> str:
     except ValueError:
         return str(path)
 
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
 
 def build_package(
     output_dir: Path,
@@ -253,14 +233,12 @@ def build_package(
     print(f"sha256 {sha256(package_path)}")
     return package_path
 
-
 def package_manifest_from(archive_path: Path) -> dict:
     with tarfile.open(archive_path, "r:*") as archive:
         member = archive.extractfile("manifest.json")
         if member is None:
             raise SystemExit(f"{archive_path} has no manifest.json")
         return json.loads(member.read())
-
 
 def build_repo(packages: list[Path], channel: str, repo_root: Path, base_url: str) -> Path:
     if channel not in CHANNELS:
@@ -346,7 +324,6 @@ def build_repo(packages: list[Path], channel: str, repo_root: Path, base_url: st
     print(f"  kpm repo add {base_url.rstrip('/')}/{channel}/manifest.json")
     return channel_root
 
-
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -396,7 +373,6 @@ def main(argv: list[str]) -> int:
         raise SystemExit("no .kpkg to publish — run `package` first")
     build_repo(packages, args.channel, Path(args.output), args.base_url)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

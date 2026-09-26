@@ -1,14 +1,8 @@
---[[--
-Starts and stops `spec/support/fake_gateway.py` for the integration specs,
-and installs the two KOReader modules `http_transport.lua` needs.
---]]--
-
 local socket = require("socket")
 
 local gateway = {}
 
---- KOReader's socketutil, reduced to what the transport actually uses:
---- luasocket's module-level timeout.
+-- Only luasocket's module-level timeout, which is all the transport uses.
 local function install_koreader_stubs()
     package.loaded["logger"] = {
         dbg = function() end,

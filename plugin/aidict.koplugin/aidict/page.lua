@@ -1,37 +1,14 @@
---[[--
-The AI's page in KOReader's dictionary popup.
-
-The popup is a stack of results, one per dictionary, that the reader pages
-through. The AI answer goes in as the first of them, so tapping a word shows
-it straight away and the ordinary dictionaries are one page further on. It is
-there before the answer is: the page says it is asking, and is filled in when
-the answer lands, or says why there is none.
-
-This module decides what the page says. Putting it into the popup, and
-refreshing it, is `main.lua`'s job.
---]]--
-
 local ApiClient = require("aidict.apiclient")
 local Format = require("aidict.format")
 local Prefetch = require("aidict.prefetch")
 
 local Page = {}
 
---- What the popup shows as the page's dictionary name.
 Page.DICT = "AI"
 
---[[--
-Seconds the page waits for its answer before giving up on it.
-
-An answer takes about two seconds on a decent connection. On a phone's hotspot
-in a moving car the request can hang for the half a minute its HTTP timeouts
-allow, and the reader sits on "Asking" the whole time with a dictionary entry
-one page away. Ten seconds is five times the usual wait, so a slow answer still
-gets through, and short enough that giving up beats waiting.
---]]--
+-- Seconds: five times the usual wait, far less than the 30 the HTTP timeouts allow on a bad hotspot.
 Page.PATIENCE = 10
 
---- The outcome a page is given when it stopped waiting, in `landed`'s shape.
 function Page.gave_up()
     return {
         ok = false,
@@ -42,22 +19,12 @@ function Page.gave_up()
     }
 end
 
---[[--
-What the page says when the popup opens, from what the lookup found.
-
-@param opts table
-  cached  table|nil  an answer already in the cache
-  fresh   bool       the cached answer was asked for this very lookup
-  wanted  bool       whether a request is (now) on its way
-  why     string|nil `Prefetch:wanted`'s reason when it is not
-@treturn table|nil the state, or nil for no page at all
---]]--
+-- opts: cached answer, fresh (asked for this very lookup), wanted (a request is on its way),
+-- why (Prefetch:wanted's reason). Nil means no page at all.
 function Page.opening(opts)
     opts = opts or {}
     if opts.cached then
-        -- "cached" means the reader waited for nothing because it was asked
-        -- some other time. An answer that beat the dictionary to the screen
-        -- was still asked now, and saying "cached" under it would hide that.
+        -- An answer that beat the dictionary to the screen was still asked now: not "cached".
         return { kind = "answer", result = opts.cached, source = not opts.fresh and "cached" or nil }
     end
     if opts.wanted or opts.why == Prefetch.SKIP.IN_FLIGHT then
@@ -66,12 +33,10 @@ function Page.opening(opts)
     if opts.why == Prefetch.SKIP.BUSY then
         return { kind = "busy" }
     end
-    -- Offline, not configured, nothing to look up: the popup is the ordinary
-    -- dictionary, exactly as it was before this plugin put anything in it.
+    -- Offline, not configured, nothing to look up: the popup is the ordinary dictionary.
     return nil
 end
 
---- What the page says once the request comes back, from its outcome.
 function Page.landed(outcome)
     if type(outcome) == "table" and outcome.ok and type(outcome.result) == "table" then
         return { kind = "answer", result = outcome.result }
@@ -83,22 +48,10 @@ local function note(text)
     return '<div style="font-style: italic">' .. Format.escape(text) .. "</div>"
 end
 
---[[--
-The page itself, in the shape KOReader's dictionary results take.
-
-`aidict` marks it as ours, so it can be found again among the others when the
-answer arrives.
-
-@param word  string the word the popup was opened for
-@param state table  from `opening` or `landed`
-@treturn table
---]]--
+-- `aidict = true` marks it as ours, to find it among the results when the answer arrives.
 function Page.entry(word, state)
     local definition
-    -- The popup's header is the entry's `word`. Once there is an answer it
-    -- is the dictionary form, as a dictionary's header is: "read" over the
-    -- entry, with "as “reading”" under it saying what was tapped. Before,
-    -- the header said "reading" and the entry said "read" again below it.
+    -- Once answered, the header is the dictionary form, with "as “reading”" under it for what was tapped.
     local header = word
     if state.kind == "answer" then
         header = Format.title(state.result, word)
@@ -119,29 +72,12 @@ function Page.entry(word, state)
     }
 end
 
---[[--
-Whether KOReader should add its "(query : word)" line to the page on top.
-
-KOReader appends the tapped word to whichever page opens the popup, so the
-reader can see what was selected. The AI page already says it — the header
-and "as “reading”" under it — and the line landed under the footer, repeating
-the word a third time. Other dictionaries' pages keep it.
---]]--
+-- The AI page already names the word in its header; other dictionaries' pages keep the line.
 function Page.wants_query_line(results)
     return Page.index_in(results) ~= 1
 end
 
---[[--
-The page to show instead of an AI page that has no answer to give.
-
-A failed page is nothing to read, and the reader looking at it is waiting for
-a definition, so the popup moves on to the first dictionary behind it. The
-failed page stays where it was and says why, for a reader who pages back.
-
-@param results table the popup's results
-@param index   int   where the AI page is in them
-@treturn int|nil the page to turn to, or nil when the AI page is all there is
---]]--
+-- The first dictionary behind a failed AI page; nil when the AI page is all there is.
 function Page.instead(results, index)
     if type(results) ~= "table" or type(index) ~= "number" then return nil end
     for i = index + 1, #results do
@@ -150,7 +86,6 @@ function Page.instead(results, index)
     return nil
 end
 
---- Where the AI page sits in a popup's results, if it has one.
 function Page.index_in(results)
     if type(results) ~= "table" then return nil end
     for index, entry in ipairs(results) do

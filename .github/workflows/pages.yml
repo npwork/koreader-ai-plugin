@@ -1,14 +1,6 @@
 name: pages
 
-# Publishes the KPM repository to GitHub Pages, then proves it works by
-# installing from the live URL with the real package manager and loading the
-# result in a real KOReader.
-#
-# There are no release tags: the stable channel is the main branch and the dev
-# channel is the dev branch, so a push is a release. Both channels are rebuilt
-# on every run, because a deployment replaces the whole site.
-#
-# The repository must be public for Pages to be available on a free plan.
+# Both channels are rebuilt on every run, because a deployment replaces the whole site.
 
 on:
   push:
@@ -30,29 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Both branches, and every commit, so the build can see the other
-          # channel and count commits for the version.
+          # Every commit of both branches: the build counts commits for the version.
           fetch-depth: 0
 
       - name: Build the site
-        # Two addresses are baked into the package here, and each is its own
-        # secret: AIDICT_ENDPOINT for the dictionary and
-        # AIDICT_LIBRARY_ENDPOINT for the library. They used to be one — the
-        # library's was worked out from the dictionary's by swapping the last
-        # path segment — which held while both mounts sat on the same gateway.
-        # /koreader-ai moved to a Cloudflare Worker on 2026-09-22 and the
-        # library stayed with the books, so neither address says anything
-        # about the other. The dictionary's becomes a default the reader can
-        # change; the library's is read from the package and only shown, so
-        # this secret is the one place it is set. Either one unset ships
-        # without it.
-        #
-        # The KEY IS DELIBERATELY NOT BAKED IN any more. This site is public,
-        # so anyone can download a .kpkg and read what is inside it — and the
-        # gateway now answers to one token that also opens the codex proxy and
-        # the Words data endpoint. A baked key would publish all of that. The
-        # package ships keyless and the key is typed once into the plugin's
-        # own "API key" field on the device.
+        # Each address is its own secret; either unset ships without it. The key is deliberately never
+        # baked in: the site is public, and the gateway's token opens far more than the dictionary.
         env:
           AIDICT_ENDPOINT: ${{ secrets.AIDICT_ENDPOINT }}
           AIDICT_LIBRARY_ENDPOINT: ${{ secrets.AIDICT_LIBRARY_ENDPOINT }}
@@ -137,13 +112,10 @@ jobs:
           grep -q "\"${EXPECTED}\"" "${PLUGIN}/aidict/version.lua" \
             || { echo "::error::installed version does not match the channel's ${EXPECTED}"; exit 1; }
 
-          # What was published has to be loadable Lua. The endpoint is
-          # injected into source at build time, so this is where a bad secret
-          # would otherwise slip through to the device.
+          # The endpoint is injected into source at build time, so a bad secret would surface here.
           find "${PLUGIN}" -name '*.lua' -exec luac5.1 -p {} +
 
-          # The short URL at the site root is the same repository with absolute
-          # artifact URLs, for typing on a Kindle keyboard. It has to install too.
+          # The short URL at the site root has to install too.
           "${KPM}" -y uninstall koreader-aidict
           "${KPM}" -y remove-repo npwork
           "${KPM}" -y add-repo "${BASE}/kpm.json"
@@ -171,9 +143,7 @@ jobs:
           mkdir -p books
           printf '%s' '<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>' > books/sample.html
 
-          # timeout goes inside xvfb-run: xvfb-run kills its X server from an
-          # EXIT trap, so signalling xvfb-run would pull the display out from
-          # under KOReader mid-teardown. See koreader-smoke.yml.
+          # timeout goes inside xvfb-run; see koreader-smoke.yml.
           set +e
           cd "${KOREADER_DIR}"
           xvfb-run -a --server-args="-screen 0 600x800x24" \

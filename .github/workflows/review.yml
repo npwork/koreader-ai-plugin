@@ -1,26 +1,8 @@
 name: Review
 
-# AI code review of every pull request, on the Claude subscription rather than
-# an API key: Claude Code runs headless with CLAUDE_CODE_OAUTH_TOKEN (made by
-# `claude setup-token`). .github/review/src/run.ts builds the prompt with
-# the diff and the CLAUDE.md rules already in it and runs two passes in
-# parallel, the general one and a security one (lenses/security.md), then one
-# low-effort verification call (verify.md) that checks every finding against
-# the code and drops what it refutes or calls a nit. The reviewer only reads. It returns its findings as JSON, and src/publish.ts
-# checks each one against the diff and posts what survives as one review plus
-# one summary comment that later runs edit in place.
-#
-# The reviewer is a copy of ai-small-projects' apps/cli/pr-review, where its
-# tests and bench live: tune it there, not here (see .github/review/README.md).
-#
-# It posts as github-actions[bot], not as claude[bot], on purpose. The PRs
-# here are opened by Claude sessions through the Claude GitHub App, so they
-# are claude[bot]'s; a review under the same name would read to the authoring
-# session as its own comments echoed back.
-#
-# It runs once per PR, not on every push: CLAUDE.md has no second review
-# round. Dispatch it with a PR number to review again, or to try it on an old
-# PR.
+# Posts as github-actions[bot], not claude[bot], on purpose: the PRs here are claude[bot]'s, and a
+# review under that name would read to the authoring session as its own comments echoed back.
+# The reviewer is a copy of ai-small-projects' apps/cli/pr-review: tune it there, not here.
 on:
   pull_request:
     types: [opened, reopened, ready_for_review]
@@ -42,8 +24,7 @@ on:
 
 jobs:
   review:
-    # Drafts wait for ready_for_review. A fork gets no secrets, so it is not
-    # attempted at all.
+    # A fork gets no secrets, so it is not attempted.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (!github.event.pull_request.draft &&
@@ -52,9 +33,7 @@ jobs:
     env:
       # Pinned, and cached below. 2.1.280 is the first to know Opus 5.5.
       CLAUDE_CODE_VERSION: 2.1.280
-    # A review takes about a minute. Docs-only PRs are reviewed too, on
-    # purpose: the docs here are mostly CLAUDE.md rules. 15 is the ceiling
-    # for a hung run.
+    # A review takes about a minute; 15 is the ceiling for a hung run.
     timeout-minutes: 15
     # A dry run never cancels, and is never cancelled by, another run.
     concurrency:
@@ -72,8 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" > pr.json
-          # The job condition keeps forks out of pull_request runs; a
-          # dispatch names the PR by number, so the same check goes here.
+          # A dispatch names the PR by number, so the job condition's fork check is repeated here.
           head_repo=$(jq -r '.head.repo.full_name' pr.json)
           if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
             echo "::error::PR #$PR comes from $head_repo, not this repository; not reviewing it."
@@ -82,17 +60,13 @@ jobs:
           jq -r '"number=\(.number)\nhead=\(.head.sha)\nbase=\(.base.ref)"' pr.json >> "$GITHUB_OUTPUT"
           mv pr.json "$RUNNER_TEMP/pr.json"
 
-      # The head itself, not the merge commit pull_request checks out by
-      # default: the line numbers the reviewer reports, and the "before" text
-      # of a suggestion, must be those of the commit the review is posted on.
+      # The head, not the merge commit: reported line numbers must be those of the commit reviewed.
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.pr.outputs.head }}
           fetch-depth: 0
 
-      # The reviewer's own code (prompt, scripts) from the commit this
-      # workflow runs from, not from the PR head: a dispatch from a branch
-      # tries that branch's reviewer on any PR.
+      # The reviewer's own code from the workflow's commit, not the PR head.
       - uses: actions/checkout@v4
         with:
           path: .review-tooling
@@ -104,16 +78,13 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      # From the Actions cache after the first run: installing it takes
-      # about 10 s of a review that takes about a minute.
       - name: Restore Claude Code
         id: claude-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/claude-code/${{ env.CLAUDE_CODE_VERSION }}
           key: claude-code-${{ env.CLAUDE_CODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}
-      # Like the Review step, a failed install must not turn the PR red; the
-      # Review step then fails too, and publish says so on the PR.
+      # A failed install must not turn the PR red; the Review step fails too, and publish says so.
       - name: Install Claude Code
         id: claude
         continue-on-error: true
@@ -128,9 +99,7 @@ jobs:
           "$dir/claude" --version
           echo "path=$dir/claude" >> "$GITHUB_OUTPUT"
 
-      # A failed or limited review must not turn the PR red: CLAUDE.md never
-      # merges red, and a spent subscription window is not a defect of the
-      # change. The publish step says in the PR that it did not complete.
+      # A failed or limited review must not turn the PR red; publish says in the PR that it did not complete.
       - name: Review
         continue-on-error: true
         env:

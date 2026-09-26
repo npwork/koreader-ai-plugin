@@ -1,22 +1,7 @@
---[[--
-The one place in the plugin that speaks HTTP, built on KOReader's bundled
-luasocket. Kept behind the `transport` contract from `apiclient.lua` so the
-tests never need a socket.
---]]--
-
 local logger = require("logger")
 
---[[--
-@param request table { url, method, headers, body, block_timeout, total_timeout,
-                      download_to }
-@treturn table  response { status, body, headers }
-@treturn string error when the request never produced a response
-
-`download_to` names a file the body is written to as it arrives, and the
-returned body is empty. A book is tens of megabytes; holding one in a Lua
-string on a Kindle to write it out afterwards is the difference between a
-sync and an out-of-memory.
---]]--
+-- `download_to` streams the body to that file and returns it empty: a book held in a Lua
+-- string on a Kindle can run it out of memory.
 return function(request)
     local http = require("socket.http")
     local ltn12 = require("ltn12")

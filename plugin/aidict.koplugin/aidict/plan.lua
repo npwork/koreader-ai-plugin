@@ -1,13 +1,3 @@
---[[--
-What to do: the manifest against what is already on the device, and against
-what the plugin put there before.
-
-The whole decision lives here, in a function that takes a `size_of` rather
-than touching the filesystem — so "new", "half-downloaded", "already have
-it", "moved on the server" and "gone from the server" are assertions rather
-than trips to a Kindle.
---]]--
-
 local Plan = {}
 
 local function basename(path)
@@ -21,47 +11,25 @@ local function sorted_keys(map)
     return keys
 end
 
---[[--
-@param entries  table    from `manifest.parse`
-@param size_of  function (relative path) -> bytes on the device, or nil
-@param index    table    { [relative path] = { size, etag } } — what the plugin
-                         placed on earlier syncs; nil or empty the first time
-@param named    table    { [path] = true } — every path the manifest named,
-                         including rows this device dropped; nil means
-                         only `entries`
-@treturn table  {
-    downloads = { entry, … },
-    moves     = { { from = old path, to = entry.path, entry = entry }, … },
-    deletes   = { old path, … },
-    have = n, bytes = n,
-}
---]]--
+-- index: { [path] = { size, etag } } the plugin placed before; named: every path the manifest
+-- named, dropped rows included (nil means only `entries`). size_of(path) -> bytes or nil.
 function Plan.build(entries, size_of, index, named)
     entries = entries or {}
     index = index or {}
     local plan = { downloads = {}, moves = {}, deletes = {}, have = 0, bytes = 0 }
 
-    -- A row this device could not use is still a book the server holds: it
-    -- must not read as "gone from the server" and cost the reader the copy
-    -- already here, reading state and all.
+    -- A row this device could not use is still the server's book, not one "gone from the server".
     local listed = {}
     for path in pairs(named or {}) do listed[path] = true end
     for _, entry in ipairs(entries) do listed[entry.path] = true end
 
-    -- The Kindle's storage is FAT: `english/A.epub` and `English/A.epub` are
-    -- one file there. After a rename on the server that only changes case,
-    -- the new path is already "here" and the old one looks abandoned, so
-    -- deleting the old one would delete the book. Such a path may still be
-    -- moved from (on a disk that tells the two apart, that is the rename),
-    -- never deleted.
+    -- FAT storage folds case: after a case-only rename the old path looks abandoned, and deleting
+    -- it would delete the book. Such a path may be moved from, never deleted.
     local listed_folded = {}
     for path in pairs(listed) do listed_folded[path:lower()] = true end
 
-    -- Only what this plugin placed is ever moved or deleted, and only while
-    -- it is still the file it placed: a path the owner has since filled with
-    -- something else of another size is the owner's now, and drops out of
-    -- the index rather than being thrown away. Sorted, so two runs over the
-    -- same device pick the same candidate.
+    -- Only files the plugin placed, still at their recorded size, are moved or deleted; anything
+    -- else is the owner's. Sorted so runs agree on the candidate.
     local candidates = {}
     for _, path in ipairs(sorted_keys(index)) do
         local record = index[path]
@@ -75,9 +43,7 @@ function Plan.build(entries, size_of, index, named)
 
     local wanted = {}
     for _, entry in ipairs(entries) do
-        -- Size, not existence. A download the Kindle lost Wi-Fi halfway
-        -- through leaves a file that exists and is wrong, and "it is already
-        -- there" would keep it wrong for ever.
+        -- Size, not existence: a download cut off halfway leaves a file that exists and is wrong.
         if size_of(entry.path) == entry.size then
             plan.have = plan.have + 1
         else
@@ -85,21 +51,11 @@ function Plan.build(entries, size_of, index, named)
         end
     end
 
-    -- A book the server moved is found where the plugin left it, rather than
-    -- fetched again at its new path: moving it keeps the reading position,
-    -- the highlights and the history that a fresh download would lose.
-    --
-    -- The etag is the stronger evidence, so every book gets its chance at an
-    -- etag match before any is matched by name — otherwise the first of two
-    -- `Notes.epub` could take by name the file the second is the same bytes
-    -- as. A name match covers a store that hands a moved object a new etag;
-    -- the size check keeps it from pairing two different books that happen
-    -- to share a file name.
+    -- A moved book is found and moved, keeping its reading state. Every book gets an etag match
+    -- before any name match, or one `Notes.epub` could take by name the other's bytes.
     local claimed, moved = {}, {}
-    -- `unique` is for the name match: two books of one name and size are
-    -- two books the name cannot tell apart, and picking one could hand the
-    -- new path the wrong book's pages and reading state. Downloading afresh
-    -- is the safe answer to "which one?".
+    -- `unique`: two candidates of one name and size are ambiguous, so neither is taken and the
+    -- book downloads afresh.
     local function claim(entry, matches, unique)
         local found
         for _, candidate in ipairs(candidates) do
@@ -140,11 +96,8 @@ function Plan.build(entries, size_of, index, named)
         end
     end
 
-    -- Whatever the plugin placed that the server no longer lists, and that
-    -- no book moved out of, has been deleted there. Unless the manifest named
-    -- nothing at all: an empty library is far likelier to be a gateway
-    -- pointed at the wrong bucket than an owner who deleted every book, and
-    -- only one of those two mistakes can be undone.
+    -- Unless the manifest named nothing: an empty library is likelier a gateway on the wrong
+    -- bucket than every book deleted, and only one of those mistakes can be undone.
     local deletes = next(listed) ~= nil
     for _, candidate in ipairs(deletes and candidates or {}) do
         if not claimed[candidate.path] and not listed_folded[candidate.path:lower()] then

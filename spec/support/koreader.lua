@@ -1,21 +1,7 @@
---[[--
-Enough of KOReader to load `main.lua` and press its buttons.
-
-These are stubs, not a simulator: each one mirrors the shape of the real
-module (`Widget:extend`/`new`, `UIManager:show`, `Trapper:wrap`) and records
-what the plugin did with it, so the specs can assert on widgets shown, buttons
-registered and requests made — without an emulator.
---]]--
-
 local helpers = require("support.helpers")
 
---[[--
-The real `os.rename` and `os.remove`, captured once at load.
-
-`install` swaps them for the fake filesystem and may run several times before
-an `uninstall` — so capturing them per install would eventually save a fake as
-the original and never give the suite its own back.
---]]--
+-- Captured once at load: install may run several times before uninstall, and would otherwise
+-- save a fake as the original.
 local real_os = { rename = os.rename, remove = os.remove }
 local real_io = { popen = io.popen }
 
@@ -39,14 +25,7 @@ local function widget_class()
     return Widget
 end
 
---[[--
-Install the stubs and return the recorder.
-
-@param opts table
-  responses table  canned transport responses, see helpers.transport
-  online    bool   false makes NetworkMgr defer the call (default true)
-  settings  table  values pre-written into the settings store
---]]--
+-- opts: responses (see helpers.transport), online (false defers NetworkMgr), settings (pre-written).
 function koreader.install(opts)
     opts = opts or {}
 
@@ -93,10 +72,6 @@ function koreader.install(opts)
     package.loaded["ui/widget/infomessage"] = recording_widget("InfoMessage")
     package.loaded["ui/widget/textviewer"] = recording_widget("TextViewer")
     package.loaded["ui/widget/confirmbox"] = recording_widget("ConfirmBox")
-    --[[--
-    DictQuickLookup, reduced to the one method the plugin wraps: KOReader's
-    own appends the tapped word to the popup's first page.
-    --]]--
     package.loaded["ui/widget/dictquicklookup"] = {
         addQueryWordToResult = function(this)
             this.definition = (this.definition or "") .. "(query : " .. tostring(this.word) .. ")"
@@ -128,13 +103,8 @@ function koreader.install(opts)
         isWidgetShown = function(_, widget)
             return widget ~= nil and not widget.closed
         end,
-        -- Immediate by default, which is what every existing spec wants: the
-        -- prefetch poll then runs to completion inside onWordLookedUp.
-        --
-        -- `defer_scheduled` queues instead, for the one thing that cannot be
-        -- tested otherwise: a loop that waits for something to happen
-        -- elsewhere would, run immediately, simply recurse until the stack
-        -- gives out. `run_scheduled` then drains one round at a time.
+        -- Immediate by default. `defer_scheduled` queues instead, for a loop that waits on something
+        -- elsewhere and would otherwise recurse until the stack gives out.
         broadcastEvent = function(_, event)
             recorder.broadcast[#recorder.broadcast + 1] = event
         end,
@@ -155,8 +125,7 @@ function koreader.install(opts)
                 recorder.dismiss_next = false
                 return false, nil
             end
-            -- The real thing serialises the result out of a forked process,
-            -- so anything that survives here must be plain data.
+            -- The real one serialises the result out of a fork, so only plain data survives.
             return true, fn()
         end,
     }
@@ -169,8 +138,7 @@ function koreader.install(opts)
             recorder.deferred = callback
             return true
         end,
-        -- The real one turns the radio on and then runs the callback; offline
-        -- it would put up KOReader's own prompt, so the spec keeps it.
+        -- Offline, the real one puts up KOReader's own prompt; the spec keeps the callback.
         runWhenConnected = function(_, callback)
             if not recorder.online then
                 recorder.deferred = callback
@@ -180,10 +148,7 @@ function koreader.install(opts)
         end,
     }
 
-    --[[--
-    KOReader's lfs, backed by `recorder.files` — a path-to-size table the
-    library sync reads and the fake transport writes.
-    --]]--
+    -- `recorder.files` is path -> size, read by the library sync and written by the fake transport.
     local function holds_anything(path)
         local prefix = path .. "/"
         for held in pairs(recorder.files) do
@@ -196,9 +161,8 @@ function koreader.install(opts)
     end
 
     package.loaded["libs/libkoreader-lfs"] = {
-        -- The real one answers a single field when asked for one by name,
-        -- and the whole table otherwise; callers use both. A folder is one
-        -- `mkdir` made or one with a file under it.
+        -- A single field when asked by name, else the table. A folder is one `mkdir` made or one
+        -- with a file under it.
         attributes = function(path, request)
             local all
             local size = recorder.files[path]
@@ -225,13 +189,8 @@ function koreader.install(opts)
         end,
     }
 
-    --[[--
-    What KOReader's file manager calls when it moves or deletes a book:
-    the sidecar, History, collections and the cover browser's cache. Each
-    records itself in `book_calls` beside the renames and removes, so a spec
-    can assert the order — the file first, then its bookkeeping, as the file
-    manager does it.
-    --]]--
+    -- Each call records itself in `book_calls` beside the renames and removes, so a spec can
+    -- assert the file moves first, then its bookkeeping.
     local function log_call(line)
         recorder.book_calls[#recorder.book_calls + 1] = line
     end
@@ -261,11 +220,7 @@ function koreader.install(opts)
     recorder.reader_ui = { instance = nil }
     package.loaded["apps/reader/readerui"] = recorder.reader_ui
 
-    --[[--
-    lua-ljsqlite3, over `recorder.vocab_rows`: the rows the query returns, as
-    positional tables. It honours the one bound value the way the query's
-    `timestamp >= ?` does, and records how the file was opened.
-    --]]--
+    -- Honours the bound value as the query's `timestamp >= ?` does, and records how the file was opened.
     recorder.vocab_rows = {}
     package.loaded["lua-ljsqlite3/init"] = {
         open = function(path, mode)
@@ -292,11 +247,6 @@ function koreader.install(opts)
         end,
     }
 
-    --[[--
-    KPM, which is a real binary on a Kindle and nothing at all here. A spec
-    says what it printed and whether it exited cleanly; the command itself is
-    recorded so the spec can assert on what would have run.
-    --]]--
     recorder.real_io_popen = io.popen
     io.popen = function(command, ...)
         recorder.commands[#recorder.commands + 1] = command
@@ -308,9 +258,7 @@ function koreader.install(opts)
         }
     end
 
-    -- `os.rename` and `os.remove` are the right calls on the device, and the
-    -- wrong ones here — they would reach the machine running the suite. They
-    -- are swapped for the fake filesystem and put back by `uninstall`.
+    -- These would reach the machine running the suite: swapped for the fake filesystem until `uninstall`.
     os.rename = function(from, to)
         if recorder.files[from] == nil then return nil, "no such file" end
         log_call("rename " .. from .. " -> " .. to)
@@ -349,18 +297,11 @@ function koreader.install(opts)
         canRestart = function() return recorder.can_restart end,
     }
 
-    -- KOReader restarts by broadcasting an event; the spec reads it back
-    -- rather than a process actually going away.
     package.loaded["ui/event"] = {
         new = function(_, name) return { name = name } end,
     }
 
-    --[[--
-    The two menu order tables. KOReader caches them through `require`, which
-    is what lets a plugin put itself somewhere other than the end; the stub
-    keeps that shape so a spec can read back where the entry landed. Fresh
-    tables per install, so one spec's insert cannot leak into the next.
-    --]]--
+    -- Fresh per install, so one spec's insert cannot leak into the next.
     recorder.menu_order = {
         reader = { tools = { "read_timer", "calibre", "more_tools" } },
         filemanager = { tools = { "read_timer", "calibre", "more_tools" } },
@@ -368,7 +309,6 @@ function koreader.install(opts)
     package.loaded["ui/elements/reader_menu_order"] = recorder.menu_order.reader
     package.loaded["ui/elements/filemanager_menu_order"] = recorder.menu_order.filemanager
 
-    -- The folder picker, which answers with whatever the spec told it to.
     package.loaded["ui/widget/pathchooser"] = {
         new = function(_, chooser)
             recorder.path_chooser = chooser
@@ -376,8 +316,6 @@ function koreader.install(opts)
         end,
     }
 
-    -- KOReader's Dispatcher, reduced to the registration the plugin does so
-    -- a spec can see which actions a gesture could be bound to.
     package.loaded["dispatcher"] = {
         registerAction = function(_, name, definition)
             recorder.actions[name] = definition
@@ -389,8 +327,6 @@ function koreader.install(opts)
         to_ms = function(value) return value end,
     }
 
-    -- The timing line the plugin logs is the only way to see, from a device
-    -- in the field, where a slow lookup spent its time — so the specs read it.
     package.loaded["logger"] = {
         dbg = function() end,
         info = function(...)
@@ -408,16 +344,8 @@ function koreader.install(opts)
         __call = function(_, text) return text end,
     })
 
-    --[[--
-    KOReader's ffi/util, reduced to the two things the plugin uses: string
-    templating and the fork-and-pipe the prefetch runs on.
-
-    The fake fork runs the task inline and keeps what it wrote, which preserves
-    the only semantics the plugin depends on — the task runs somewhere else,
-    writes once, and the parent reads it later. `forks` counts them so a spec
-    can assert that nothing was started; `fork_fails` and `writes_nothing`
-    drive the two ways it can come to nothing.
-    --]]--
+    -- The fake fork runs the task inline and keeps what it wrote; `fork_fails` and `writes_nothing`
+    -- drive the two ways it comes to nothing.
     package.loaded["ffi/util"] = {
         -- No symlinks in a table of files.
         realpath = function(path) return path end,
@@ -437,9 +365,7 @@ function koreader.install(opts)
             return 4242, with_pipe and "parent-fd" or nil
         end,
         writeToFD = function(_, data) recorder.written = data end,
-        -- A real fork is not ready on the first look. `ready_after_polls`
-        -- makes the parent wait, and `never_ready` makes it wait forever, so
-        -- the polling and the give-up branch are both reachable.
+        -- `ready_after_polls` and `never_ready` make the parent wait, so polling and giving up are reachable.
         getNonBlockingReadSize = function()
             recorder.polls = recorder.polls + 1
             if recorder.never_ready then return 0 end
@@ -476,14 +402,11 @@ function koreader.install(opts)
         end,
     }
 
-    -- The plugin's own transport and codec, swapped for the test doubles.
-    -- The wrapper moves the fake clock by `request_ms`, so a spec can say how
-    -- long a request "took".
+    -- The wrapper moves the fake clock by `request_ms`, so a spec can say how long a request took.
     package.loaded["aidict.http_transport"] = function(request)
         recorder.clock_ms = recorder.clock_ms + (recorder.request_ms or 0)
         local response, err = recorder.transport.fn(request)
-        -- The real transport streams a download straight to disk; the queued
-        -- response says how many bytes landed there.
+        -- The queued response says how many bytes landed on disk.
         if request.download_to and response and response.bytes then
             recorder.files[request.download_to] = response.bytes
         end
@@ -502,7 +425,7 @@ function koreader.install(opts)
     return recorder
 end
 
---- Undo `install`, so the unit specs get a clean interpreter.
+-- So the unit specs get a clean interpreter.
 function koreader.uninstall()
     os.rename = real_os.rename
     os.remove = real_os.remove
@@ -524,9 +447,6 @@ function koreader.uninstall()
     end
 end
 
---[[--
-A reader with a document open: the objects the plugin registers against.
---]]--
 function koreader.reader(opts)
     opts = opts or {}
     local reader = {
@@ -544,13 +464,8 @@ function koreader.reader(opts)
         menu = {
             registerToMainMenu = function(_, plugin) reader.registered_plugin = plugin end,
         },
-        --[[--
-        ReaderDictionary, reduced to the call the AI page rides on: `showDict`
-        is handed the results, builds the popup from them and keeps it as
-        `dict_window`. The popup keeps the results table it was given, opens
-        on the first of them, and redraws on `changeDictionary` — the three
-        things the plugin relies on.
-        --]]--
+        -- The popup keeps the results table it was given, opens on the first, and redraws on
+        -- changeDictionary: the three things the plugin relies on.
         dictionary = {
             showDict = function(this, word, results)
                 this.dict_window = {
@@ -577,8 +492,6 @@ function koreader.reader(opts)
     }
 
     reader.document = {
-        -- crengine returns the HTML of the block element around a position,
-        -- which is the paragraph.
         getHTMLFromXPointer = function(_, _, _, _)
             return opts.paragraph_html
         end,

@@ -35,10 +35,8 @@ test ! -f "${WORK}/koreader/plugins/aidict.koplugin/stale.lua"
 KOREADER_DIR="${WORK}/koreader" sh uninstall.sh >/dev/null
 test ! -d "${WORK}/koreader/plugins/aidict.koplugin"
 
-# Both addresses are injected at build time, never committed. They are greped
-# for with the leading spaces of the default's own line: `endpoint = "…"` is a
-# substring of `library_endpoint = "…"`, so an unanchored check would call one
-# baked address two.
+# Both addresses are injected at build time, never committed. Anchored on the default's leading
+# spaces: `endpoint = "…"` is a substring of `library_endpoint = "…"`.
 AIDICT_ENDPOINT="https://koreader-ai.test" \
 AIDICT_LIBRARY_ENDPOINT="https://gateway.test/koreader-library" \
     python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-ep" >/dev/null
@@ -55,9 +53,7 @@ grep -q '^    endpoint = "",$' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua
 grep -q '^    library_endpoint = "",$' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "a library endpoint leaked into the committed config.lua"; exit 1; }
 
-# One without the other. The library no longer lives at a path off the
-# dictionary's host, so baking one must leave the other empty rather than
-# inventing an address that would 404 on a device.
+# Baking one address must leave the other empty rather than invent one that would 404 on a device.
 AIDICT_ENDPOINT="https://koreader-ai.test" \
     python3 "${ROOT}/scripts/kpmrepo.py" package --output "${WORK}/dist-one" >/dev/null
 mkdir -p "${WORK}/pkg-one"
@@ -68,9 +64,7 @@ grep -q '^    library_endpoint = "",$' \
 grep -q 'api_key = ""' "${ROOT}/plugin/aidict.koplugin/aidict/config.lua" \
     || { echo "a key leaked into the committed config.lua"; exit 1; }
 
-# The published package is world-readable and the key now opens far more than
-# the dictionary, so a built package must never carry one — whatever is in the
-# environment. This is the check that keeps it that way.
+# The package is world-readable and the key opens far more than the dictionary: never package one.
 grep -q 'api_key = ""' "${WORK}/pkg-ep/aidict.koplugin/aidict/config.lua" \
     || { echo "a key was baked into the package"; exit 1; }
 AIDICT_TOKEN="must-be-ignored" AIDICT_ENDPOINT="https://koreader-ai.test" \
@@ -80,9 +74,8 @@ tar xzf "${WORK}"/dist-nokey/*.kpkg -C "${WORK}/pkg-nokey"
 grep -q 'api_key = ""' "${WORK}/pkg-nokey/aidict.koplugin/aidict/config.lua" \
     || { echo "AIDICT_TOKEN in the environment still reached the package"; exit 1; }
 
-# The address IS baked in, and the gateway takes its key as `?token=` — so an
-# endpoint carrying a query string, a fragment or userinfo would publish the
-# credential by the back door. Each must be refused, not quietly packaged.
+# The gateway takes its key as `?token=`, so an endpoint with a query, fragment or userinfo would
+# publish the credential; each must be refused.
 for bad in \
         "https://koreader-ai.test?token=leaked" \
         "https://koreader-ai.test#leaked" \
@@ -91,17 +84,14 @@ for bad in \
             --output "${WORK}/dist-bad" >/dev/null 2>&1; then
         echo "packaging accepted an endpoint that can carry a credential: $bad"; exit 1
     fi
-    # The library mount takes the same key the same way, so its address is
-    # held to the same rule.
+    # The library mount takes the key the same way.
     if AIDICT_LIBRARY_ENDPOINT="$bad" python3 "${ROOT}/scripts/kpmrepo.py" package \
             --output "${WORK}/dist-bad" >/dev/null 2>&1; then
         echo "packaging accepted a library endpoint that can carry a credential: $bad"; exit 1
     fi
 done
 
-# Every Lua file in the package must parse. Injection rewrites source, and a
-# value with a newline in it once produced a config.lua that only failed on
-# the device.
+# Every Lua file must parse: injection rewrites source.
 find "${WORK}/pkg-ep" -name '*.lua' -exec luac5.1 -p {} +
 
 echo "package verified: install, upgrade and uninstall all behave,"

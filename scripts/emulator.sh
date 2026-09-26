@@ -1,11 +1,6 @@
 #!/bin/sh
-# Run KOReader with this plugin loaded, headlessly.
-#
-#   ./scripts/emulator.sh                       use $KOREADER_SRC or .emulator/
-#   KOREADER_DOWNLOAD_URL=<url> ./scripts/emulator.sh   fetch a prebuilt Linux build first
-#
-# See docs/emulator.md for what the cloud environment needs allowed before
-# either of those can reach anything.
+# Run KOReader with this plugin loaded, headlessly, from $KOREADER_SRC or .emulator/, or from a
+# prebuilt Linux build fetched from KOREADER_DOWNLOAD_URL first.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,8 +32,7 @@ if [ -n "${KOREADER_DOWNLOAD_URL}" ]; then
     fetch_build "${KOREADER_DOWNLOAD_URL}"
 fi
 
-# Where did we end up? Either a source checkout built with kodev, or an
-# unpacked release.
+# Either a source checkout built with kodev, or an unpacked release.
 find_reader() {
     for candidate in "$1" "$1/koreader" "$1/koreader-emulator-x86_64-linux-gnu/koreader" "$1/squashfs-root/usr/lib/koreader"; do
         if [ -f "${candidate}/reader.lua" ]; then

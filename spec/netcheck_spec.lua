@@ -1,7 +1,6 @@
 local NetCheck = require("aidict.netcheck")
 
--- A clock that each step moves forward by a fixed amount, so every timing in
--- a result is known in advance.
+-- Each step moves the clock a fixed amount, so every timing is known in advance.
 local function fake(steps, overrides)
     local now = 0
     local function takes(ms, fn)

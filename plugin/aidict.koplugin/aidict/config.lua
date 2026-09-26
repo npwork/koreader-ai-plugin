@@ -1,61 +1,34 @@
---[[--
-Defaults and validation rules for every setting the plugin knows about.
-
-Pure Lua: no KOReader modules are required from here, so the whole table is
-testable under plain busted.
---]]--
-
 local Config = {}
 
 Config.DEFAULTS = {
-    -- Gateway endpoint. The plugin POSTs to <endpoint>/define.
-    -- Empty on purpose: the real address is baked into the package at build
-    -- time (`kpmrepo.py package --endpoint …`, from the AIDICT_ENDPOINT
-    -- secret), and that is the only place it is set: the device has no field
-    -- for it. Nothing here commits the address to a public repository.
+    -- The plugin POSTs to <endpoint>/define. Empty on purpose: the address is baked into the
+    -- package at build time, so the public repository never carries it.
     endpoint = "",
-    -- Optional bearer token; empty means the gateway is open to this device.
+    -- Empty means the gateway is open to this device.
     api_key = "",
-    -- Seconds. Block timeout and total timeout for the HTTP call.
+    -- Seconds.
     block_timeout = 10,
     total_timeout = 30,
-    -- How many characters of the surrounding paragraph to send with the word.
-    -- A paragraph is what lets the other side tell which sense is meant.
     context_chars = 1000,
-    -- Answers kept on the device. 0 disables the cache.
+    -- 0 disables the cache.
     cache_size = 200,
-    -- Seconds an answer stays fresh. 0 means "never expires".
+    -- Seconds; 0 means never expires.
     cache_ttl = 30 * 24 * 60 * 60,
 
-    -- Where synced books land: its own folder beside Audible, Documents and
-    -- Screenshots, named to sort above them so it is the first thing in the
-    -- file browser. The sync creates it, and `documents/` is deliberately not
-    -- it — that is the one folder the Kindle's own framework indexes, and an
-    -- EPUB in there becomes an entry in the native library that opens badly.
+    -- Not documents/: the Kindle's framework indexes it, and an EPUB there becomes a native
+    -- library entry that opens badly.
     library_dir = "/mnt/us/AI_Books",
 
-    -- The newest `vocab.db` lookup the server has acknowledged, epoch ms.
-    -- Not a choice, a place kept: 0 sends the whole archive once, and the
-    -- server writes a lookup it already has as nothing, so losing this only
-    -- makes the next upload longer.
+    -- The newest vocab.db lookup the server acknowledged, epoch ms. Losing it only makes the
+    -- next upload longer: the server ignores lookups it already has.
     vocab_uploaded_through = 0,
 
-    -- Update channel used by the update check and by `kpm`.
     channel = "stable",
-    -- Root of the KPM repository, without the channel.
     repo_url = "https://npwork.github.io/koreader-ai-plugin",
 }
 
---[[--
-Values the package carries that are not settings: the reader cannot see or
-change them.
-
-`library_endpoint` is the library mount's address, written in at package time
-from the AIDICT_LIBRARY_ENDPOINT secret — the public repository carries none.
-The secret is the one place it is set; changing it and republishing is how a
-device learns a new one. Empty means the package was built without it, and the
-sync says so.
---]]--
+-- Written in at package time from build secrets; the reader cannot see or change them.
+-- An empty value means the package was built without it.
 Config.BAKED = {
     library_endpoint = "",
 }
@@ -136,9 +109,6 @@ Config.VALIDATORS = {
     end,
 }
 
---- Validate a single key/value pair.
--- @treturn bool ok
--- @treturn string reason when not ok
 function Config.validate(key, value)
     local validator = Config.VALIDATORS[key]
     if not validator then

@@ -1,13 +1,3 @@
---[[--
-Wires settings, cache and API client together.
-
-This is the whole behaviour of the plugin minus the widgets. It is split the
-way `main.lua` has to use it: `peek` before anything, then `fetch` inside the
-subprocess that can be dismissed, then `remember` back in the main process
-with whatever survived the fork. There is deliberately no single call that
-does all three — nothing could use it.
---]]--
-
 local ApiClient = require("aidict.apiclient")
 local Cache = require("aidict.cache")
 local Context = require("aidict.context")
@@ -15,14 +5,6 @@ local Context = require("aidict.context")
 local Lookup = {}
 Lookup.__index = Lookup
 
---[[--
-@param opts table
-  settings  Settings  required
-  transport func      required, see apiclient.lua
-  json      table     required, encode/decode pair
-  now       func      optional clock, defaults to os.time
-  monotonic func      optional millisecond clock, for timing the round trip
---]]--
 function Lookup.new(opts)
     opts = opts or {}
     assert(opts.settings, "Lookup needs settings")
@@ -37,7 +19,6 @@ function Lookup.new(opts)
     return self
 end
 
---- Rebuild the client and resize the cache after a settings change.
 function Lookup:reload()
     local s = self.settings
     self.client = ApiClient.new({
@@ -61,29 +42,20 @@ function Lookup:reload()
     end
 end
 
---[[--
-Cache key for a request, so everything agrees on one name for an answer.
-
-`main.lua` needs it too: a prefetch has to be tracked under the same key the
-button will later peek at, or the two would never meet.
---]]--
+-- Shared with main.lua: a prefetch is tracked under the key the popup later peeks at.
 function Lookup.key(request)
     request = request or {}
     return Cache.key(Context.cleanup(request.word), Context.cleanup(request.context))
 end
 local key_for = Lookup.key
 
---- Cached answer for a request, without touching the network.
 function Lookup:peek(request)
     local word = Context.cleanup(request and request.word)
     if word == "" then return nil end
     return self.cache:get(key_for(request))
 end
 
---[[--
-The network half on its own, in a shape that survives being serialised out of
-`Trapper:dismissableRunInSubprocess`: one plain table, never a nil.
---]]--
+-- Always one plain table, never nil: it is serialised out of Trapper's subprocess.
 function Lookup:fetch(request)
     request = request or {}
     local word = Context.cleanup(request.word)
@@ -105,7 +77,7 @@ function Lookup:fetch(request)
     return { ok = true, result = result }
 end
 
---- Store an answer that `fetch` brought back in another process.
+-- Stores what `fetch` brought back in another process.
 function Lookup:remember(request, result)
     if type(result) ~= "table" then return end
     local word = Context.cleanup(request and request.word)

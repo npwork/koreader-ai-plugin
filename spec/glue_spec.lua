@@ -1,12 +1,3 @@
---[[--
-`main.lua` itself: the buttons it registers, what happens when they are
-pressed, and what it shows afterwards.
-
-KOReader is stubbed (see spec/support/koreader.lua), so this runs anywhere the
-unit suite does — but it exercises the real plugin file, including the parts
-the emulator would otherwise be the only way to reach.
---]]--
-
 local helpers = require("support.helpers")
 local koreader = require("support.koreader")
 local Config = require("aidict.config")
@@ -20,8 +11,7 @@ local ANSWER = helpers.body({
     model = "spec-model",
 })
 
---- The library's one answer to Sync: the books, the settings to apply, and the
---- newest plugin, which is this one unless a spec says otherwise.
+-- The plugin version is this one unless a spec says otherwise.
 local function synced(opts)
     opts = opts or {}
     return { status = 200, body = helpers.body({
@@ -37,10 +27,8 @@ describe("the KOReader layer", function()
 
     local function build(opts)
         opts = opts or {}
-        -- The committed package carries neither address; both are baked in
-        -- at build time, the dictionary's as its setting's default and the
-        -- library's as a value that is not a setting at all. Give the reader
-        -- both unless the spec is about not having one.
+        -- The committed package carries neither address; give the reader both unless the spec is
+        -- about not having one.
         local settings = {}
         Config.DEFAULTS.endpoint = opts.no_endpoint and "" or helpers.ENDPOINT
         Config.BAKED.library_endpoint = opts.no_library_endpoint and "" or helpers.LIBRARY_ENDPOINT
@@ -79,8 +67,7 @@ describe("the KOReader layer", function()
         return kor.shown[#kor.shown]
     end
 
-    --- A request the way the plugin builds one, for the paths that bypass a
-    --- button. The word and passage are what the cache key is made of.
+    -- The word and passage are what the cache key is made of.
     local function ask(word, passage)
         plugin:explain({
             word = word,
@@ -257,8 +244,6 @@ describe("the KOReader layer", function()
         end)
     end)
 
-    -- The reader sees one number; the log is where a slow lookup gets taken
-    -- apart into radio, gateway and model.
     describe("what it writes to the log", function()
         local TIMED_ANSWER = helpers.body({
             word = "fox",
@@ -330,9 +315,7 @@ describe("the KOReader layer", function()
             local line = kor.info_lines[#kor.info_lines]
             assert.is_truthy(line:find("1500ms", 1, true))
             assert.is_truthy(line:find("gateway ?ms", 1, true))
-            -- And no leg invented to fill the gap: a named leg that did not
-            -- run reads like a measurement, which is worse than a question
-            -- mark.
+            -- No leg invented to fill the gap: a named leg that did not run reads like a measurement.
             assert.is_nil(line:find("sense", 1, true))
             assert.is_nil(line:find("model ", 1, true))
         end)
@@ -470,11 +453,6 @@ describe("the KOReader layer", function()
         end)
     end)
 
-    --[[--
-    The popup KOReader opens on a lookup, with the AI page put first in it.
-    The order a real lookup goes in: the announcement, then `showDict` with
-    whatever the dictionaries found.
-    --]]--
     describe("the AI page in the dictionary popup", function()
         local OXFORD = { dict = "Oxford", word = "fox", definition = "a canid" }
 
@@ -729,11 +707,6 @@ describe("the KOReader layer", function()
         end)
     end)
 
-    --[[--
-    The dictionary announces every lookup before it has even searched, and
-    that is when the plugin starts asking — so the answer is on its way before
-    the popup has opened, and in the cache for anything that asks again.
-    --]]--
     describe("looking a word up before it is asked for", function()
         local prefetching = build
 
@@ -759,9 +732,7 @@ describe("the KOReader layer", function()
         end)
 
         it("is found from the highlight menu too, which builds its own request", function()
-            -- The two entry points build the request separately; if they ever
-            -- disagree about the passage, the fetched-ahead answer is orphaned
-            -- and the reader waits for a second identical lookup.
+            -- If the two entry points disagree about the passage, the fetched-ahead answer is orphaned.
             prefetching()
             plugin:onWordLookedUp("fox")
             tap_highlight_button()
@@ -827,9 +798,7 @@ describe("the KOReader layer", function()
         end)
 
         it("marks an answer the reader waited for as prefetch, not cached", function()
-            -- The reader tapped while the prefetch was still in the air:
-            -- they watched a spinner. Calling that "cached" is what made it
-            -- impossible to tell whether the prefetch was doing anything.
+            -- The reader tapped while the prefetch was in the air: they watched a spinner, not a cache hit.
             prefetching()
             kor.defer_scheduled = true     -- the prefetch stays in flight
             plugin:onWordLookedUp("fox")
@@ -921,9 +890,7 @@ describe("the KOReader layer", function()
         it("kills a subprocess that never comes back, rather than polling forever", function()
             prefetching()
             kor.never_ready = true
-            -- The deadline is set from the first reading and every later one
-            -- is long past it, so the give-up branch is reached on the first
-            -- poll rather than half a minute later.
+            -- Every reading after the first is past the deadline, so the first poll gives up.
             local readings = 0
             plugin.now = function()
                 readings = readings + 1
@@ -949,9 +916,7 @@ describe("the KOReader layer", function()
         end)
 
         it("joins the request already in the air instead of asking twice", function()
-            -- The reason this matters: the gateway takes seconds, so pressing
-            -- AI while the prefetch is still out is the ordinary case, not a
-            -- race. A second identical request costs twice and lands no sooner.
+            -- Pressing AI while the prefetch is out is the ordinary case: the gateway takes seconds.
             prefetching()
             local key = require("aidict.lookup").key(plugin:requestFor("fox", reader.ui.highlight))
             plugin.prefetch:began(key)
@@ -971,8 +936,7 @@ describe("the KOReader layer", function()
             kor.defer_scheduled = true
             tap_highlight_button()
 
-            -- The prefetch finishes: its answer goes to the cache and the slot
-            -- is freed, exactly as finishPrefetch does it.
+            -- The prefetch finishes, as finishPrefetch does it.
             plugin.lookup:remember(request, {
                 word = "fox", definition = "A wild animal of the dog family.",
             })
@@ -992,8 +956,7 @@ describe("the KOReader layer", function()
             -- Nothing asked yet: it is waiting on the one already out.
             assert.are.equal(0, kor.transport.calls)
 
-            -- It ended without writing an answer: the reader must not be left
-            -- with a spinner and nothing behind it.
+            -- It ended without an answer: the reader must not be left with a spinner.
             plugin.prefetch:ended(key)
             kor.run_scheduled()
 
@@ -1004,8 +967,6 @@ describe("the KOReader layer", function()
 
     describe("the cache on disk", function()
         it("throws away answers kept under the old keys", function()
-            -- The first lacks the headword; the second has Wiktionary's whole
-            -- etymology and its ɹ, from before the gateway retold them.
             build({ settings = {
                 cache_entries = { { key = "x", value = {} } },
                 answers = { { key = "y", value = {} } },
@@ -1076,10 +1037,6 @@ describe("the KOReader layer", function()
             assert.are.equal("API key: set", with_key)
         end)
 
-        -- The addresses and the books folder come with the package, from its
-        -- build secrets; the menu has no line for them.
-        -- Earlier versions let the reader type an endpoint in; with no field
-        -- left to change it, a saved one would win for good.
         it("drops an endpoint saved on the device for the package's own", function()
             build({ settings = { endpoint = "https://stale.test/ai" } })
 
@@ -1096,8 +1053,6 @@ describe("the KOReader layer", function()
             assert.is_nil(menu_item("https?://"))
         end)
 
-        -- 0.2.57 let the address be typed in, so a device may still hold one
-        -- in its settings. Only the package's counts.
         it("syncs against the package's library address, not a saved one", function()
             build({
                 settings = { library_endpoint = "https://stale.test/koreader-library" },
@@ -1454,8 +1409,6 @@ describe("the KOReader layer", function()
         local function withKpm(opts)
             opts = opts or {}
             build({ settings = opts.settings })
-            -- KPM is a real binary on a Kindle; here it is a path that exists
-            -- and a canned thing for it to have printed.
             kor.files[KPM] = 1
             kor.shell = opts.shell or { output = "Installed 1 package(s) succesfully." }
             return plugin
@@ -1540,7 +1493,7 @@ describe("the KOReader layer", function()
             return { path = path, size = size, etag = "e", url = "https://r2.test/" .. path .. "?sig=x" }
         end
 
-        --- The library's own requests: Sync also fetches and reports the settings.
+        -- Sync also fetches and reports the settings.
         local function library_calls()
             local count = 0
             for _, request in ipairs(kor.transport.requests) do
@@ -1558,8 +1511,7 @@ describe("the KOReader layer", function()
         it("puts Sync, then AI dictionary, at the top of Tools, not at the end of it", function()
             build()
 
-            -- Appending is what a sorting_hint alone would do, and Tools is
-            -- already two pages long — so the entries have to claim the top.
+            -- A sorting_hint alone appends, and Tools is already two pages long.
             for _, order in pairs(kor.menu_order) do
                 assert.are.equal("aidict_sync", order.tools[1])
                 assert.are.equal("aidict", order.tools[2])
@@ -1618,7 +1570,6 @@ describe("the KOReader layer", function()
 
             plugin:sync()
 
-            -- The library mount, from its own setting.
             assert.are.equal("https://gw.test/koreader-library/sync", kor.transport.requests[1].url)
             assert.are.equal(BOOKS .. "/Lem/Solaris.epub.part", kor.transport.requests[2].download_to)
             assert.are.equal(10, kor.files[BOOKS .. "/Lem/Solaris.epub"])
@@ -1654,8 +1605,6 @@ describe("the KOReader layer", function()
             assert.is_truthy(text:find("expired", 1, true))
         end)
 
-        -- And specifically for its own: the dictionary's address is no route
-        -- to it now that one is a Worker and the other is the gateway.
         it("says the package has no library address rather than syncing into nowhere", function()
             build({ no_library_endpoint = true })
 
@@ -1720,8 +1669,7 @@ describe("the KOReader layer", function()
             local FROM = BOOKS .. "/English/Fiction/x.epub"
             local TO = BOOKS .. "/English/Business/x.epub"
 
-            --- A device where an earlier sync put `placed` (path -> size),
-            --- and a gateway that now lists `listed`.
+            -- placed: path -> size from an earlier sync; listed: what the gateway lists now.
             local function synced_before(placed, listed, extra)
                 extra = extra or {}
                 local books = {}
@@ -1827,8 +1775,6 @@ describe("the KOReader layer", function()
                 assert.are.same({}, kor.book_calls)
             end)
 
-            -- The reader pointed the sync at another folder: what the old
-            -- index lists is not this folder's to delete.
             it("starts a fresh index when the books folder changed", function()
                 synced_before({ ["Gone.epub"] = 20 }, {}, { index_dir = "/mnt/us/Old_Books" })
 
@@ -1903,13 +1849,13 @@ describe("the KOReader layer", function()
             kor.vocab_rows = rows
         end
 
-        --- Sync, with no library address: only the lookups travel, and the update check.
+        -- No library address: only the lookups travel, and the update check.
         local function sync()
             plugin:sync()
             return last_shown() and last_shown().text
         end
 
-        --- The requests that were not the update check.
+        -- The requests that were not the update check.
         local function sent()
             local requests = {}
             for _, request in ipairs(kor.transport.requests) do

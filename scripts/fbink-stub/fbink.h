@@ -1,10 +1,4 @@
-/* A no-op FBInk, so KPM's CLI links on a Linux host.
- *
- * FBInk drives the Kindle's e-ink framebuffer; there is none here, and its
- * real build pulls submodules from hosts a sandboxed CI cannot reach. The CLI
- * only calls into it behind `--fbink`, which the tests never pass, so every
- * function below is a stub that reports "no framebuffer".
- */
+/* A no-op FBInk so KPM's CLI links on a Linux host; the CLI only calls it behind --fbink. */
 #ifndef KPM_TEST_FBINK_STUB_H
 #define KPM_TEST_FBINK_STUB_H
 

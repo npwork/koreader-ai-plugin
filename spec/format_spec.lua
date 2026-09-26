@@ -8,7 +8,6 @@ describe("format", function()
             })
             assert.is_truthy(text:find("<b>fox</b>", 1, true))
             assert.is_truthy(text:find("<i>noun</i>", 1, true))
-            -- The headword comes before everything it heads.
             assert.is_true(text:find("<b>fox</b>", 1, true) < text:find("A wild animal.", 1, true))
         end)
 
@@ -18,8 +17,6 @@ describe("format", function()
                 definition = "To fasten with straps.",
             })
             assert.is_truthy(text:find("<b>strap</b>", 1, true))
-            -- And says where the reader came from, or the entry looks like a
-            -- different word than the one they touched.
             assert.is_truthy(text:find("as “strapped”", 1, true))
         end)
 
@@ -44,15 +41,13 @@ describe("format", function()
             local head = text:find("<b>themselves</b>", 1, true)
             local pron = text:find("/ðəmˈsɛlvz/", 1, true)
             assert.is_truthy(pron)
-            -- Same line: the pronunciation follows the headword before the
-            -- heading div closes.
+            -- Same line: the pronunciation follows the headword before the heading div closes.
             assert.is_true(pron > head)
             assert.is_true(pron < text:find("</div>", head, true))
         end)
 
         it("leaves out a headword the window already shows above it", function()
-            -- KOReader's popup puts the word in its own header; the same word
-            -- again, big and bold, right under it is only a repeat.
+            -- KOReader's popup already shows the word in its own header.
             local text = Format.result({
                 lemma = "sync", word = "sync", part_of_speech = "verb",
                 pronunciation = "/sɪŋk/", definition = "To synchronize.",
@@ -81,14 +76,12 @@ describe("format", function()
             local etym = text:find("From Old Norse", 1, true)
             assert.is_truthy(etym)
             assert.is_true(etym > text:find("</ol>", 1, true))
-            -- Under a label, in roman, as the Oxford dictionaries set it.
             assert.is_truthy(text:find("ORIGIN</span> From Old Norse", 1, true))
             assert.is_nil(text:find("<i>From Old Norse", 1, true))
         end)
 
         it("says nothing where the gateway had nothing to say", function()
-            -- Both are allowed to come back empty: a wrong pronunciation
-            -- teaches the reader to say the word wrongly.
+            -- Both may come back empty: a wrong pronunciation teaches the reader to say the word wrongly.
             local text = Format.result({
                 word = "fox", definition = "A wild animal.",
                 pronunciation = "", etymology = "",
@@ -106,8 +99,7 @@ describe("format", function()
         end)
 
         it("opens the widest gap between the definition and its examples", function()
-            -- What separates is not space but the difference in it: one gap
-            -- repeated makes the entry read as a single block.
+            -- One gap repeated makes the entry read as a single block.
             local text = Format.result({
                 word = "fox", part_of_speech = "noun", definition = "A wild animal.",
                 examples = { "The fox ran." }, etymology = "From Old English.",
@@ -125,7 +117,6 @@ describe("format", function()
         end)
 
         it("marks the irregular forms the gateway named, which no rule reaches", function()
-            -- "went" is not "go" plus an ending, and never will be.
             local text = Format.result({
                 lemma = "go", word = "went", definition = "To move.",
                 forms = { "went", "goes" },
@@ -157,8 +148,6 @@ describe("format", function()
         end)
 
         it("escapes what the model wrote, rather than letting it be markup", function()
-            -- A definition may legitimately contain these — explaining "gt",
-            -- quoting code, naming AT&T. Unescaped, the first swallows the rest.
             local text = Format.result({
                 word = "gt",
                 definition = "Short for <greater than> in code & markup.",
@@ -192,10 +181,6 @@ describe("format", function()
         end)
 
         it("says prefetch, not cached, for an answer the reader waited for", function()
-            -- The reader watched a spinner and then read the word "cached"
-            -- underneath the answer, which made it impossible to tell whether
-            -- the prefetch was doing anything. It was on its way before they
-            -- asked; that is a different fact from having been free.
             local text = Format.result({ definition = "d", model = "gpt-test" }, { source = "prefetch" })
             assert.is_truthy(text:find("gpt%-test · prefetch"))
             assert.is_nil(text:find("cached", 1, true))
@@ -213,10 +198,7 @@ describe("format", function()
         end)
 
         it("says cached AND what it cost when it was fetched", function()
-            -- Two different facts. "cached" is what the reader paid this time;
-            -- the timing is what the answer cost when it was really asked, and
-            -- without it there is no telling a lookup that was free because it
-            -- was prefetched from one free because it was asked last week.
+            -- "cached" is what the reader paid this time; the timing is what the answer cost when asked.
             local text = Format.result(
                 { definition = "d", model = "gpt-test", elapsed_ms = 1500, server_ms = 900 },
                 { source = "cached" })
@@ -225,8 +207,6 @@ describe("format", function()
         end)
 
         it("shows the gateway's own time beside the round trip", function()
-            -- The point of the whole thing: five seconds of radio and five of
-            -- model look identical on the screen and want opposite fixes.
             local text = Format.result({
                 definition = "d", model = "gpt-test", elapsed_ms = 5000, server_ms = 1800,
             })
@@ -287,9 +267,6 @@ describe("format", function()
 
     describe("timing", function()
         it("reports both measurements, and does not invent a third", function()
-            -- The gap between them is not one thing — radio, DNS, handshake,
-            -- Cloudflare, two clocks — so it is left unnamed rather than
-            -- called "network".
             assert.are.equal("5.0s total · 1.8s server", Format.timing(5000, 1800))
         end)
 
@@ -300,8 +277,7 @@ describe("format", function()
         end)
 
         it("reports a server slower than the round trip rather than hiding it", function()
-            -- Two clocks on two machines can disagree by a little. Showing both
-            -- says so; a subtraction would have had to pretend otherwise.
+            -- Two clocks can disagree a little; a subtraction would have to pretend otherwise.
             assert.are.equal("1.7s total · 1.8s server", Format.timing(1700, 1800))
         end)
 
@@ -311,9 +287,7 @@ describe("format", function()
         end)
 
         it("estimates what the flight does not explain", function()
-            -- 7000 - 1600 - 3 round trips of 180 = 4860: mostly DNS, the
-            -- Kindle's TLS work and Wi-Fi loss, but any delay at the edge
-            -- too, so it is not named as any one of them.
+            -- 7000 - 1600 - 3 round trips of 180 = 4860.
             assert.are.equal("7.0s total · 1.6s server · 180 ms to edge · ~4.9s elsewhere",
                 Format.timing(7000, 1600, 180))
         end)
@@ -361,7 +335,6 @@ describe("format", function()
         end)
 
         it("does not light up a different word that merely starts the same", function()
-            -- The reason this is not a substring search.
             assert.are.equal("A fellow crossed the <b>fell</b>.",
                 Format.highlight("A fellow crossed the fell.", { "fell" }))
         end)
@@ -372,8 +345,7 @@ describe("format", function()
         end)
 
         it("takes the tapped form too, for the irregulars", function()
-            -- "left" is never reached from "leave" by adding endings, but the
-            -- reader tapped it, so it is known.
+            -- "left" is unreachable from "leave" by endings, but the reader tapped it.
             assert.is_truthy(Format.highlight("He left early.", { "leave", "left" })
                 :find("<b>left</b>", 1, true))
         end)
@@ -453,8 +425,6 @@ describe("format", function()
         end)
 
         it("names what failed, since it is not only the dictionary any more", function()
-            -- A sync that reports "Lookup failed." sends the reader looking
-            -- in the wrong place.
             assert.are.equal("The sync failed.", Format.error(nil, "The sync failed."))
             assert.are.equal("The update check failed.", Format.error("not a table", "The update check failed."))
         end)

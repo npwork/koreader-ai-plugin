@@ -1,23 +1,8 @@
---[[--
-One Sync: the steps in turn, and one summary of what each did.
-
-Each step is `{ title, run }`. `run()` returns what to say, then optionally
-how many KOReader settings it changed and whether to stop after it:
-
-* nil — the reader dismissed it; nothing more runs, and it says nothing;
-* false — nothing to say: nothing changed, or nothing here for this step;
-* text — said under the step's title.
-
-Only what changed is said; a sync where every step had nothing to say is
-`in_sync`.
-
-A step that failed says so and the next one still runs: the library being
-down is no reason to keep the lookups on the device.
---]]--
+-- run() returns text to say, false when there is nothing to say, or nil when dismissed (nothing
+-- more runs); then optionally the settings changed and whether to stop. A failed step does not stop the rest.
 
 local Sync = {}
 
---- @treturn table `{ text, changed, empty, in_sync }`
 function Sync.run(steps)
     local sections, changed, dismissed = {}, 0, false
     for _, step in ipairs(steps) do

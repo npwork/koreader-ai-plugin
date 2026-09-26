@@ -1,19 +1,7 @@
---[[--
-LRU cache with a TTL, for answers that cost a round trip to get.
-
-The clock is injected so the tests can move time without sleeping, and the
-whole thing serialises to a plain table so it can be handed to LuaSettings.
---]]--
-
 local Cache = {}
 Cache.__index = Cache
 
---[[--
-@param opts table
-  max_entries int   entries kept before the least recently used is dropped
-  ttl         int   seconds an entry stays fresh; 0 means never expires
-  now         func  returns the current time in seconds (defaults to os.time)
---]]--
+-- ttl is in seconds, 0 never expires; now() returns seconds.
 function Cache.new(opts)
     opts = opts or {}
     return setmetatable({
@@ -25,7 +13,7 @@ function Cache.new(opts)
     }, Cache)
 end
 
---- Stable cache key. Case and surrounding whitespace do not create new entries.
+-- Case and surrounding whitespace do not create new entries.
 function Cache.key(...)
     local parts = {}
     for i = 1, select("#", ...) do
@@ -61,7 +49,6 @@ local function expired(self, entry)
     return self.ttl > 0 and (self.now() - entry.stored_at) >= self.ttl
 end
 
---- @treturn value, or nil when absent or stale.
 function Cache:get(key)
     local entry = self.entries[key]
     if not entry then return nil end
@@ -98,7 +85,7 @@ function Cache:count()
     return #self.order
 end
 
---- Drop every stale entry. Returns how many went.
+-- Returns how many were dropped.
 function Cache:prune()
     local dropped = 0
     local keys = {}
@@ -113,7 +100,6 @@ function Cache:prune()
     return dropped
 end
 
---- Serialisable snapshot: plain tables only, safe for LuaSettings.
 function Cache:dump()
     local items = {}
     for _, key in ipairs(self.order) do
@@ -125,7 +111,6 @@ function Cache:dump()
     return items
 end
 
---- Rebuild from a `dump()` snapshot, dropping whatever has since expired.
 function Cache:restore(items)
     self:clear()
     if type(items) ~= "table" then return end

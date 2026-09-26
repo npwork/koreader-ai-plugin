@@ -1,10 +1,5 @@
---[[--
-Turns an API result into the text KOReader puts in a TextViewer.
---]]--
-
 local Format = {}
 
---- Milliseconds as something worth reading on a small screen.
 function Format.duration(ms)
     ms = tonumber(ms)
     if not ms then return "" end
@@ -17,34 +12,9 @@ local FLIGHT_ROUND_TRIPS = 3
 -- Below this the remainder is clock skew and rounding, not something to chase.
 local MIN_REST_MS = 300
 
---[[--
-How long it took, measured twice.
-
-A single number cannot be acted on: three seconds of radio and three seconds
-of model look identical on the screen and want opposite fixes. So both are
-shown — what the device stopwatched from sending the request to holding the
-response, and what the gateway says it spent inside its own handler.
-
-Deliberately two measurements and not three: the gap between them is not one
-thing. It is the Wi-Fi waking, DNS, the handshake, Cloudflare and the flight
-each way, taken off two different clocks on two different machines. Naming it
-"network" would be a claim neither number supports; a reader who wants it can
-subtract, knowing what they have subtracted.
-
-The edge's round trip changes that, a little. A lookup opens a fresh
-connection, so the flight costs about three of them (TCP, TLS 1.3, the
-request itself); what the total has left after the server and those three is
-mostly DNS, the Kindle's own TLS work and Wi-Fi loss, but also whatever
-Cloudflare spent before the Worker started, which nothing here can separate.
-So it is shown as "elsewhere", with a tilde, and only when it is big enough
-to be worth reading; the Network check is what splits it.
-
-@param elapsed_ms number  the whole round trip, as the device measured it
-@param server_ms  number  what the gateway says it spent, when it says
-@param edge_rtt_ms number the device's TCP round trip to Cloudflare's edge, as
-                          the edge measured it, when it says
-@treturn string
---]]--
+-- Device and gateway times are shown, not their difference: that gap is Wi-Fi, DNS, TLS and
+-- Cloudflare off two clocks. What is left after three edge round trips shows as "~ elsewhere"
+-- only when large enough to read. edge_rtt_ms is the edge's measure of the Kindle's TCP RTT.
 function Format.timing(elapsed_ms, server_ms, edge_rtt_ms)
     local total = Format.duration(elapsed_ms)
     if total == "" then return "" end
@@ -65,16 +35,7 @@ function Format.timing(elapsed_ms, server_ms, edge_rtt_ms)
     return text
 end
 
---[[--
-Where the gateway's own time went, longest leg first.
-
-Not a fixed set of names: the gateway answers a lookup one of two ways, and
-which legs it reports is the record of which one it took. A line that named
-three fixed legs would have to lie about the path it did not take.
-
-@param legs table  {{ name = string, ms = number }, ...}
-@treturn string  e.g. "examples 1165ms, sense 731ms"
---]]--
+-- Not a fixed set of names: which legs the gateway reports records which path it took.
 function Format.legs(legs)
     if type(legs) ~= "table" then return "" end
     local parts = {}
@@ -84,30 +45,14 @@ function Format.legs(legs)
     return table.concat(parts, ", ")
 end
 
---- Human-readable one-liner for an `ApiClient` error.
---[[--
-@param err      table|nil  the failure, when there is one to read
-@param fallback string|nil what failed, for when there is not
-
-The fallback is the caller's because this is no longer only the dictionary's:
-the library sync and the update check report through here too, and a sync
-that says "Lookup failed." is a sync that sends the reader looking in the
-wrong place. It is wanted exactly when a subprocess came back with something
-unexpected — which is when a wrong noun costs the most.
---]]--
+-- `fallback` names what failed, for when there is no err to read.
 function Format.error(err, fallback)
     if type(err) ~= "table" then return fallback or "Something went wrong." end
     local message = err.message or "it failed"
     return (message:gsub("^%l", string.upper)) .. "."
 end
 
---[[--
-Text from a model, made safe to put inside markup.
-
-Everything shown comes from a language model, which means a definition may
-legitimately contain `<`, `>` or `&` — explaining "gt", quoting code, naming
-"AT&T". Unescaped, the first of those silently swallows the rest of the entry.
---]]--
+-- Model text may contain `<`, `>` or `&`; unescaped, the first swallows the rest of the entry.
 function Format.escape(text)
     if text == nil then return "" end
     return (tostring(text)
@@ -116,19 +61,8 @@ function Format.escape(text)
         :gsub(">", "&gt;"))
 end
 
---[[--
-The word under discussion, marked wherever it appears in an example.
-
-Not a substring search: the examples carry inflected forms ("strap" is
-illustrated by "strapped"), and matching loosely enough to catch those would
-also light up "fellow" for "fell". So the forms are generated from the
-headword by the endings English actually inflects with, and only whole words
-that land in that set are marked.
-
-It misses the irregulars — "left" is never reached from "leave" — and a miss
-costs nothing but the emphasis. Reaching further would cost a wrong word in
-bold, which is worse than a plain one.
---]]--
+-- Regular endings only, matched as whole words: a looser match would light up "fellow" for
+-- "fell". Irregulars are missed, which costs only the emphasis.
 local SUFFIXES = {
     "", "s", "es", "ed", "d", "ing", "er", "est", "en", "ies", "ied",
 }
@@ -162,18 +96,8 @@ local function inflections_of(form)
     return forms
 end
 
---[[--
-The space between the parts, which is what does the separating.
-
-Not one gap repeated: an even rhythm is exactly what makes an entry read as a
-single block, however many pieces it has. Lines belonging to the same thought
-sit close, and the jump between one thought and the next is large enough to
-see without looking for it — the definition and the examples answer different
-questions, so the widest gap in the entry is the one between them.
-
-In `em`, like every size here, so the whole entry breathes with whatever text
-size the reader has chosen.
---]]--
+-- Uneven on purpose: an even rhythm reads as one block. In em, so the entry follows the
+-- reader's text size.
 local GAP = {
     HEADWORD = "0.1em",   -- to the part of speech: the same thought
     OPENING  = "1.0em",   -- the heading block, to the definition
@@ -183,10 +107,8 @@ local GAP = {
     FOOTER   = "3em",     -- the entry, to the model and timings under it
 }
 
--- The words a dictionary writes in a phrase for whatever fills that slot —
--- "give someone a hand", "make up one's mind" — and the articles. The example
--- says "his" or "her brother", so marking "someone" would mark nothing, and
--- marking "a" or "the" would mark every one in the sentence.
+-- Placeholders a dictionary writes in a phrase ("make up one's mind") and the articles:
+-- marking them would mark nothing, or every one in the sentence.
 local STAND_INS = {
     someone = true, somebody = true, something = true, ["one's"] = true,
     ["someone's"] = true, oneself = true, one = true, sb = true, sth = true,
@@ -197,23 +119,13 @@ local STAND_INS = {
 -- escaping that follows cannot eat them and cannot be fooled by them.
 local OPEN, CLOSE = "\1", "\2"
 
---[[--
-@param text  string  one example sentence, as the model wrote it
-@param words table   the headword and the tapped form
-@treturn string escaped HTML with the word in bold wherever it stands
---]]--
 function Format.highlight(text, words)
     if type(text) ~= "string" then return "" end
 
     local wanted = {}
     for _, word in ipairs(words or {}) do
-        -- A phrase is marked word by word: "curl up" lights up both words of
-        -- "curled up", and the "up" of "gave it up" three words on. Only its
-        -- first word inflects; the endings rule run over "of" or "the" makes
-        -- "offer" and "then", which are not the phrase. The stand-ins and the
-        -- articles are left out: they would light up every "a" in the example.
-        -- A hyphenated word stays whole: "star-studded" is one word of the
-        -- example, and "well-to-do" split up would light every "to" in it.
+        -- A phrase is marked word by word, only its first word inflected (the endings rule
+        -- would make "offer" of "of"), stand-ins left out. A hyphenated word stays whole.
         local parts = {}
         for part in tostring(word):gmatch("%S+") do parts[#parts + 1] = part end
         if #parts == 1 then
@@ -247,7 +159,6 @@ function Format.highlight(text, words)
         :gsub(CLOSE, "</b>"))
 end
 
---- The headword this entry is filed under, and what the reader actually tapped.
 local function headwords(result, opts)
     local tapped = result.word or opts.word or ""
     local headword = result.lemma
@@ -255,28 +166,8 @@ local function headwords(result, opts)
     return headword, tapped
 end
 
---[[--
-The entry, as HTML for a `TextViewer` opened with `text_format = "html"`.
-
-Markup rather than plain text because the parts have different jobs and a wall
-of one typeface makes the reader find them: the headword is what the entry is
-about, the part of speech qualifies it, the definition is the answer, and the
-examples are evidence for it. Numbered rather than bulleted so that "the second
-one" is a thing that can be said.
-
-Sizes are relative, never absolute — the reader has already chosen a comfortable
-size for this screen and the entry should move with it, not argue.
-
-@param result table  an `ApiClient:define` result
-@param opts   table  { word = string, source = "cached"|"prefetch"|nil,
-                       shown = string|nil }
-
-`shown` is a word the window already displays above the entry, as KOReader's
-dictionary popup does. A headword that only repeats it is left out, and its
-pronunciation moves down onto the part-of-speech line; a headword that differs
-("strap" under a popup for "strapped") still leads.
-@treturn string
---]]--
+-- `opts.shown` is a word the window already displays above the entry: a headword that only
+-- repeats it is left out, and its pronunciation moves to the part-of-speech line.
 function Format.result(result, opts)
     opts = opts or {}
     if type(result) ~= "table" then return "" end
@@ -289,8 +180,6 @@ function Format.result(result, opts)
         and Format.escape(result.pronunciation) or nil
 
     if headword ~= "" and not repeats then
-        -- The pronunciation rides on the headword's line, where a dictionary
-        -- puts it: it is how to say *this* word, not a fact about it.
         local head = "<b>" .. Format.escape(headword) .. "</b>"
         if pronunciation then
             head = head .. string.format(' <span style="font-size: 0.7em">%s</span>', pronunciation)
@@ -301,15 +190,12 @@ function Format.result(result, opts)
         )
     end
 
-    -- The part of speech and the tapped form answer the same question —
-    -- "why am I looking at this word?" — so they share a line under it.
     local under = {}
     if repeats and pronunciation then under[#under + 1] = pronunciation end
     if result.part_of_speech and result.part_of_speech ~= "" then
         under[#under + 1] = "<i>" .. Format.escape(result.part_of_speech) .. "</i>"
     end
-    -- Only worth saying when the entry is filed elsewhere than the reader
-    -- tapped: "strap" for "strapped" needs the bridge, "fell" does not.
+    -- Only when filed elsewhere than tapped: "strap" for "strapped".
     if headword ~= "" and tapped ~= "" and tapped:lower() ~= headword:lower() then
         under[#under + 1] = "as “" .. Format.escape(tapped) .. "”"
     end
@@ -320,13 +206,9 @@ function Format.result(result, opts)
         )
     end
 
-    -- `result.translation` is fetched and cached but deliberately not shown:
-    -- how a translation should sit next to an English explanation is still an
-    -- open question.
+    -- `result.translation` is cached but deliberately not shown: where it belongs is undecided.
 
     if result.definition and result.definition ~= "" then
-        -- Slightly larger than everything around it: it is the answer, and
-        -- the examples and the etymology are support for it.
         out[#out + 1] = string.format(
             '<div style="font-size: 1.1em; margin-bottom: ' .. GAP.ANSWER ..
             '">%s</div>', Format.escape(result.definition)
@@ -334,10 +216,7 @@ function Format.result(result, opts)
     end
 
     if type(result.examples) == "table" and #result.examples > 0 then
-        -- Three sources for what to mark, and they cover different gaps: the
-        -- headword and the tapped form are always known, the endings rule
-        -- reaches the regular inflections, and the gateway's `forms` reach the
-        -- ones no rule does — "went" for "go", "mice" for "mouse".
+        -- The gateway's `forms` reach what no rule does: "went" for "go".
         local marks = { headword, tapped }
         if type(result.forms) == "table" then
             for _, form in ipairs(result.forms) do marks[#marks + 1] = form end
@@ -356,10 +235,7 @@ function Format.result(result, opts)
         )
     end
 
-    -- Last, and quieter than the rest: where a word came from is worth reading
-    -- once and never the thing the reader opened this for. Labelled and in
-    -- roman, as the Oxford dictionaries set it: a whole paragraph of italics
-    -- was hard to read, and without the label it passed for another example.
+    -- Labelled and in roman: unlabelled it passes for another example, and italics read poorly at length.
     if type(result.etymology) == "string" and result.etymology ~= "" then
         out[#out + 1] = string.format(
             '<div style="font-size: 0.85em; margin-bottom: ' .. GAP.ASIDE ..
@@ -369,17 +245,7 @@ function Format.result(result, opts)
 
     local footer = {}
     if result.model and result.model ~= "" then footer[#footer + 1] = result.model end
-    -- How the answer got here, and the three cases are genuinely different:
-    --
-    --   cached    it was answered before you asked, and you waited for nothing
-    --   prefetch  it was already on its way when you asked, so you waited less
-    --             than the timings below say
-    --   neither   it was asked when you asked
-    --
-    -- Saying "cached" for the middle one — which is what happened until a
-    -- reader watched a spinner and then read the word "cached" underneath the
-    -- answer — makes it impossible to tell whether the prefetch is doing
-    -- anything at all.
+    -- "prefetch" is not "cached": it was already on its way, so the wait was shorter than the timings say.
     if opts.source == "cached" or opts.source == "prefetch" then
         footer[#footer + 1] = opts.source
     end
@@ -387,8 +253,6 @@ function Format.result(result, opts)
         footer[#footer + 1] = Format.timing(result.elapsed_ms, result.server_ms, result.edge_rtt_ms)
     end
     if #footer > 0 then
-        -- Bookkeeping, not part of the entry: small, and set well apart from
-        -- it so it reads as a note at the bottom of the page.
         out[#out + 1] = string.format(
             '<div style="font-size: 0.65em; margin-top: ' .. GAP.FOOTER .. '">%s</div>',
             Format.escape(table.concat(footer, " · "))
@@ -398,7 +262,6 @@ function Format.result(result, opts)
     return table.concat(out)
 end
 
---- The title bar: the headword, so the top of the entry is a dictionary word.
 function Format.title(result, word)
     local headword = headwords(type(result) == "table" and result or {}, { word = word })
     return headword

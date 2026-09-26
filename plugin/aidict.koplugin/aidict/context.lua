@@ -1,15 +1,5 @@
---[[--
-Text helpers for turning a selection plus its surroundings into the snippet
-that gets sent to the API.
-
-Pure Lua, UTF-8 aware enough for the two things that matter: never cutting a
-multi-byte character in half, and never sending a runaway page of text.
---]]--
-
 local Context = {}
 
---- Collapse runs of whitespace (including the soft hyphens and line breaks
---- that come out of a reflowed document) into single spaces.
 function Context.cleanup(text)
     if type(text) ~= "string" then return "" end
     text = text:gsub("\194\173", "")          -- soft hyphen
@@ -18,7 +8,6 @@ function Context.cleanup(text)
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
---- Number of bytes that make up the UTF-8 sequence starting at `i`.
 local function utf8_seq_len(byte)
     if byte < 0x80 then return 1
     elseif byte >= 0xF0 then return 4
@@ -28,7 +17,6 @@ local function utf8_seq_len(byte)
     return 1 -- continuation byte: treat as its own, callers step past it
 end
 
---- Length of `text` in UTF-8 characters.
 function Context.len(text)
     if type(text) ~= "string" then return 0 end
     local n, i = 0, 1
@@ -39,8 +27,7 @@ function Context.len(text)
     return n
 end
 
---- Truncate to `max_chars` characters, counting UTF-8 characters rather than
---- bytes. `from_end` keeps the tail instead of the head.
+-- Counts UTF-8 characters, not bytes; `from_end` keeps the tail.
 function Context.truncate(text, max_chars, from_end)
     if type(text) ~= "string" or max_chars == nil then return text or "" end
     if max_chars <= 0 then return "" end
@@ -60,22 +47,12 @@ function Context.truncate(text, max_chars, from_end)
     return text:sub(1, offsets[max_chars + 1] - 1)
 end
 
---- True when the selection is a single word rather than a phrase.
 function Context.is_single_word(text)
     text = Context.cleanup(text)
     return text ~= "" and text:find(" ") == nil
 end
 
---[[--
-Build the context snippet sent alongside the word.
-
-@string before   text preceding the selection (may be nil)
-@string word     the selection itself
-@string after    text following the selection (may be nil)
-@int max_chars   budget for the whole snippet, in UTF-8 characters
-@treturn string  cleaned snippet containing the word, or "" when there is no
-                 room or no surrounding text
---]]--
+-- max_chars is in UTF-8 characters, for the whole snippet; "" when there is no room or no surroundings.
 function Context.build(before, word, after, max_chars)
     word = Context.cleanup(word)
     before = Context.cleanup(before)
@@ -91,8 +68,7 @@ function Context.build(before, word, after, max_chars)
         return word
     end
 
-    -- Split what is left evenly, then hand any unused half to the other side.
-    -- The spaces that will join the three parts come out of the budget too.
+    -- Split evenly, handing any unused half to the other side; the joining spaces count too.
     local separators = 0
     if before ~= "" then separators = separators + 1 end
     if after ~= "" then separators = separators + 1 end
@@ -115,26 +91,14 @@ function Context.build(before, word, after, max_chars)
     return Context.cleanup(table.concat(parts, " "))
 end
 
---[[--
-A context window centred on `word` inside `text`.
-
-Used for the sentence KOReader hands back around a selection: the word is
-found in the sentence and the budget is spent evenly on either side of it.
-
-@string text      the sentence, or any surrounding passage
-@string word      the selection
-@int max_chars    budget in UTF-8 characters
-@treturn string
---]]--
+-- max_chars is in UTF-8 characters, spent evenly either side of `word`.
 function Context.snippet(text, word, max_chars)
     text = Context.cleanup(text)
     word = Context.cleanup(word)
     max_chars = max_chars or 0
 
     if max_chars <= 0 or text == "" then return "" end
-    -- A "context" that is only the word itself carries nothing: it happens
-    -- when the document cannot produce a sentence and the selection is all
-    -- there is. Send no context rather than the word twice.
+    -- Happens when the document cannot produce a sentence: send no context rather than the word twice.
     if text:lower() == word:lower() then return "" end
     if Context.len(text) <= max_chars then return text end
 
@@ -148,15 +112,14 @@ function Context.snippet(text, word, max_chars)
     return Context.build(before, text:sub(at, at + #word - 1), after, max_chars)
 end
 
--- Words a full stop follows without ending the sentence. Lower case, without
--- the stop; a single letter (an initial) is handled on its own.
+-- A full stop after these does not end the sentence. Lower case, without the stop; initials are
+-- handled on their own.
 local ABBREVIATIONS = {
     mr = true, mrs = true, ms = true, dr = true, st = true, jr = true, sr = true,
     prof = true, rev = true, gen = true, col = true, capt = true, lt = true,
     vs = true, ["e.g"] = true, ["i.e"] = true, cf = true,
 }
 
---- Byte ranges of the sentences in `text`, in order.
 local function sentence_spans(text)
     local spans, start, i = {}, 1, 1
     while i <= #text do
@@ -166,8 +129,7 @@ local function sentence_spans(text)
         local stop = text:sub(s, s)
         local ends = true
         if stop == "\226" and text:sub(s, s + 2) ~= "\226\128\166" then
-            -- A multi-byte character that is not an ellipsis: a quote or a
-            -- dash, not the end of anything.
+            -- A quote or dash rather than an ellipsis: not the end of anything.
             ends = false
         elseif stop == "." then
             local before = text:sub(start, s - 1):match("([%a%.]+)$") or ""
@@ -183,29 +145,14 @@ local function sentence_spans(text)
     return spans
 end
 
---- Is `at` the start of `word` standing on its own, not inside a longer one?
 local function whole_word(lower, word, at)
     local before = at > 1 and lower:sub(at - 1, at - 1) or " "
     local after = lower:sub(at + #word, at + #word)
     return not before:match("[%w\128-\255]") and not after:match("[%w\128-\255]")
 end
 
---[[--
-The sentence in `paragraph` that holds `word`.
-
-KOReader has nothing that returns it: `extendXPointersToSentenceSegment`, the
-name that promises it, only stretches a selection over the punctuation around
-it, so a tapped word comes back as itself. The paragraph is there already, so
-the sentence is cut out of that.
-
-The first sentence where the word stands on its own wins, then the first that
-merely contains it. A word met twice in one paragraph may get the wrong one of
-the two; the paragraph goes along as the context either way.
-
-@string paragraph  the passage the selection sits in
-@string word       the selection
-@treturn string    the sentence, or "" when the word is not in the paragraph
---]]--
+-- The first sentence where the word stands on its own wins, then the first that merely contains
+-- it; "" when the word is not in the paragraph.
 function Context.sentence(paragraph, word)
     paragraph = Context.cleanup(paragraph)
     word = Context.cleanup(word)

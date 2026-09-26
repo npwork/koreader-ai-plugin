@@ -1,25 +1,9 @@
---[[--
-One look for every book.
-
-KOReader keeps font, size, margins and spacing per book: the bottom menu
-changes the open book only, saved in its sidecar as `<prefix>_<option name>`
-(`copt_font_size`) and `font_face`, and a book without its own value opens
-with the global default, the same key in the reader's settings
-(`copt_font_size`, and `cre_font` for the font).
-
-The plugin makes the look global instead: a book opens with the defaults
-written over its own keys (`book_look`), and a change made in it becomes the
-default (`defaults`, `changed`).
-
-Takes KOReader's own tables rather than requiring them: `options` is the
-reader's config options (`CreOptions`, or `KoptOptions` for PDFs), and
-`configurable` is the open document's current values.
---]]--
+-- KOReader keeps the look per book (sidecar `copt_*` and `font_face`), falling back to globals of
+-- the same key (`cre_font` for the font). The plugin makes it global: defaults overwrite a book's own.
 
 local Look = {}
 
--- Margins and word spacing are tables. The default gets its own copy, so
--- changing this book afterwards cannot reach into it before it is saved.
+-- Margins and word spacing are tables; copied so a later change to the book cannot reach the saved default.
 local function copy(value)
     if type(value) ~= "table" then return value end
     local out = {}
@@ -27,25 +11,12 @@ local function copy(value)
     return out
 end
 
---[[--
-Options that are not part of how a book looks, or not a value at all.
-
-`font_fine_tune` is the ⋮ button's stepper, which KOReader itself refuses to
-make a default; `rotation_mode` is how the Kindle is held.
---]]--
+-- `font_fine_tune` KOReader itself refuses to make a default; `rotation_mode` is how the Kindle is held.
 local SKIP = {
     font_fine_tune = true,
     rotation_mode = true,
 }
 
---[[--
-The global settings to write, in the menu's order.
-
-@param options      table  config options: `{ prefix = "copt", { options = { { name = … }, … } }, … }`
-@param configurable table  option name -> the open book's value
-@param font_face    string|nil the open book's font, for crengine books
-@treturn table list of `{ key = …, value = … }`
---]]--
 function Look.defaults(options, configurable, font_face)
     local out = {}
     local prefix = options.prefix .. "_"
@@ -66,35 +37,17 @@ function Look.defaults(options, configurable, font_face)
     return out
 end
 
---[[--
-Whether a document's look is made global: books read by crengine (EPUB,
-FB2…), whose options are `copt`. A PDF's `kopt` options are its crop, zoom,
-contrast and reflow, which belong to that one scan, so they stay its own.
---]]--
+-- Only crengine books: a PDF's `kopt` options (crop, zoom, contrast) belong to that one scan.
 function Look.is_global(options)
     return type(options) == "table" and options.prefix == "copt"
 end
 
--- What KOReader gives a book it has never opened, for the options it does not
--- fall back to the global default on once the book has been read: without its
--- own `copt_block_rendering_mode`, a book with a `last_xpointer` opens in
--- legacy mode 0 (ReaderTypeset:onReadSettings), a new one in web mode 3.
+-- Without its own copt_block_rendering_mode, a book already read opens in legacy mode 0
+-- (ReaderTypeset:onReadSettings); a new one gets web mode 3.
 local NEW_BOOK = { block_rendering_mode = 3 }
 
---[[--
-The look a book opens with, keyed as its sidecar keeps it: each of its own
-keys with the global default to write over it, or what a new book gets
-when there is no global default, or nil to drop it.
-
-Writing the default in rather than dropping the key matters: KOReader does
-not always fall back to the global value. A book it has opened before and
-that has no `copt_block_rendering_mode` of its own opens in legacy rendering
-(mode 0), which draws margins differently and asks to reload the document.
-
-@param options table config options, as for `defaults`
-@tparam function default reads a global setting by key
-@treturn table list of { key = <sidecar key>, value = <default or nil> }
---]]--
+-- The default is written in rather than the key dropped, since KOReader does not always fall back
+-- (see NEW_BOOK). A nil value means drop the key.
 function Look.book_look(options, default)
     local out = {}
     local prefix = options.prefix .. "_"
@@ -123,14 +76,7 @@ local function same(a, b)
     return true
 end
 
---[[--
-What the reader changed in the book since `seen`, as defaults to save; and
-`seen` brought up to date.
-
-@param seen    table key -> value, the book's look as last seen
-@param current table list of `{ key, value }`, from `defaults`
-@treturn table list of `{ key, value }`
---]]--
+-- Updates `seen` in place.
 function Look.changed(seen, current)
     local out = {}
     for _, entry in ipairs(current) do
