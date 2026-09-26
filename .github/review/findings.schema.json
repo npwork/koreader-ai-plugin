@@ -53,7 +53,7 @@
             "description": "critical: data loss, security hole, broken deploy or prod outage. high: broken feature, wrong result, race. medium: works in the common case, fails in a real edge case. low: minor."
           },
           "score": { "type": "integer", "minimum": 0, "maximum": 10, "description": "Confidence that this is real and worth the time of the author, after verification." },
-          "category": { "type": "string", "enum": ["bug", "security", "convention", "tests", "performance", "drift"] },
+          "category": { "type": "string", "enum": ["bug", "security", "convention", "comments", "tests", "performance", "drift"] },
           "title": { "type": "string", "description": "Short noun phrase naming the defect, at most ten words." },
           "body": { "type": "string", "description": "Markdown. What is wrong, the concrete input or path that triggers it, and what to do. At most five sentences." },
           "evidence": { "type": "string", "description": "Premise, path, verdict: what you read (file:line) that proves it, and what you searched for when claiming something is missing." },

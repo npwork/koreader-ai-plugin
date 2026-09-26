@@ -75,6 +75,12 @@ what gets posted; a bug you never wrote down cannot be posted at all.
   only on a line the PR added or changed, and quote the rule.
 - **Docs and messages.** A README, comment, log or error message the PR adds
   that says something the code does not do.
+- **Comments.** Every comment the PR adds or rewrites, against the root
+  `CLAUDE.md` "Comments" rules: one that restates the code, tells history,
+  repeats a README or `CLAUDE.md`, is commented-out code or a banner, or runs
+  past three lines. Report at most one `comments` finding per file, severity
+  `low`, anchored on the worst one, with the other lines listed in the body;
+  suggest the shorter comment or say to delete it.
 - **Tests.** Does changed behaviour have a test that would fail without the
   change? Does the change reach something the root `CLAUDE.md` says needs a
   suite CI does not run?

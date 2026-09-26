@@ -88,3 +88,20 @@ there are none to save.
   the branch's commit count, filled in at build time. Never write a version
   anywhere else.
 * Delete dead code and dead settings rather than keeping them "just in case".
+
+## Comments
+
+By default, write none. Names, tests and the README say what code does; a
+comment is only for what they cannot:
+
+* **Why, when it is not obvious**: a KOReader or Kindle quirk, a limit
+  outside the code, a choice that looks wrong but is not, a trap the next
+  edit would fall into.
+* **A contract the signature does not show**: units, ownership, an invariant
+  a caller must keep.
+
+Keep it to one line where you can, three at most. Never restate the code,
+tell history ("used to", "since 0.2.70"), repeat the README or this file, or
+leave commented-out code or banner comments. When a change makes a comment
+wrong or pointless, fix or delete it in the same change. The `Review`
+workflow flags added comments that break these rules.
