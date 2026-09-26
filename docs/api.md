@@ -8,8 +8,8 @@ and `/message-watcher` the same way, so `/koreader-ai` is one more mount).
 ## POST `<endpoint>/define`
 
 The address is not written down in this repository: it is injected into the
-package at build time from the `AIDICT_ENDPOINT` secret. The menu does not
-show it or change it; a value typed into an earlier version stays in use. Since 2026-09-22 it is a Cloudflare Worker
+package at build time from the `AIDICT_ENDPOINT` secret, and nothing on the
+device changes it; one typed into an earlier version is dropped at startup. Since 2026-09-22 it is a Cloudflare Worker
 rather than a gateway mount — the same handler, answering at the edge at
 roughly a third of the latency. The library kept its own address, which comes
 only from `AIDICT_LIBRARY_ENDPOINT`: nothing derives one from the other.

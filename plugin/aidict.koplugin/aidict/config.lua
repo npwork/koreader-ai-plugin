@@ -10,9 +10,9 @@ local Config = {}
 Config.DEFAULTS = {
     -- Gateway endpoint. The plugin POSTs to <endpoint>/define.
     -- Empty on purpose: the real address is baked into the package at build
-    -- time (`kpmrepo.py package --endpoint …`, from a CI secret), and can be
-    -- set or changed on the device from the plugin's menu. Nothing here
-    -- commits the address to a public repository.
+    -- time (`kpmrepo.py package --endpoint …`, from the AIDICT_ENDPOINT
+    -- secret), and that is the only place it is set: the device has no field
+    -- for it. Nothing here commits the address to a public repository.
     endpoint = "",
     -- Optional bearer token; empty means the gateway is open to this device.
     api_key = "",
@@ -47,8 +47,8 @@ Config.DEFAULTS = {
 }
 
 --[[--
-Values the package carries that are not settings: the reader sees them in the
-menu and cannot change them.
+Values the package carries that are not settings: the reader cannot see or
+change them.
 
 `library_endpoint` is the library mount's address, written in at package time
 from the AIDICT_LIBRARY_ENDPOINT secret — the public repository carries none.

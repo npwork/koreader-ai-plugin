@@ -7,7 +7,7 @@ describe("settings", function()
         assert.are.equal(Config.DEFAULTS.cache_size, settings:get("cache_size"))
     end)
 
-    it("ships no endpoint — it is baked into the package or set on the device", function()
+    it("ships no endpoint — it is baked into the package", function()
         assert.are.equal("", Config.DEFAULTS.endpoint)
         local settings = helpers.settings()
         assert.are.equal("", settings:get("endpoint"))

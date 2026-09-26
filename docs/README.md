@@ -120,7 +120,6 @@ a new version does — change the secret, rebuild Pages, `;kpm upgrade`.
 It used to be derived from the dictionary's by swapping the last path segment,
 which held while both mounts sat on the same gateway. `/koreader-ai` moved to a
 Cloudflare Worker on 2026-09-22 and the library stayed with the books, so the
-two addresses have nothing to do with each other. The dictionary's is still a
-setting, defaulting to the package's `AIDICT_ENDPOINT`, but the menu no longer
-shows it or lets it be typed in; a value typed into an earlier version stays
-in use.
+two addresses have nothing to do with each other. Both now come only from the
+package: the dictionary's from `AIDICT_ENDPOINT`, and one typed into an
+earlier version is dropped when the plugin starts.

@@ -56,7 +56,9 @@ local json = require("aidict.json")
 -- with Wiktionary's whole etymology and its ɹ, which the cache would
 -- otherwise serve for a month.
 local CACHE_KEY = "entries"
-local DEAD_CACHE_KEYS = { "cache_entries", "answers" }
+-- Old answer caches, and the endpoint earlier versions let the reader type in:
+-- the package's own address is the only one now.
+local DEAD_KEYS = { "cache_entries", "answers", "endpoint" }
 
 --- The plugin's two entries in the main menu: Sync, then everything else inside AI dictionary.
 local SYNC_MENU_ID = "aidict_sync"
@@ -123,6 +125,10 @@ function AiDict:init()
 
     self.store = LuaSettings:open(DataStorage:getSettingsDir() .. "/aidict.lua")
     self.settings = Settings.new(self.store)
+    -- Before the client is built, so a dropped endpoint is not the one it uses.
+    for _, dead in ipairs(DEAD_KEYS) do
+        if self.store:readSetting(dead) ~= nil then self.store:saveSetting(dead, nil) end
+    end
     self.lookup = Lookup.new({
         settings = self.settings,
         transport = http_transport,
@@ -130,9 +136,6 @@ function AiDict:init()
         monotonic = function() return time.to_ms(time.now()) end,
     })
     self.lookup:restore_cache(self.store:readSetting(CACHE_KEY))
-    for _, dead in ipairs(DEAD_CACHE_KEYS) do
-        if self.store:readSetting(dead) ~= nil then self.store:saveSetting(dead, nil) end
-    end
     self.prefetch = Prefetch.new({ settings = self.settings })
     self.prefetch_jobs = {}
     -- AI pages in dictionary popups still waiting for their answer.

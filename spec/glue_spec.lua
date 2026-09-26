@@ -38,11 +38,11 @@ describe("the KOReader layer", function()
     local function build(opts)
         opts = opts or {}
         -- The committed package carries neither address; both are baked in
-        -- at build time. The dictionary's lands in the settings, where the
-        -- reader can change it; the library's is not a setting at all. Give
-        -- the reader both unless the spec is about not having one.
+        -- at build time, the dictionary's as its setting's default and the
+        -- library's as a value that is not a setting at all. Give the reader
+        -- both unless the spec is about not having one.
         local settings = {}
-        if not opts.no_endpoint then settings.endpoint = helpers.ENDPOINT end
+        Config.DEFAULTS.endpoint = opts.no_endpoint and "" or helpers.ENDPOINT
         Config.BAKED.library_endpoint = opts.no_library_endpoint and "" or helpers.LIBRARY_ENDPOINT
         for key, value in pairs(opts.settings or {}) do settings[key] = value end
 
@@ -100,6 +100,7 @@ describe("the KOReader layer", function()
     after_each(function()
         koreader.uninstall()
         Config.BAKED.library_endpoint = ""
+        Config.DEFAULTS.endpoint = ""
     end)
 
     describe("registration", function()
@@ -1044,6 +1045,16 @@ describe("the KOReader layer", function()
 
         -- The addresses and the books folder come with the package, from its
         -- build secrets; the menu has no line for them.
+        -- Earlier versions let the reader type an endpoint in; with no field
+        -- left to change it, a saved one would win for good.
+        it("drops an endpoint saved on the device for the package's own", function()
+            build({ settings = { endpoint = "https://stale.test/ai" } })
+
+            assert.is_nil(kor.store.data.endpoint)
+            tap_highlight_button()
+            assert.are.equal(helpers.ENDPOINT .. "/define", kor.transport.requests[1].url)
+        end)
+
         it("shows no address and no books folder", function()
             build()
             assert.is_nil(menu_item("Endpoint"))
