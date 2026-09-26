@@ -95,11 +95,11 @@ There was one until 2026-09-22, because the library's address was the
 dictionary's with the last path segment swapped and both mounts sat on the
 same gateway. `/koreader-ai` moved to a Cloudflare Worker and the library
 stayed with the books, so the old rule produced `https://koreader-library` —
-an address that is not one. They are set separately now, and they are not
-set the same way on the device: the dictionary's lands in the settings as a
-default the reader can overwrite, while the library's is read straight from the
-package and only shown. Changing `AIDICT_LIBRARY_ENDPOINT` takes effect on the
-Kindle after the next release and `;kpm upgrade`. Dispatching `pages.yml` on
+an address that is not one. They are two separate secrets now. Neither is a setting on the device any more: both are read
+straight from the package, and an address typed into an earlier version is
+dropped when the plugin starts. Changing either secret takes effect on the
+Kindle after the next release, taken from the offer at the end of Sync.
+Dispatching `pages.yml` on
 `main` rebuilds with the new value but not with a new version — the patch is
 the commit count — so a Kindle already on that version has nothing to upgrade
 to. The change reaches it with the next merged PR.
