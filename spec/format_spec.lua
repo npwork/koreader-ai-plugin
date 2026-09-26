@@ -390,6 +390,11 @@ describe("format", function()
                 Format.highlight("She gave it up.", { "give up", "gave" }))
         end)
 
+        it("marks a hyphenated word as a whole", function()
+            assert.are.equal("A <b>star</b>-<b>studded</b> premiere.",
+                Format.highlight("A star-studded premiere.", { "star-studded" }))
+        end)
+
         it("leaves the stand-in words of a phrase unmarked", function()
             assert.are.equal("He <b>made</b> <b>up</b> his <b>mind</b>.",
                 Format.highlight("He made up his mind.", { "make up one's mind", "made" }))

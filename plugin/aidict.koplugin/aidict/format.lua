@@ -213,7 +213,9 @@ function Format.highlight(text, words)
         -- "offer" and "then", which are not the phrase. The stand-ins and the
         -- articles are left out: they would light up every "a" in the example.
         local parts = {}
-        for part in tostring(word):gmatch("[^%s]+") do parts[#parts + 1] = part end
+        -- A hyphen splits too: the examples are read a word at a time, and
+        -- "star-studded" reaches them as "star" and "studded".
+        for part in tostring(word):gmatch("[^%s%-]+") do parts[#parts + 1] = part end
         if #parts == 1 then
             for form in pairs(inflections_of(parts[1])) do wanted[form] = true end
         else
