@@ -32,6 +32,7 @@ local NetCheck = require("aidict.netcheck")
 local Lookup = require("aidict.lookup")
 local Page = require("aidict.page")
 local Prefetch = require("aidict.prefetch")
+local Battery = require("aidict.battery")
 local RemoteSettings = require("aidict.remote_settings")
 local Settings = require("aidict.settings")
 local Sync = require("aidict.sync")
@@ -82,6 +83,48 @@ local function canAsk()
     return NetworkMgr:isConnected()
 end
 
+local function deviceBattery()
+    local known = { wifi = NetworkMgr.isWifiOn and NetworkMgr:isWifiOn() or false, online = canAsk() }
+    local powerd = Device.getPowerDevice and Device:getPowerDevice()
+    if powerd then
+        known.pct = powerd:getCapacity()
+        known.charging = powerd:isCharging()
+        known.fl = powerd:isFrontlightOn() and powerd:frontlightIntensity() or 0
+    end
+    return known
+end
+
+local sysfs = {
+    list = function(dir)
+        local names = {}
+        for name in require("libs/libkoreader-lfs").dir(dir) do
+            if name ~= "." and name ~= ".." then names[#names + 1] = name end
+        end
+        return names
+    end,
+    read = function(path)
+        local file = io.open(path, "r")
+        if not file then return nil end
+        local text = file:read("*a")
+        file:close()
+        return text
+    end,
+}
+
+-- One per KOReader run, shared by the FileManager's and each book's instance, so neither
+-- flushes a stale copy over the other's entries.
+local battery
+local function batteryLog()
+    if not battery then
+        battery = Battery.new({
+            store = LuaSettings:open(DataStorage:getSettingsDir() .. "/aidict_battery.lua"),
+            device = deviceBattery,
+            fs = sysfs,
+        })
+    end
+    return battery
+end
+
 local AiDict = WidgetContainer:extend{
     name = "aidict",
 }
@@ -106,6 +149,8 @@ function AiDict:init()
     self.prefetch = Prefetch.new({ settings = self.settings })
     self.prefetch_jobs = {}
     self.ai_pages = {}
+    self.battery = batteryLog()
+    self.battery:probe(Version.string)
     -- A field so a spec can move the clock past the give-up deadline.
     self.now = os.time
 
@@ -179,6 +224,8 @@ function AiDict:startPrefetch(request, key)
         -- Shorter than the HTTP timeouts, and the backstop for a wedged subprocess
         -- (e.g. stuck resolving a name), which no socket timeout covers.
         deadline = self.now() + Page.PATIENCE,
+        started_ms = time.to_ms(time.now()),
+        readings = {},
     }
     self.prefetch_jobs[key] = job
     self:pollPrefetch(job)
@@ -190,6 +237,7 @@ function AiDict:pollPrefetch(job)
         -- The document may have closed under it, taking the job with it.
         if self.prefetch_jobs[job.key] ~= job then return end
         local ffiutil = require("ffi/util")
+        job.readings[#job.readings + 1] = self.battery:current()
 
         local readable = job.fd and ffiutil.getNonBlockingReadSize(job.fd) ~= 0
         local finished = ffiutil.isSubProcessDone(job.pid)
@@ -227,6 +275,7 @@ end
 function AiDict:finishPrefetch(job, raw, why, failed)
     self.prefetch_jobs[job.key] = nil
     self.prefetch:ended(job.key)
+    self:recordLookup(job, raw)
 
     if not raw or raw == "" then
         logger.warn(string.format("aidict: fetching %s ahead came to nothing (%s)",
@@ -259,6 +308,18 @@ function AiDict:finishPrefetch(job, raw, why, failed)
     self:fillPages(job.key, outcome)
 end
 
+function AiDict:recordLookup(job, raw)
+    local decoded, outcome = pcall(json.decode, raw or "")
+    if not (decoded and type(outcome) == "table") then outcome = {} end
+    self.battery:record("lookup", {
+        how = "ahead",
+        ms = time.to_ms(time.now()) - job.started_ms,
+        ok = outcome.ok == true,
+        server_ms = type(outcome.result) == "table" and outcome.result.server_ms or nil,
+        draw = Battery.draw(job.readings),
+    })
+end
+
 function AiDict:stopPrefetching()
     if not self.prefetch_jobs then return end
     local ffiutil = require("ffi/util")
@@ -275,11 +336,39 @@ function AiDict:onCloseDocument()
     self:keepLookGlobal()
     self:stopPrefetching()
     self:saveCache()
+    self.battery:record("close")
+    self.battery:save()
+end
+
+function AiDict:onReaderReady()
+    self.battery:record("open")
+end
+
+function AiDict:onPageUpdate()
+    self.battery:turned()
+end
+
+function AiDict:onSuspend()
+    self.battery:record("suspend")
+    self.battery:save()
+end
+
+function AiDict:onResume()
+    self.battery:record("resume")
+end
+
+function AiDict:onCharging()
+    self.battery:record("charging")
+end
+
+function AiDict:onNotCharging()
+    self.battery:record("unplugged")
 end
 
 function AiDict:onFlushSettings()
     self:keepLookGlobal()
     self:saveCache()
+    self.battery:save()
     -- KOReader keeps no time for a setting's change; this save is the nearest, and Sync needs one.
     RemoteSettings.notice(G_reader_settings.data, self.store, json, os.time())
 end
@@ -557,9 +646,15 @@ function AiDict:askNow(request)
     end
 
     Trapper:wrap(function()
+        local started_ms = time.to_ms(time.now())
         local completed, outcome = Trapper:dismissableRunInSubprocess(function()
             return self.lookup:fetch(request)
         end, T(_("Asking AI about “%1”…"), word))
+        self.battery:record("lookup", {
+            how = "asked",
+            ms = time.to_ms(time.now()) - started_ms,
+            ok = type(outcome) == "table" and outcome.ok == true,
+        })
 
         if not completed then
             logger.info(string.format("aidict: %s dismissed by the reader", word))
@@ -1056,11 +1151,13 @@ function AiDict:exchange(endpoint)
         return raw
     end
 
+    self.battery:record("sync")
+    local battery_sent = self.battery:pending()
     local result, err = remote:sync(G_reader_settings, {
         outbox = self.store,
         offload = offload,
         now = os.time,
-        ask = { plugin_version = Version.string, channel = self.settings:get("channel") },
+        ask = { plugin_version = Version.string, channel = self.settings:get("channel"), battery = battery_sent },
         also = function(answer)
             local report, library_err = library:sync(dir, answer.manifest, { index = index })
             return { ok = report ~= nil, report = report, err = library_err }
@@ -1070,6 +1167,8 @@ function AiDict:exchange(endpoint)
     if not result then
         return { library = Format.error(err, _("The sync failed.")), settings = false, changed = 0 }
     end
+    self.battery:delivered(battery_sent)
+    self.battery:save()
     logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
         #result.applied, tostring(result.reported),
         result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))

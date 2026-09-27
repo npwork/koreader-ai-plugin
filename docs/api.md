@@ -290,7 +290,11 @@ and no listing credential on a Kindle.
   "changed_at": { "cre_font": 1789999000 },
   "log": [{ "n": 12, "at": 1789999000, "source": "kindle", "key": "cre_font", "value": "Literata" }],
   "plugin_version": "0.2.82",
-  "channel": "stable"
+  "channel": "stable",
+  "battery": [{ "n": 40, "at": 1789999500, "event": "lookup", "pages": 3, "pct": 81, "charging": false,
+    "wifi": true, "online": true, "fl": 12, "how": "ahead", "ms": 2140, "ok": true,
+    "draw": { "mean": -210000, "peak": -380000, "n": 4 },
+    "ps": { "bd71827_bat": { "status": "Discharging", "capacity": 81, "current_now": -45000 } } }]
 }
 ```
 
@@ -298,6 +302,16 @@ and no listing credential on a Kindle.
 them. `now` is the device clock, so the gateway can shift `changed_at` to its
 own. `log` is every change since the last one the gateway took. The gateway
 plans against the copy it held before, then keeps `values` as the new copy.
+
+`battery` is the battery log since the last Sync that got an answer, oldest
+first; the gateway writes each entry as a log line and keeps nothing. An entry
+is written at `suspend`, `resume`, `charging`, `unplugged`, a book's `open`
+and `close`, each AI `lookup` (`how` is `ahead` for the popup's page or
+`asked` from the highlight menu, `draw` the current read every half second
+while it ran), `sync`, and a `reading` every ten minutes of page turns;
+`pages` counts turns since the previous entry. `ps` is the kernel's
+`/sys/class/power_supply/*/uevent`, raw units; the `probe` entry, once per
+plugin version, carries all of it.
 
 ```json
 {
