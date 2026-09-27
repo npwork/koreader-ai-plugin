@@ -24,10 +24,10 @@ The whole loop is the agent's work, not Nick's:
    a copy of the reviewer in `ai-small-projects`: Claude Code on Nick's
    subscription) posts as `github-actions[bot]` when the PR is opened, about a
    minute later: one review with inline comments and one "AI review" summary.
-   It is required: a PR does not merge until that summary is posted. If the
-   run fails or times out, dispatch it again (`review.yml` with
-   `pr: <number>`) and wait; if the second run fails too, say so in the
-   thread and ask Nick before merging. Greptile is optional: answer its
+   It is required: a PR does not merge until a completed summary is posted.
+   If the run fails, times out, or its summary says "did not complete",
+   dispatch it again (`review.yml` with `pr: <number>`) and wait; if the
+   second run fails too, say so in the thread and ask Nick before merging. Greptile is optional: answer its
    comments when it posts, and ignore it while its free credits are spent.
 5. **Answer every comment, in one round.** Fix the ones you agree with **and
    can confirm**: reproduced, or traced to the line that proves it. A comment
