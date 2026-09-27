@@ -750,6 +750,23 @@ describe("the KOReader layer", function()
             assert.is_true(#saved > 0)
         end)
 
+        it("puts each lookup in the battery log, with how long it took", function()
+            prefetching()
+            plugin:onWordLookedUp("fox")
+            tap_highlight_button()
+            plugin:explain({ word = "hound", context = "a hound", sentence = "a hound", request_id = "x" })
+
+            local lookups = {}
+            for _, entry in ipairs(kor.stores["aidict_battery.lua"].data.entries) do
+                if entry.event == "lookup" then lookups[#lookups + 1] = entry end
+            end
+            assert.are.equal(2, #lookups)
+            assert.are.equal("ahead", lookups[1].how)
+            assert.is_true(lookups[1].ok)
+            assert.are.equal("number", type(lookups[1].ms))
+            assert.are.equal("asked", lookups[2].how)
+        end)
+
         it("never swallows the event — the dictionary wanted it", function()
             prefetching()
             assert.is_false(plugin:onWordLookedUp("fox"))
@@ -1112,6 +1129,29 @@ describe("the KOReader layer", function()
                 assert.are.equal("number", type(request.changed_at.copt_font_size))
                 assert.are.equal(Version.string, request.plugin_version)
                 assert.are.equal("stable", request.channel)
+            end)
+
+            it("sends the battery log and keeps none of what was delivered", function()
+                build({ responses = { synced() } })
+                plugin:onSuspend()
+                plugin:onResume()
+
+                menu_item("Sync").callback()
+
+                local request = helpers.json.decode(kor.transport.requests[1].body)
+                local events = {}
+                for _, entry in ipairs(request.battery) do events[#events + 1] = entry.event end
+                assert.are.same({ "probe", "suspend", "resume", "sync" }, events)
+                assert.are.same({}, kor.stores["aidict_battery.lua"].data.entries)
+            end)
+
+            it("keeps the battery log for the next Sync when this one fails", function()
+                build({ responses = { { err = "timeout" } } })
+                plugin:onSuspend()
+
+                menu_item("Sync").callback()
+
+                assert.are.equal(3, #kor.stores["aidict_battery.lua"].data.entries)
             end)
 
             it("says only that everything is in sync when nothing changed, in one request", function()
