@@ -96,7 +96,16 @@ function Battery:record(event, extra)
     list[#list + 1] = entry
     while #list > Battery.MAX do table.remove(list, 1) end
     self.store:saveSetting(Battery.KEY, list)
+    self.dirty = true
     return entry
+end
+
+-- KOReader flushes settings every few minutes; this writes the file only when there is news.
+function Battery:save()
+    if not self.dirty then return false end
+    self.store:flush()
+    self.dirty = false
+    return true
 end
 
 -- Per page turn: counts it, and records a reading once EVERY seconds have gone by.
@@ -130,6 +139,7 @@ function Battery:delivered(sent)
         if (tonumber(entry.n) or 0) > through then left[#left + 1] = entry else dropped = dropped + 1 end
     end
     self.store:saveSetting(Battery.KEY, left)
+    self.dirty = true
     return dropped
 end
 

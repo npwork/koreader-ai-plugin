@@ -337,7 +337,7 @@ function AiDict:onCloseDocument()
     self:stopPrefetching()
     self:saveCache()
     self.battery:record("close")
-    self.battery.store:flush()
+    self.battery:save()
 end
 
 function AiDict:onReaderReady()
@@ -350,7 +350,7 @@ end
 
 function AiDict:onSuspend()
     self.battery:record("suspend")
-    self.battery.store:flush()
+    self.battery:save()
 end
 
 function AiDict:onResume()
@@ -368,6 +368,7 @@ end
 function AiDict:onFlushSettings()
     self:keepLookGlobal()
     self:saveCache()
+    self.battery:save()
     -- KOReader keeps no time for a setting's change; this save is the nearest, and Sync needs one.
     RemoteSettings.notice(G_reader_settings.data, self.store, json, os.time())
 end
@@ -1167,7 +1168,7 @@ function AiDict:exchange(endpoint)
         return { library = Format.error(err, _("The sync failed.")), settings = false, changed = 0 }
     end
     self.battery:delivered(battery_sent)
-    self.battery.store:flush()
+    self.battery:save()
     logger.info(string.format("aidict: settings sync — %d applied, reported: %s%s",
         #result.applied, tostring(result.reported),
         result.report_error and (" (" .. tostring(result.report_error.message) .. ")") or ""))
