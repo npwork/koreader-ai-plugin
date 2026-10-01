@@ -42,7 +42,8 @@ The whole loop is the agent's work, not Nick's:
 - **`skip ci` turns all of it off.** A PR whose title starts with `skip ci`
   (any case; a direct commit: its message) runs no `ci`, smoke, `Review` or
   Pages release, on the PR and on its merge, and merges once the agent is
-  done with it. Only for changes nothing runs or ships: docs and text outside
+  done with it. Squash-merge it with the PR title as the commit title: left
+  to itself, GitHub titles a one-commit PR's squash with that commit's message. Only for changes nothing runs or ships: docs and text outside
   `plugin/`. Anywhere but the start it does nothing.
 - Red CI is work, now. Never merge red.
 - Committing straight to `main` is for when Nick asks for it, and nothing else.

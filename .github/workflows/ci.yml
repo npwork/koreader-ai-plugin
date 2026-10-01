@@ -9,7 +9,7 @@ on:
 
 jobs:
   test:
-    # A PR's title becomes its squash commit's first line, so the PR run and the merge to main agree.
+    # A PR's title decides on the PR, the commit's first line on a push; a squash merge titled after the PR keeps them in step.
     if: ${{ !startsWith(github.event.pull_request.title || github.event.head_commit.message, 'skip ci') }}
     runs-on: ubuntu-latest
     steps:
