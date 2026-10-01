@@ -4,6 +4,11 @@ name: koreader smoke
 
 on:
   push:
+    branches: [main, dev]
+    paths:
+      - "plugin/**"
+      - ".github/workflows/koreader-smoke.yml"
+  pull_request:
     paths:
       - "plugin/**"
       - ".github/workflows/koreader-smoke.yml"

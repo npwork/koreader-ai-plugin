@@ -87,10 +87,10 @@ Budget 40–60 minutes for the first build on four cores, and a few GB of disk.
 
 GitHub runners have unrestricted network access, so that is where the plugin
 meets a real KOReader today. `.github/workflows/koreader-smoke.yml` downloads
-the latest KOReader release, extracts the AppImage, copies
+the latest stable KOReader release, extracts the AppImage, copies
 `plugin/aidict.koplugin` into its `plugins/` directory, starts it under `Xvfb`
 on a sample document, and fails unless the log says the plugin loaded and says
-nothing about it erroring. It runs on every push that touches `plugin/`, takes
+nothing about it erroring. It runs on every PR and every push to `main` or `dev` that touches `plugin/`, takes
 a couple of minutes, and needs no KOReader build.
 
 That covers "does real KOReader accept this plugin". It does not cover tapping

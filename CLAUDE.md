@@ -82,7 +82,7 @@ puts it on the Kindle. CI is the second opinion, never the first.
 * `make check-all` adds the real KPM over real HTTP, worth it when the change
   touches packaging, `scripts/` or the manifest.
 * Nothing local loads the plugin into KOReader. The `koreader smoke` workflow
-  does that on the PR's push, and `docs/emulator.md` says what to change to run one
+  does that on the PR, and `docs/emulator.md` says what to change to run one
   here — and what only the physical Kindle can answer.
 
 Unlike `ai-small-projects`, this repo is public, so its Actions minutes are
