@@ -39,6 +39,12 @@ The whole loop is the agent's work, not Nick's:
    smoke test are green on the commit you are merging, squash-merge into
    `main`. That merge is the release; Nick does not press the button.
 
+- **`skip ci` turns all of it off.** A PR whose title starts with `skip ci`
+  (any case; a direct commit: its message) runs no `ci`, smoke, `Review` or
+  Pages release, on the PR and on its merge, and merges once the agent is
+  done with it. Squash-merge it with the PR title as the commit title: left
+  to itself, GitHub titles a one-commit PR's squash with that commit's message. Only for changes nothing runs or ships: docs and text outside
+  `plugin/`. Anywhere but the start it does nothing.
 - Red CI is work, now. Never merge red.
 - Committing straight to `main` is for when Nick asks for it, and nothing else.
 - One PR per chunk of work, opened when the chunk is finished.
@@ -76,7 +82,7 @@ puts it on the Kindle. CI is the second opinion, never the first.
 * `make check-all` adds the real KPM over real HTTP, worth it when the change
   touches packaging, `scripts/` or the manifest.
 * Nothing local loads the plugin into KOReader. The `koreader smoke` workflow
-  does that on the PR's push, and `docs/emulator.md` says what to change to run one
+  does that on the PR, and `docs/emulator.md` says what to change to run one
   here — and what only the physical Kindle can answer.
 
 Unlike `ai-small-projects`, this repo is public, so its Actions minutes are

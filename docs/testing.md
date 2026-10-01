@@ -83,8 +83,8 @@ It runs entirely in `.kpm/sandbox`; nothing goes near `/mnt/us`.
 
 ## 5. A real KOReader — `.github/workflows/koreader-smoke.yml`
 
-On every push that touches `plugin/`, a GitHub runner downloads the latest
-KOReader release, drops the plugin into it, and starts it headlessly under
+On every PR and every push to `main` or `dev` that touches `plugin/`, a
+GitHub runner downloads the latest stable KOReader release, drops the plugin into it, and starts it headlessly under
 `Xvfb`. The run fails unless KOReader's own log says `Plugin loaded aidict`
 and says nothing about it erroring.
 
