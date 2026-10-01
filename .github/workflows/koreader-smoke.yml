@@ -33,13 +33,14 @@ jobs:
         run: |
           set -x
           if [ -z "${TAG}" ]; then
-            TAG="$(gh release list --repo koreader/koreader --limit 1 --json tagName --jq '.[0].tagName')"
+            # The newest release can be "ota", the nightly, with several AppImages; take the latest stable one.
+            TAG="$(gh release view --repo koreader/koreader --json tagName --jq .tagName)"
           fi
           echo "Testing against KOReader ${TAG}"
           gh release download "${TAG}" --repo koreader/koreader --pattern '*x86_64*.AppImage' --dir .
           chmod +x ./*.AppImage
           ./*.AppImage --appimage-extract >/dev/null
-          find squashfs-root -name reader.lua
+          find squashfs-root -name reader.lua | grep .
 
       - name: Install the plugin into it
         run: |
