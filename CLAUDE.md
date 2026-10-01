@@ -39,6 +39,11 @@ The whole loop is the agent's work, not Nick's:
    smoke test are green on the commit you are merging, squash-merge into
    `main`. That merge is the release; Nick does not press the button.
 
+- **`skip ci` turns all of it off.** A PR whose title starts with `skip ci`
+  (any case; a direct commit: its message) runs no `ci`, smoke, `Review` or
+  Pages release, on the PR and on its merge, and merges once the agent is
+  done with it. Only for changes nothing runs or ships: docs and text outside
+  `plugin/`. Anywhere but the start it does nothing.
 - Red CI is work, now. Never merge red.
 - Committing straight to `main` is for when Nick asks for it, and nothing else.
 - One PR per chunk of work, opened when the chunk is finished.

@@ -15,6 +15,7 @@ on:
 
 jobs:
   smoke:
+    if: ${{ !startsWith(github.event.pull_request.title || github.event.head_commit.message, 'skip ci') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

@@ -9,6 +9,8 @@ on:
 
 jobs:
   test:
+    # A PR's title becomes its squash commit's first line, so the PR run and the merge to main agree.
+    if: ${{ !startsWith(github.event.pull_request.title || github.event.head_commit.message, 'skip ci') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

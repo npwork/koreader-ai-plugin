@@ -28,6 +28,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (!github.event.pull_request.draft &&
+       !startsWith(github.event.pull_request.title, 'skip ci') &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     env:
