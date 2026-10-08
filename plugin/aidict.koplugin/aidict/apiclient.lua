@@ -171,6 +171,17 @@ function ApiClient:define(request)
     if not decode_ok or type(decoded) ~= "table" then
         return fail(ApiClient.ERRORS.BAD_RESPONSE, "the gateway sent something that is not JSON")
     end
+    if decoded.misclick == true then
+        return {
+            word = type(decoded.word) == "string" and decoded.word or request.word,
+            misclick = true,
+            examples = {},
+            forms = {},
+            elapsed_ms = elapsed_ms,
+            request_id = request_id,
+            cf_ray = cf_ray,
+        }
+    end
     if type(decoded.definition) ~= "string" or decoded.definition == "" then
         local message = self:_error_message(response.body)
         return fail(ApiClient.ERRORS.BAD_RESPONSE, message or "the gateway sent no definition")

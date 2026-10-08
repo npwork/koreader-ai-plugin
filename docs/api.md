@@ -113,8 +113,14 @@ seconds against about one.
 The device is told which happened by `timing.legs`, and nothing else in the
 response changes shape.
 
-`definition` and `examples` are **English**. Only `definition` is required — a
-200 without a non-empty one is treated as a broken answer. `examples` is the
+A grammar word tapped on its own (the gateway's list: articles, pronouns,
+conjunctions, forms of "be", common prepositions), outside any phrase the
+sentence holds, is taken for a misclick: the gateway asks no model, files
+nothing to Words, and answers `{"word": "the", "misclick": true, "definition": "", "examples": []}`.
+The device then opens the ordinary dictionary instead of the AI page.
+
+`definition` and `examples` are **English**. Unless `misclick` is set, `definition`
+is required — a 200 without a non-empty one is treated as a broken answer. `examples` is the
 field the device is designed around: three short ones render well on a 600×800
 screen; entries that are not non-empty strings are dropped.
 

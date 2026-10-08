@@ -465,7 +465,8 @@ function AiDict:fillPages(key, outcome)
                 local landed = Page.landed(outcome)
                 popup.results[index] = Page.entry(page.word, landed)
                 if popup.dict_index == index and popup.changeDictionary then
-                    local instead = landed.kind == "failed" and Page.instead(popup.results, index)
+                    local away = landed.kind == "failed" or landed.result.misclick
+                    local instead = away and Page.instead(popup.results, index)
                     if instead then
                         logger.info("aidict: no AI answer for", page.word, "; showing the dictionary")
                     end

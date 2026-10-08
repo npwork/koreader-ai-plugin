@@ -23,6 +23,8 @@ end
 -- why (Prefetch:wanted's reason). Nil means no page at all.
 function Page.opening(opts)
     opts = opts or {}
+    -- A misclick's popup is the ordinary dictionary, as if AI were not there.
+    if opts.cached and opts.cached.misclick then return nil end
     if opts.cached then
         -- An answer that beat the dictionary to the screen was still asked now: not "cached".
         return { kind = "answer", result = opts.cached, source = not opts.fresh and "cached" or nil }
