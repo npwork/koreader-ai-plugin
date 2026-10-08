@@ -11,6 +11,13 @@ describe("format", function()
             assert.is_true(text:find("<b>fox</b>", 1, true) < text:find("A wild animal.", 1, true))
         end)
 
+        it("says a misclick was not sent to AI, and nothing else", function()
+            local text = Format.result({ word = "the", misclick = true, examples = {} })
+            assert.is_truthy(text:find("misclick", 1, true))
+            assert.is_truthy(text:find("“the”", 1, true))
+            assert.is_nil(text:find("<b>", 1, true))
+        end)
+
         it("files the entry under the headword, not the form that was tapped", function()
             local text = Format.result({
                 lemma = "strap", word = "strapped", part_of_speech = "verb",

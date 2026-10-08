@@ -171,6 +171,11 @@ end
 function Format.result(result, opts)
     opts = opts or {}
     if type(result) ~= "table" then return "" end
+    if result.misclick then
+        return '<div style="font-style: italic">Looks like a misclick: “' ..
+            Format.escape(result.word or opts.word or "") ..
+            '” is a grammar word, so AI was not asked.</div>'
+    end
 
     local out = {}
     local headword, tapped = headwords(result, opts)

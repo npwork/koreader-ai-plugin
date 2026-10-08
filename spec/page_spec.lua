@@ -29,6 +29,10 @@ describe("the AI page", function()
             assert.are.equal("busy", Page.opening({ why = Prefetch.SKIP.BUSY }).kind)
         end)
 
+        it("is not there for a word already known to be a misclick", function()
+            assert.is_nil(Page.opening({ cached = { word = "the", misclick = true } }))
+        end)
+
         it("is not there at all offline or unconfigured", function()
             assert.is_nil(Page.opening({ why = Prefetch.SKIP.OFFLINE }))
             assert.is_nil(Page.opening({ why = Prefetch.SKIP.NOT_CONFIGURED }))

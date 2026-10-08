@@ -318,6 +318,15 @@ describe("api client", function()
             assert.are.equal(ApiClient.ERRORS.BAD_RESPONSE, err.code)
         end)
 
+        it("takes a misclick for an answer, with no definition", function()
+            local tr = helpers.transport({
+                { status = 200, body = helpers.body({ word = "the", definition = "", misclick = true }) },
+            })
+            local result = client(tr):define({ word = "the" })
+            assert.is_true(result.misclick)
+            assert.are.equal("the", result.word)
+        end)
+
         it("rejects an empty definition", function()
             local tr = helpers.transport({
                 { status = 200, body = helpers.body({ definition = "" }) },
