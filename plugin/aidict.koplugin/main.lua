@@ -541,10 +541,13 @@ function AiDict:requestFor(word, highlight)
 
     local context, sentence = self:contextFor(highlight, word)
     local props = self:bookProps()
+    local selected = highlight and highlight.selected_text
     return {
         word = word,
         context = context or "",
         sentence = sentence or "",
+        -- Where the tap was, so the Words app counts a second tap at one place once.
+        locator = selected and type(selected.pos0) == "string" and selected.pos0 or "",
         title = props.title,
         author = props.author,
         source_lang = props.source_lang,
