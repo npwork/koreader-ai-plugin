@@ -129,6 +129,20 @@ describe("lookup", function()
         assert.are.equal("a sentence", sent.sentence)
     end)
 
+    it("sends where the tap was, and nothing when it is unknown", function()
+        local tr = helpers.transport({
+            { status = 200, body = GOOD_BODY },
+            { status = 200, body = GOOD_BODY },
+        })
+        local l = lookup(tr)
+        ask(l, { word = "fox", context = "one", locator = "/body/DocFragment[3]/body/p[17]/text().42" })
+        ask(l, { word = "fox", context = "two", locator = "" })
+
+        assert.are.equal("/body/DocFragment[3]/body/p[17]/text().42",
+            helpers.json.decode(tr.requests[1].body).locator)
+        assert.is_nil(helpers.json.decode(tr.requests[2].body).locator)
+    end)
+
     it("picks up a changed endpoint after reload", function()
         local tr = helpers.transport({ { status = 200, body = GOOD_BODY } })
         local settings = helpers.settings({ endpoint = helpers.ENDPOINT })

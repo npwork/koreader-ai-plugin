@@ -66,6 +66,7 @@ function Lookup:fetch(request)
         word = word,
         context = Context.cleanup(request.context),
         sentence = Context.cleanup(request.sentence),
+        locator = request.locator,
         source_lang = request.source_lang,
         title = request.title,
         author = request.author,

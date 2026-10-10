@@ -94,6 +94,7 @@ function ApiClient:define(request)
         word = request.word,
         context = request.context ~= "" and request.context or nil,
         sentence = request.sentence ~= "" and request.sentence or nil,
+        locator = type(request.locator) == "string" and request.locator ~= "" and request.locator or nil,
         source_lang = request.source_lang,
         title = request.title,
         author = request.author,
