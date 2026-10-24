@@ -36,6 +36,9 @@ and are not in this repository, and the key is typed in on the device.
 
 ## Layout
 
+For the paired Bluetooth remote, see [Beauty-R1 clicker setup](beauty-r1-clicker.md):
+the two-button mapping, device files, and manual startup limitations.
+
 ```
 plugin/aidict.koplugin/   the plugin as it lands on the device
   main.lua                the only file that requires KOReader modules: the popup hook, buttons, menu, widgets
