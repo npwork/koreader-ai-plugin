@@ -26,8 +26,8 @@ patch installed on 2026-10-25, pending a physical-button test. This setup is sep
 
 Both page buttons were verified on a real book. All four arrows were captured
 and rejected by the final filter. The final process exclusively holds all three
-remote input interfaces. Sleep/wake, battery life and a full reboot have not
-been validated.
+remote input interfaces. Automatic recovery after a full Kindle reboot was
+confirmed by the user on 2026-10-25. Sleep/wake and battery life remain untested.
 
 ## Closing a word lookup
 
@@ -155,7 +155,8 @@ Checks on the Kindle covered pre-initialization filtering, hotplug filtering,
 unrelated keyboards, descriptor cleanup, repeat loading, duplicate prevention,
 and recovery of a stopped adapter. A KOReader restart verified that the patch
 loads, the launcher runs, and the adapter exclusively owns all three remote
-interfaces. Full Kindle reboot verification remains pending.
+interfaces. On 2026-10-25, the user confirmed both page buttons worked after a
+full Kindle reboot and reopening KOReader, without manually starting services.
 
 For manual recovery, run `sh kindle-button-mapper/start-beauty-r1.sh` from the
 USB storage root. Inspect `beauty-r1-startup.log` and `beauty-r1-adapter.log`
