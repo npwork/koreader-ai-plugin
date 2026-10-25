@@ -40,7 +40,7 @@ Wikipedia popups and the previous-page event retain their existing behavior.
 
 Restart **KOReader only** after installing the patch; no Kindle reboot is
 needed. The patch loads automatically on subsequent KOReader starts. It is
-separate from the AI plugin package and the remote's manual-start adapter.
+separate from the AI plugin package and the remote's input adapter.
 To undo it, remove the patch file and restart KOReader.
 
 Checks passed using the Kindle's LuaJIT for event consumption, unchanged
@@ -113,11 +113,14 @@ filenames refer to the runtime temporary directory unless noted otherwise.
 | `kindle_hid_passthrough/` | BLE transport runtime and saved pairing |
 | `koreader/plugins/hidpassthrough.koplugin/` | BT Manager menu and KOReader event endpoint |
 | `kindle-button-mapper/beauty-r1.lua` | Active custom adapter |
+| `kindle-button-mapper/start-beauty-r1.sh` | Idempotent Bluetooth and adapter launcher |
+| `koreader/patches/2-beauty-r1-startup.lua` | Start services with KOReader and reserve remote input for the adapter |
 | `koreader/patches/2-beauty-r1-close-lookup.lua` | Close dictionary/AI lookup on the next-page event; loads on KOReader restart |
 | `kindle-button-mapper/config.ini` | No generic device mappings; contains the endpoint-enabling marker |
 | `kindle-button-mapper/config.before-small-button.ini` | Old center-only mapping, not the current configuration |
 | `beauty-r1-adapter.log` | Adapter connection and NEXT/PREVIOUS delivery log |
-| `beauty-r1-adapter.pid` | Current manually started adapter PID |
+| `beauty-r1-adapter.pid` | Current adapter PID |
+| `beauty-r1-startup.log` | Startup launcher results |
 | `hid_passthrough.log (system log directory)` | Bluetooth pairing/reconnection log |
 
 The adapter source currently lives on the Kindle; it is **not shipped by this
@@ -133,16 +136,35 @@ mapper config contains `koreader.sh`; the current config retains that text in
 an explanatory comment even though the generic mapper has no active mappings.
 Preserve this marker or verify the plugin's endpoint lifecycle when updating.
 
-## Manual startup and recovery
+## Automatic startup and recovery
 
-**Neither Bluetooth nor the adapter is configured to start at boot.** A full
-Kindle reboot requires starting them again. For manual startup, launch
-`kindle_hid_passthrough/kindle-hid-passthrough --daemon` from the USB storage
-root as a detached process. Then, with `koreader` as the working directory,
-launch `./luajit ../kindle-button-mapper/beauty-r1.lua` as a detached process.
-Redirect output into the runtime temporary directory and record each process
-ID there. Start each only if it is stopped, to avoid duplicate services.
-Boot recovery itself has not been tested.
+The startup user patch starts the Bluetooth transport and custom adapter when
+KOReader opens, including after a Kindle reboot. It does not start KOReader
+itself or add a system boot service. Restart KOReader once after installation
+to activate the patch.
+
+Before plugins initialize, it excludes this remote from the external keyboard
+and HID plugin input scans. Otherwise KOReader can claim the keyboard interface
+before the adapter, allowing unused buttons through. Other keyboards retain
+their normal handling. The filter also covers remote reconnections.
+
+The launcher uses a process lock and existing-process checks to avoid duplicate
+services. It starts the adapter first, then ensures the Bluetooth daemon is
+running, including when its API is already available but Bluetooth is stopped.
+Checks on the Kindle covered pre-initialization filtering, hotplug filtering,
+unrelated keyboards, descriptor cleanup, repeat loading, duplicate prevention,
+and recovery of a stopped adapter. A KOReader restart verified that the patch
+loads, the launcher runs, and the adapter exclusively owns all three remote
+interfaces. Full Kindle reboot verification remains pending.
+
+For manual recovery, run `sh kindle-button-mapper/start-beauty-r1.sh` from the
+USB storage root. Inspect `beauty-r1-startup.log` and `beauty-r1-adapter.log`
+in the runtime temporary directory. To disable automatic startup, remove
+`koreader/patches/2-beauty-r1-startup.lua` and restart KOReader; already running
+services must be stopped separately.
+
+An empty mappings page is expected: the custom adapter handles the two buttons,
+not the generic Button Mapper configuration.
 
 Open a book in KOReader with HID Passthrough enabled. Its menu is
 **Settings → Network → BT Manager – HID Passthrough**. The menu can manage
