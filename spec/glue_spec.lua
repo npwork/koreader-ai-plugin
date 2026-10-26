@@ -90,6 +90,38 @@ describe("the KOReader layer", function()
         Config.DEFAULTS.endpoint = ""
     end)
 
+    describe("diagnostic sync", function()
+        local Diagnostics = require("aidict.diagnostics")
+        local original_read
+        before_each(function()
+            original_read = Diagnostics.read
+            Diagnostics.read = function()
+                return { source = "crash.log", lines = { { offset = 0, text = "request failed" } } },
+                    { offset = 15, prefix = "request failed\n", remaining = 0 }
+            end
+        end)
+        after_each(function() Diagnostics.read = original_read end)
+
+        it("acknowledges diagnostics even when library sync fails", function()
+            build({ responses = {
+                { status = 200, body = helpers.body({ accepted = true, stored = 1, duplicates = 0 }) },
+                { status = 502, body = "unavailable" },
+            } })
+            plugin:sync()
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/diagnostics", kor.transport.requests[1].url)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[2].url)
+            assert.are.equal(15, plugin.store:readSetting(Diagnostics.KEY).offset)
+        end)
+
+        it("keeps the cursor on upload failure and still syncs the library", function()
+            build({ responses = { { status = 502, body = "unavailable" }, synced() } })
+            plugin:sync()
+            assert.is_nil(plugin.store:readSetting(Diagnostics.KEY))
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[2].url)
+            assert.is_truthy(last_shown().text:find("retried", 1, true))
+        end)
+    end)
+
     describe("registration", function()
         it("adds an entry to the highlight dialog, sorted after the built-ins", function()
             build()

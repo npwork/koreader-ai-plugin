@@ -27,6 +27,13 @@ deleted here. Only books the sync itself placed are ever moved or deleted.
 The same *Sync* then applies the KOReader settings queued through the library's
 MCP and sends this Kindle's back, and sends the words looked up in the Kindle's
 own reader to the word inbox; one message says what each part did.
+Sync also uploads complete lines from KOReader's `crash.log`, at most 64 KiB
+and 512 lines per press. It saves its position only after the server acknowledges
+the upload, detects replaced or truncated logs, and leaves incomplete lines for
+the next Sync. API keys, bearer tokens and URL query values are redacted before
+transfer. Diagnostics upload runs separately, so a library sync failure does not
+prevent collecting the evidence. A backlog is reported for the next Sync.
+
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
 if one is bound to it. The plugin has two entries at the top of the **Tools**
 tab: **Sync**, one tap in, and **AI dictionary**, which holds the network

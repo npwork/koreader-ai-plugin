@@ -23,6 +23,7 @@ local T = require("ffi/util").template
 local _ = require("gettext")
 
 local Config = require("aidict.config")
+local Diagnostics = require("aidict.diagnostics")
 local Context = require("aidict.context")
 local Format = require("aidict.format")
 local Header = require("aidict.header")
@@ -1231,6 +1232,33 @@ function AiDict:sync()
     local exchanged
     local steps = {}
     if endpoint then
+        steps[#steps + 1] = { title = _("Diagnostics"), run = function()
+            local upload, cursor, read_error = Diagnostics.read("crash.log", self.store:readSetting(Diagnostics.KEY))
+            if read_error then return read_error end
+            if not upload then return false end
+            for _, line in ipairs(upload.lines) do
+                line.text = Diagnostics.redact(line.text, { self.settings:get("api_key") })
+            end
+            upload.plugin_version = Version.string
+            local remote = RemoteSettings.new({
+                endpoint = endpoint, api_key = self.settings:get("api_key"),
+                transport = http_transport, json = json,
+            })
+            local completed, raw = Trapper:dismissableRunInSubprocess(function()
+                local answer, err = remote:request("POST", json.encode(upload), "/diagnostics")
+                return json.encode({ answer = answer, err = err })
+            end, _("Sending diagnostics…"), true)
+            if not completed then return nil end
+            local decoded, result = pcall(json.decode, raw)
+            if not decoded or type(result) ~= "table" or type(result.answer) ~= "table"
+                or result.answer.accepted ~= true then
+                return _("Diagnostics could not be sent; they will be retried on the next Sync.")
+            end
+            self.store:saveSetting(Diagnostics.KEY, cursor)
+            self.store:flush()
+            if cursor.remaining > 0 then return _("More diagnostics will be sent on the next Sync.") end
+            return false
+        end }
         steps[#steps + 1] = { title = _("Library"), run = function()
             exchanged = self:exchange(endpoint)
             if not exchanged then return nil end
