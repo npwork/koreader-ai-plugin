@@ -19,7 +19,10 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 local time = require("ui/time")
 local util = require("util")
-local T = require("ffi/util").template
+local ffi = require("ffi")
+local FfiUtil = require("ffi/util")
+local Utf8Proc = require("ffi/utf8proc")
+local T = FfiUtil.template
 local _ = require("gettext")
 
 local Config = require("aidict.config")
@@ -44,6 +47,17 @@ local Vocab = require("aidict.vocab")
 local Version = require("aidict.version")
 local http_transport = require("aidict.http_transport")
 local json = require("aidict.json")
+
+-- KOReader's utf8proc wrapper does not declare the category lookup.
+ffi.cdef[[int utf8proc_category(utf8proc_int32_t codepoint);]]
+local utf8proc = ffi.loadlib("utf8proc", "3")
+local unicode = {
+    lower = Utf8Proc.lowercase,
+    is_letter = function(char)
+        local category = utf8proc.utf8proc_category(FfiUtil.utf8charcode(char))
+        return category >= 1 and category <= 8 -- Letters and combining marks.
+    end,
+}
 
 -- Rename when the shape of cached answers changes, or stale ones are served for a month.
 local CACHE_KEY = "entries"
@@ -419,6 +433,10 @@ function AiDict:joinDictionaryPopup()
     end
 end
 
+function AiDict.dictionaryEntry(_, word, state)
+    return Page.entry(word, state, unicode)
+end
+
 -- Returns the page to keep watching (nil unless still asking), and the results with the page in them.
 function AiDict:openPage(word, results)
     local request = self:requestFor(word, self.ui and self.ui.highlight)
@@ -446,7 +464,7 @@ function AiDict:openPage(word, results)
     end
 
     if type(results) ~= "table" then results = {} end
-    table.insert(results, 1, Page.entry(request.word, state))
+    table.insert(results, 1, self:dictionaryEntry(request.word, state))
     if state.kind ~= "asking" then return nil, results end
     return { key = key, word = request.word }, results
 end
@@ -473,7 +491,7 @@ function AiDict:fillPages(key, outcome)
             local index = shown and Page.index_in(popup.results)
             if index then
                 local landed = Page.landed(outcome)
-                popup.results[index] = Page.entry(page.word, landed)
+                popup.results[index] = self:dictionaryEntry(page.word, landed)
                 if popup.dict_index == index and popup.changeDictionary then
                     local away = landed.kind == "failed" or landed.result.misclick
                     local instead = away and Page.instead(popup.results, index)
@@ -1129,7 +1147,7 @@ end
 function showResult(word, result, source)
     UIManager:show(TextViewer:new{
         title = Format.title(result, word),
-        text = Format.result(result, { word = word, source = source }),
+        text = Format.result(result, { word = word, source = source, unicode = unicode }),
         -- KOReader's dictionary-result style: left-aligned, book-info font size.
         text_type = "lookup",
         text_format = "html",

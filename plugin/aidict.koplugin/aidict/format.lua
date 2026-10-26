@@ -67,10 +67,10 @@ local SUFFIXES = {
     "", "s", "es", "ed", "d", "ing", "er", "est", "en", "ies", "ied",
 }
 
-local function inflections_of(form)
+local function inflections_of(form, lower)
     local forms = {}
     if type(form) ~= "string" or form == "" then return forms end
-    form = form:lower()
+    form = lower(form)
     forms[form] = true
 
     local stems = { form }
@@ -119,8 +119,29 @@ local STAND_INS = {
 -- escaping that follows cannot eat them and cannot be fooled by them.
 local OPEN, CLOSE = "\1", "\2"
 
-function Format.highlight(text, words)
+local function replace_words(text, is_letter, replace, hyphens)
+    local out, token = {}, {}
+    local function flush()
+        if #token == 0 then return end
+        out[#out + 1] = replace(table.concat(token))
+        token = {}
+    end
+    for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        if is_letter(char) or char == "'" or hyphens and char == "-" then
+            token[#token + 1] = char
+        else
+            flush()
+            out[#out + 1] = char
+        end
+    end
+    flush()
+    return table.concat(out)
+end
+
+function Format.highlight(text, words, unicode)
     if type(text) ~= "string" then return "" end
+    local lower = unicode and unicode.lower or string.lower
+    local is_letter = unicode and unicode.is_letter or function(char) return char:match("^%a$") ~= nil end
 
     local wanted = {}
     for _, word in ipairs(words or {}) do
@@ -129,14 +150,14 @@ function Format.highlight(text, words)
         local parts = {}
         for part in tostring(word):gmatch("%S+") do parts[#parts + 1] = part end
         if #parts == 1 then
-            for form in pairs(inflections_of(parts[1])) do wanted[form] = true end
+            for form in pairs(inflections_of(parts[1], lower)) do wanted[form] = true end
         else
             for i, part in ipairs(parts) do
-                local lower = part:lower()
+                local folded = lower(part)
                 if i == 1 then
-                    for form in pairs(inflections_of(part)) do wanted[form] = true end
-                elseif not STAND_INS[lower] then
-                    wanted[lower] = true
+                    for form in pairs(inflections_of(part, lower)) do wanted[form] = true end
+                elseif not STAND_INS[folded] then
+                    wanted[folded] = true
                 end
             end
         end
@@ -144,15 +165,15 @@ function Format.highlight(text, words)
     if not next(wanted) then return Format.escape(text) end
 
     local function mark(token)
-        if wanted[token:lower()] then return OPEN .. token .. CLOSE end
+        if wanted[lower(token)] then return OPEN .. token .. CLOSE end
         return token
     end
     -- A hyphenated token is marked whole when it is the word itself, else
     -- word by word: "star" still lights up in "star-studded".
-    local marked = text:gsub("[%a'%-]+", function(token)
-        if wanted[token:lower()] then return OPEN .. token .. CLOSE end
-        return (token:gsub("[%a']+", mark))
-    end)
+    local marked = replace_words(text, is_letter, function(token)
+        if wanted[lower(token)] then return OPEN .. token .. CLOSE end
+        return replace_words(token, is_letter, mark, false)
+    end, true)
 
     return (Format.escape(marked)
         :gsub(OPEN, "<b>")
@@ -231,7 +252,7 @@ function Format.result(result, opts)
         for _, example in ipairs(result.examples) do
             items[#items + 1] = string.format(
                 '<li style="margin-bottom: ' .. GAP.EXAMPLE .. '">%s</li>',
-                Format.highlight(example, marks)
+                Format.highlight(example, marks, opts.unicode)
             )
         end
         out[#out + 1] = string.format(

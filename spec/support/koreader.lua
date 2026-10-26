@@ -1,4 +1,6 @@
 local helpers = require("support.helpers")
+local Unicode = require("support.unicode")
+local real_ffi = package.loaded["ffi"]
 
 -- Captured once at load: install may run several times before uninstall, and would otherwise
 -- save a fake as the original.
@@ -353,7 +355,13 @@ function koreader.install(opts)
 
     -- The fake fork runs the task inline and keeps what it wrote; `fork_fails` and `writes_nothing`
     -- drive the two ways it comes to nothing.
+    package.loaded["ffi"] = {
+        cdef = function() end,
+        loadlib = function() return { utf8proc_category = Unicode.category } end,
+    }
+    package.loaded["ffi/utf8proc"] = { lowercase = Unicode.lowercase }
     package.loaded["ffi/util"] = {
+        utf8charcode = Unicode.codepoint,
         -- No symlinks in a table of files.
         realpath = function(path) return path end,
         template = function(text, ...)
@@ -434,6 +442,8 @@ end
 
 -- So the unit specs get a clean interpreter.
 function koreader.uninstall()
+    package.loaded["ffi"] = real_ffi
+    package.loaded["ffi/utf8proc"] = nil
     os.rename = real_os.rename
     os.remove = real_os.remove
     io.popen = real_io.popen
