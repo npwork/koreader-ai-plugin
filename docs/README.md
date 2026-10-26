@@ -5,7 +5,9 @@ ahead of the ordinary dictionaries, built from the word, the sentence and the
 paragraph around it sent to a remote gateway. The answer is a dictionary entry for the sense *this passage* gives the word —
 headword, IPA, part of speech, a definition, three examples in that same sense
 with the word marked in each, and a line of etymology. A Russian translation
-is fetched and cached but not yet shown. Everything is cached on the device
+is fetched and cached: tap the word directly below the **AI** bar to replace it
+with Russian, and tap it again to return to English. The definition and examples
+stay English, and the toggle makes no request. Everything is cached on the device
 for thirty days.
 
 The request goes out the moment KOReader announces the lookup, before it has
@@ -48,6 +50,7 @@ plugin/aidict.koplugin/   the plugin as it lands on the device
     config.lua            defaults and validation
     context.lua           UTF-8 text window around the word
     format.lua            result -> displayed text
+    header.lua            local English/Russian toggle for the popup's lookup word
     http_transport.lua    the one file that uses luasocket
     json.lua              rapidjson if present, else KOReader's json
     kpm.lua               driving the Kindle package manager to update this package

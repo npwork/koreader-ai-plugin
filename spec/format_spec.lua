@@ -167,7 +167,7 @@ describe("format", function()
             assert.is_truthy(text:find("</ol>", 1, true))
         end)
 
-        it("does not show the translation yet, though it is fetched", function()
+        it("keeps the translation out of the English body; the popup word toggles it separately", function()
             local text = Format.result({
                 word = "fox",
                 definition = "A wild animal.",

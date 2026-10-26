@@ -35,6 +35,9 @@ It covers what the emulator would otherwise be the only way to reach:
   answer in a TextViewer,
 * the second tap on the same word is served from the cache, marked as cached,
   without a request,
+* tapping the lookup word below AI swaps the heading to Russian and back without
+  a request or a definition rebuild; pending answers enable it when they arrive,
+  other dictionaries retain their taps, and cached popups start in English,
 * gateway errors and timeouts become an InfoMessage, not an answer,
 * dismissing the wait shows nothing at all,
 * being offline defers the lookup and re-runs it when the network comes back,
@@ -91,11 +94,15 @@ and says nothing about it erroring.
 This is the check that keeps the stubs in layer 2 honest: if KOReader renames
 `showDict` — the dictionary call the AI page hooks into — or changes how
 plugins are loaded, this goes red even though every stub-based test still
-passes. It does not open a popup, so the popup's insides (`results`,
-`dict_index`, `changeDictionary`) are checked on the Kindle.
+passes. It also runs `scripts/test-heading-popup.lua` against the real popup,
+using SDL's dummy driver and a supplied answer with no network or credentials.
+That test exercises `main.lua`'s hook, paints the heading, taps its actual
+coordinates, verifies Russian then English, and checks the definition widget
+was not rebuilt. English/Russian PNGs are saved as the `word-translation-popup`
+artifact.
 
-It lives in CI rather than in a cloud session because a session cannot
-download a KOReader build — see [emulator.md](emulator.md).
+The same check was run locally against KOReader v2026.07.1; see
+[emulator.md](emulator.md) for the headless command.
 
 ## What is left for the real device
 

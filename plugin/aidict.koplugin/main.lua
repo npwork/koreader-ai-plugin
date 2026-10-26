@@ -13,6 +13,7 @@ local TextViewer = require("ui/widget/textviewer")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local Event = require("ui/event")
+local Geom = require("ui/geometry")
 local ConfirmBox = require("ui/widget/confirmbox")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
@@ -24,6 +25,7 @@ local _ = require("gettext")
 local Config = require("aidict.config")
 local Context = require("aidict.context")
 local Format = require("aidict.format")
+local Header = require("aidict.header")
 local Reqid = require("aidict.reqid")
 local Library = require("aidict.library")
 local Kpm = require("aidict.kpm")
@@ -402,6 +404,13 @@ function AiDict:joinDictionaryPopup()
             page, with_page = nil, nil
         end
         show(this, word, with_page or results, ...)
+        local popup = this.dict_window
+        if popup and Page.index_in(popup.results) then
+            local installed, err = pcall(Header.install, popup, function(window, area)
+                UIManager:setDirty(window, "ui", area and Geom:new(area) or nil)
+            end)
+            if not installed then logger.warn("aidict: could not enable heading translation:", tostring(err)) end
+        end
         if page then
             local tracked, err = pcall(self.trackPage, self, page, this.dict_window)
             if not tracked then logger.warn("aidict: lost track of the AI page:", tostring(err)) end

@@ -7,10 +7,12 @@ on:
     branches: [main, dev]
     paths:
       - "plugin/**"
+      - "scripts/test-heading-popup.lua"
       - ".github/workflows/koreader-smoke.yml"
   pull_request:
     paths:
       - "plugin/**"
+      - "scripts/test-heading-popup.lua"
       - ".github/workflows/koreader-smoke.yml"
   workflow_dispatch:
     inputs:
@@ -72,6 +74,16 @@ jobs:
           echo "reader exited with $?"
           set -e
 
+      - name: Tap the lookup word in a real dictionary popup
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_RENDER_DRIVER: software
+        run: |
+          export AIDICT_PLUGIN_DIR="$GITHUB_WORKSPACE/plugin/aidict.koplugin"
+          export AIDICT_SCREENSHOT_DIR="$GITHUB_WORKSPACE"
+          cd "$KOREADER_DIR"
+          ./luajit "$GITHUB_WORKSPACE/scripts/test-heading-popup.lua"
+
       - name: The plugin must have loaded, and KOReader must have survived it
         run: |
           # xvfb-run returns only once reader.lua has exited, so the log is complete.
@@ -101,3 +113,9 @@ jobs:
         with:
           name: koreader-log
           path: koreader.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: word-translation-popup
+          path: kindle-word-*.png

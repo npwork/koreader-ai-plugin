@@ -65,6 +65,15 @@ describe("the AI page", function()
     end)
 
     describe("as a dictionary result", function()
+        it("keeps the Russian heading available without putting it into the English HTML", function()
+            local entry = Page.entry("swagger", { kind = "answer", result = {
+                lemma = "swagger", translation = "  важничать  ", definition = "To walk with excessive confidence.",
+            } })
+            assert.are.equal("swagger", entry.word)
+            assert.are.equal("важничать", entry.aidict_translation)
+            assert.is_nil(entry.definition:find("важничать", 1, true))
+            assert.is_nil(Page.entry("swagger", { kind = "asking" }).aidict_translation)
+        end)
         it("is an HTML entry named AI, marked as the plugin's own", function()
             local entry = Page.entry("fox", { kind = "asking" })
             assert.are.equal("AI", entry.dict)

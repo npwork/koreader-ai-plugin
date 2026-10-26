@@ -53,11 +53,16 @@ end
 -- `aidict = true` marks it as ours, to find it among the results when the answer arrives.
 function Page.entry(word, state)
     local definition
+    local translation
     -- Once answered, the header is the dictionary form, with "as “reading”" under it for what was tapped.
     local header = word
     if state.kind == "answer" then
         header = Format.title(state.result, word)
         definition = Format.result(state.result, { word = word, source = state.source, shown = header })
+        if type(state.result.translation) == "string" then
+            translation = state.result.translation:match("^%s*(.-)%s*$")
+            if translation == "" then translation = nil end
+        end
     elseif state.kind == "asking" then
         definition = note("Asking AI about “" .. word .. "”…")
     elseif state.kind == "busy" then
@@ -71,6 +76,7 @@ function Page.entry(word, state)
         definition = definition,
         is_html = true,
         aidict = true,
+        aidict_translation = translation,
     }
 end
 
