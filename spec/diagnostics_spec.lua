@@ -50,10 +50,36 @@ describe("diagnostics", function()
         assert.are.equal(0, Diagnostics.read(path, cursor).lines[1].offset)
     end)
 
-    it("reports an oversized line instead of silently skipping it", function()
+    it("replaces oversized lines with an acknowledged omission marker", function()
         write(string.rep("x", Diagnostics.MAX + 1))
-        local upload, _, err = Diagnostics.read(path)
-        assert.is_nil(upload)
-        assert.is_string(err)
+        local upload, cursor = Diagnostics.read(path)
+        assert.are.equal("[oversized diagnostic line omitted]", upload.lines[1].text)
+        assert.are.equal(Diagnostics.MAX, cursor.offset)
+        assert.is_true(cursor.skipping)
+    end)
+
+    it("continues beyond an oversized line without uploading fragments", function()
+        write(string.rep("x", Diagnostics.MAX + 100) .. "\nnext failure\n")
+        local first, cursor = Diagnostics.read(path)
+        assert.is_table(first)
+        local second, next_cursor = Diagnostics.read(path, cursor)
+        assert.are.equal("next failure", second.lines[#second.lines].text)
+        assert.is_nil(Diagnostics.read(path, next_cursor))
+    end)
+
+    it("redacts credentials from other plugins and earlier key rotations", function()
+        for _, text in ipairs({
+            'request {"userkey":"private-value","ok":true}',
+            "x-auth-key: private-value",
+            "Authorization: Basic private-value",
+            "Cookie: session=private-value",
+            "password=private-value",
+            'request {"api_key":"private-value"}',
+            "GET https://user:private-value@example.test/path",
+            "BEARER private-value",
+        }) do
+            assert.is_nil(Diagnostics.redact(text):find("private-value", 1, true), text)
+        end
+        assert.are.equal("request failed: timeout", Diagnostics.redact("request failed: timeout"))
     end)
 end)

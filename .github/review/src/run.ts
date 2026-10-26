@@ -75,7 +75,7 @@ if (!args.base || !args.out) throw new Error("--base and --out are required");
 const out = args.out;
 mkdirSync(out, { recursive: true });
 
-// The PR may rewrite CLAUDE.md or .claude/; Claude Code would load those from
+// The PR may rewrite agent instructions or .claude/; Claude Code would load those from
 // the working tree. With --restore-rules (CI) the base versions go back for
 // the run, and HEAD's come back after it, for publish.ts to check
 // suggestions against. It is opt-in because it would discard uncommitted

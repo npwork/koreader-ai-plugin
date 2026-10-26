@@ -30,10 +30,10 @@ For each candidate:
      concrete failure;
    - it is in code the PR did not change, and the PR does not make it worse
      or newly reachable;
-   - it follows a rule of this repository's `CLAUDE.md` (no backward
+   - it follows a rule of this repository's `AGENTS.md` (no backward
      compatibility, no feature flags for rollout, delete dead code).
    A `comments` finding is the exception to style: keep it when the quoted
-   comment plainly breaks a rule in the root `CLAUDE.md` "Comments" section,
+   comment plainly breaks a rule in the root `AGENTS.md` "Comments" section,
    and drop it when the comment carries a real, non-obvious why. Score it
    by how plainly it breaks the rule, and keep its severity `low`.
 4. Mark `nit` when the finding (other than `comments`) is about style,

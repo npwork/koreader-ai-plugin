@@ -18,23 +18,35 @@ function Diagnostics.read(path, cursor)
     end
     file:seek("set", offset)
     local text = file:read(Diagnostics.MAX) or ""
-    local complete = text:match("^(.*\n)")
-    if not complete then
-        file:close()
-        if #text == Diagnostics.MAX then return nil, nil, "a diagnostic line exceeds the upload limit" end
-        return nil
-    end
+    if #text == 0 then file:close() return nil end
     local lines, position = {}, offset
-    for line in complete:gmatch("([^\n]*)\n") do
-        lines[#lines + 1] = { offset = position, text = line }
-        position = position + #line + 1
-        if #lines == 512 then break end
+    local skipping = offset == cursor.offset and cursor.skipping == true
+    if skipping then
+        local through = text:find("\n", 1, true)
+        local consumed = through or #text
+        lines[#lines + 1] = { offset = position, text = "[oversized diagnostic line omitted]" }
+        position = position + consumed
+        text = text:sub(consumed + 1)
+        skipping = through == nil
     end
+    local complete = text:match("^(.*\n)")
+    if complete then
+        for line in complete:gmatch("([^\n]*)\n") do
+            lines[#lines + 1] = { offset = position, text = line }
+            position = position + #line + 1
+            if #lines == 512 then break end
+        end
+    elseif #text == Diagnostics.MAX then
+        lines[#lines + 1] = { offset = position, text = "[oversized diagnostic line omitted]" }
+        position = position + #text
+        skipping = true
+    end
+    if #lines == 0 then file:close() return nil end
     file:seek("set", math.max(0, position - 256))
     local anchor = file:read(math.min(position, 256)) or ""
     file:close()
     return { source = "crash.log", lines = lines },
-        { offset = position, prefix = prefix, anchor = anchor, remaining = size - position }
+        { offset = position, prefix = prefix, anchor = anchor, remaining = size - position, skipping = skipping }
 end
 
 function Diagnostics.redact(text, secrets)
@@ -43,8 +55,19 @@ function Diagnostics.redact(text, secrets)
             text = text:gsub(secret:gsub("(%W)", "%%%1"), "[redacted]")
         end
     end
-    text = text:gsub("([Bb]earer%s+)[^%s\"']+", "%1[redacted]")
+    text = text:gsub("([Bb][Ee][Aa][Rr][Ee][Rr]%s+)[^%s\"']+", "%1[redacted]")
     text = text:gsub("([?&][%w_%-]+=)[^%s&#\"']+", "%1[redacted]")
+    text = text:gsub("([%a][%w+%.%-]*://)[^/%s@]+@", "%1[redacted]@")
+    local names = { "password", "passwd", "secret", "token", "userkey", "api_key", "apikey", "auth", "cookie", "credential" }
+    local position = 1
+    while true do
+        local start, finish, name = text:find("([%w_%-]+)[\"']?%s*[:=]%s*", position)
+        if not start then break end
+        for _, word in ipairs(names) do
+            if name:lower():find(word, 1, true) then return text:sub(1, finish) .. "[redacted]" end
+        end
+        position = finish + 1
+    end
     return text
 end
 

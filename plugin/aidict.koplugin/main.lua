@@ -1233,8 +1233,7 @@ function AiDict:sync()
     local steps = {}
     if endpoint then
         steps[#steps + 1] = { title = _("Diagnostics"), run = function()
-            local upload, cursor, read_error = Diagnostics.read("crash.log", self.store:readSetting(Diagnostics.KEY))
-            if read_error then return read_error end
+            local upload, cursor = Diagnostics.read("crash.log", self.store:readSetting(Diagnostics.KEY))
             if not upload then return false end
             for _, line in ipairs(upload.lines) do
                 line.text = Diagnostics.redact(line.text, { self.settings:get("api_key") })

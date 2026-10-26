@@ -30,8 +30,9 @@ own reader to the word inbox; one message says what each part did.
 Sync also uploads complete lines from KOReader's `crash.log`, at most 64 KiB
 and 512 lines per press. It saves its position only after the server acknowledges
 the upload, detects replaced or truncated logs, and leaves incomplete lines for
-the next Sync. API keys, bearer tokens and URL query values are redacted before
-transfer. Diagnostics upload runs separately, so a library sync failure does not
+the next Sync. Credentials in headers, named fields, URL userinfo and query values are redacted
+before transfer. Oversized lines are replaced by omission markers so later
+failures can still be uploaded. Diagnostics upload runs separately, so a library sync failure does not
 prevent collecting the evidence. A backlog is reported for the next Sync.
 
 Nothing syncs on its own — it is a button, pressed when wanted, or a gesture
