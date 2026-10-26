@@ -131,7 +131,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -x
-          TAG="$(gh release list --repo koreader/koreader --limit 1 --json tagName --jq '.[0].tagName')"
+          TAG="$(gh release view --repo koreader/koreader --json tagName --jq .tagName)"
           gh release download "${TAG}" --repo koreader/koreader --pattern '*x86_64*.AppImage' --dir .
           chmod +x ./*.AppImage
           ./*.AppImage --appimage-extract >/dev/null
