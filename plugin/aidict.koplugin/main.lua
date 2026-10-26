@@ -20,9 +20,8 @@ local logger = require("logger")
 local time = require("ui/time")
 local util = require("util")
 local ffi = require("ffi")
-local FfiUtil = require("ffi/util")
 local Utf8Proc = require("ffi/utf8proc")
-local T = FfiUtil.template
+local T = require("ffi/util").template
 local _ = require("gettext")
 
 local Config = require("aidict.config")
@@ -51,11 +50,17 @@ local json = require("aidict.json")
 -- KOReader's utf8proc wrapper does not declare the category lookup.
 ffi.cdef[[int utf8proc_category(utf8proc_int32_t codepoint);]]
 local utf8proc = ffi.loadlib("utf8proc", "3")
+local codepoint = ffi.new("utf8proc_int32_t[1]")
 local unicode = {
-    lower = Utf8Proc.lowercase,
-    is_letter = function(char)
-        local category = utf8proc.utf8proc_category(FfiUtil.utf8charcode(char))
-        return category >= 1 and category <= 8 -- Letters and combining marks.
+    lower = function(text)
+        local _, valid = Utf8Proc.count(text)
+        if valid then return Utf8Proc.lowercase(text) end
+    end,
+    character = function(text, at)
+        local size = tonumber(utf8proc.utf8proc_iterate(text:sub(at), #text - at + 1, codepoint))
+        if size < 1 then return 1, false end
+        local category = utf8proc.utf8proc_category(codepoint[0])
+        return size, category >= 1 and category <= 8 -- Letters and combining marks.
     end,
 }
 

@@ -71,6 +71,7 @@ local function inflections_of(form, lower)
     local forms = {}
     if type(form) ~= "string" or form == "" then return forms end
     form = lower(form)
+    if not form then return forms end
     forms[form] = true
 
     local stems = { form }
@@ -119,20 +120,24 @@ local STAND_INS = {
 -- escaping that follows cannot eat them and cannot be fooled by them.
 local OPEN, CLOSE = "\1", "\2"
 
-local function replace_words(text, is_letter, replace, hyphens)
+local function replace_words(text, character, replace, hyphens)
     local out, token = {}, {}
     local function flush()
         if #token == 0 then return end
         out[#out + 1] = replace(table.concat(token))
         token = {}
     end
-    for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-        if is_letter(char) or char == "'" or hyphens and char == "-" then
+    local position = 1
+    while position <= #text do
+        local size, is_letter = character(text, position)
+        local char = text:sub(position, position + size - 1)
+        if is_letter or char == "'" or hyphens and char == "-" then
             token[#token + 1] = char
         else
             flush()
             out[#out + 1] = char
         end
+        position = position + size
     end
     flush()
     return table.concat(out)
@@ -141,7 +146,9 @@ end
 function Format.highlight(text, words, unicode)
     if type(text) ~= "string" then return "" end
     local lower = unicode and unicode.lower or string.lower
-    local is_letter = unicode and unicode.is_letter or function(char) return char:match("^%a$") ~= nil end
+    local character = unicode and unicode.character or function(value, at)
+        return 1, value:sub(at, at):match("^%a$") ~= nil
+    end
 
     local wanted = {}
     for _, word in ipairs(words or {}) do
@@ -156,7 +163,7 @@ function Format.highlight(text, words, unicode)
                 local folded = lower(part)
                 if i == 1 then
                     for form in pairs(inflections_of(part, lower)) do wanted[form] = true end
-                elseif not STAND_INS[folded] then
+                elseif folded and not STAND_INS[folded] then
                     wanted[folded] = true
                 end
             end
@@ -170,9 +177,9 @@ function Format.highlight(text, words, unicode)
     end
     -- A hyphenated token is marked whole when it is the word itself, else
     -- word by word: "star" still lights up in "star-studded".
-    local marked = replace_words(text, is_letter, function(token)
+    local marked = replace_words(text, character, function(token)
         if wanted[lower(token)] then return OPEN .. token .. CLOSE end
-        return replace_words(token, is_letter, mark, false)
+        return replace_words(token, character, mark, false)
     end, true)
 
     return (Format.escape(marked)

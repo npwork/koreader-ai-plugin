@@ -18,12 +18,30 @@ function Unicode.lowercase(text)
     return (text:lower():gsub("É", "é"):gsub("Ï", "ï"):gsub("e\204\129", "é"))
 end
 
+function Unicode.character(text, at)
+    for char, code in pairs(codes) do
+        if text:sub(at, at + #char - 1) == char then
+            local category = Unicode.category(code)
+            return #char, category >= 1 and category <= 8, true
+        end
+    end
+    local char = text:sub(at, at)
+    return 1, char:match("^%a$") ~= nil, char:byte() < 128
+end
+
+function Unicode.count(text)
+    local at, count = 1, 0
+    while at <= #text do
+        local size, _, valid = Unicode.character(text, at)
+        if not valid then return count, false end
+        at, count = at + size, count + 1
+    end
+    return count, true
+end
+
 Unicode.options = {
     lower = Unicode.lowercase,
-    is_letter = function(char)
-        local category = Unicode.category(Unicode.codepoint(char))
-        return category >= 1 and category <= 8
-    end,
+    character = Unicode.character,
 }
 
 return Unicode

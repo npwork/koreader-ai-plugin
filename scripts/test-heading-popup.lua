@@ -82,6 +82,16 @@ entry = AiDict:dictionaryEntry("passé", { kind = "answer", result = {
 } })
 assert(entry.definition:find("completely <b>passé</b>.", 1, true))
 assert(entry.definition:find("“<b>PASSÉ</b>”—that style looked <b>passe\204\129</b>", 1, true))
+local malformed = "\128\192\193\245\255 é\128\128\128 "
+local damaged = AiDict:dictionaryEntry("passé", { kind = "answer", result = {
+    word = "passé", examples = { malformed .. "passé" },
+} })
+assert(damaged.definition:find(malformed .. "<b>passé</b>", 1, true))
+local invalid_word = "passé\128"
+local ignored = AiDict:dictionaryEntry(invalid_word, { kind = "answer", result = {
+    word = invalid_word, examples = { "passé" },
+} })
+assert(not ignored.definition:find("<b>", 1, true))
 ui.dictionary:showDict("passé", {})
 UIManager:forceRePaint()
 Device.screen.bb:writePNG(screenshots .. "/kindle-word-example-bold.png")

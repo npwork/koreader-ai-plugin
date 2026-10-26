@@ -357,11 +357,19 @@ function koreader.install(opts)
     -- drive the two ways it comes to nothing.
     package.loaded["ffi"] = {
         cdef = function() end,
-        loadlib = function() return { utf8proc_category = Unicode.category } end,
+        new = function() return {} end,
+        loadlib = function() return {
+            utf8proc_category = Unicode.category,
+            utf8proc_iterate = function(text, _, output)
+                local size, _, valid = Unicode.character(text, 1)
+                if not valid then return -1 end
+                output[0] = Unicode.codepoint(text:sub(1, size))
+                return size
+            end,
+        } end,
     }
-    package.loaded["ffi/utf8proc"] = { lowercase = Unicode.lowercase }
+    package.loaded["ffi/utf8proc"] = { lowercase = Unicode.lowercase, count = Unicode.count }
     package.loaded["ffi/util"] = {
-        utf8charcode = Unicode.codepoint,
         -- No symlinks in a table of files.
         realpath = function(path) return path end,
         template = function(text, ...)
