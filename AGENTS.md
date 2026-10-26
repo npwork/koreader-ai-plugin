@@ -4,6 +4,27 @@ One person owns and uses this. There is no other user and no release to
 coordinate with — the same rules as `ai-small-projects`, applied to a Lua
 plugin that ships to one Kindle.
 
+## Definition of done
+
+For an implementation task, carry the work through implementation, relevant
+validation, a pull request, completed code review, review fixes, a squash merge
+to `main`, and deployment through the existing production release process.
+Finish with a practical production check when it is straightforward and the
+required access is available. Follow explicit user limits, such as a request
+for a plan, draft, or changes without deployment.
+
+The owner authorizes this complete workflow for requested work in this
+repository: push relevant changes to its existing GitHub `origin`, create the
+PR, address review, merge, and deploy after the required checks pass. Continue
+without asking for confirmation at each routine step. Platform approval
+requirements still apply; these instructions do not change those controls.
+
+Report what shipped, the PR, validation performed, and any material limitation.
+If review, CI, or deployment is blocked, keep working on the blocker and report
+anything that remains unresolved. For non-shipping changes, completion means
+publishing them through the documentation-only path below; no production
+redeployment is needed.
+
 ## Git
 
 ### Commit messages and merges
@@ -21,55 +42,96 @@ plugin that ships to one Kindle.
   `skip ci docs: clarify repository guidelines`. Use it only for the non-shipping
   changes allowed below.
 
-Every change lands on `main` through a reviewed pull request, the same loop as
-`ai-small-projects`. **A merge to `main` is a stable release**: Pages publishes
-it and the Kindle picks it up on the next `;kpm upgrade`. The `dev` branch
-feeds the dev channel the same way.
+A code merge to `main` publishes a stable release through Pages; the Kindle
+installs it through Sync or `;kpm upgrade`. The `dev` branch feeds the dev
+channel. Pushing a feature branch releases nothing.
 
-The whole loop is the agent's work, not Nick's:
+### Delivery workflow
 
-1. **Branch.** Off current `origin/main`, named `claude/<short-name>`. Commit
-   there. A pushed branch releases nothing: Pages runs only for `main` and
-   `dev`.
-2. **Test, then open.** `make check` (see below). Red means do not open the PR.
-3. **Push the branch and open the PR.** `ci` runs on it, and `koreader smoke`
-   too when `plugin/` changed, so a broken plugin is visible before it is a
-   release.
-4. **Wait for the review.** The `Review` workflow (`.github/workflows/review.yml`,
-   a copy of the reviewer in `ai-small-projects`: Claude Code on Nick's
-   subscription) posts as `github-actions[bot]` when the PR is opened, about a
-   minute later: one review with inline comments and one "AI review" summary.
-   It is required: a PR does not merge until a completed summary is posted.
-   If the run fails, times out, or its summary says "did not complete",
-   dispatch it again (`review.yml` with `pr: <number>`) and wait; if the
-   second run fails too, say so in the thread and ask Nick before merging. Greptile is optional: answer its
-   comments when it posts, and ignore it while its free credits are spent.
-5. **Answer every comment, in one round.** Fix the ones you agree with **and
-   can confirm**: reproduced, or traced to the line that proves it. A comment
-   you disagree with, or cannot confirm from the code, gets a reply on its own
-   thread saying why the code stays as it is. Resolve each thread you
-   answered. Never leave one silently unanswered, and never edit code to
-   satisfy a comment you do not believe.
-6. **Push the fixes and merge.** No second round of review. Once CI and the
-   smoke test are green on the commit you are merging, squash-merge into
-   `main`. That merge is the release; Nick does not press the button.
+The whole loop is the agent's work, including fixing failed checks and shipping:
 
-- **`skip ci` turns all of it off.** A PR whose title starts with `skip ci`
-  (any case; a direct commit: its message) runs no `ci`, smoke, `Review` or
-  Pages release, on the PR and on its merge, and merges once the agent is
-  done with it. Squash-merge it with the PR title as the commit title: left
-  to itself, GitHub titles a one-commit PR's squash with that commit's message. Only for changes nothing runs or ships: docs and text outside
-  `plugin/`. Anywhere but the start it does nothing.
-- Red CI is work, now. Never merge red.
-- Committing straight to `main` is for when Nick asks for it, and nothing else.
-- One PR per chunk of work, opened when the chunk is finished.
-- Merged branches are not worth cleaning up; a cloud session cannot delete
-  them anyway.
-- `main` moves under you. Rebase onto the new `origin/main`, run `make check`
-  again, and never revert someone else's change to land your own.
+1. **Implement on a branch.** Start from current `origin/main`, using
+   `claude/<short-name>`, and complete the requested change.
+2. **Validate locally.** Run the checks required below for the affected code.
+   Fix failures before pushing or opening the PR.
+3. **Push and open the PR.** Describe the resulting behavior and validation.
+   A branch or open PR is an intermediate step, not task completion.
+4. **Wait for code review to finish.** The required `Review` workflow must
+   post its completed "AI review" summary and inline findings. Green CI, a
+   running review, or a missing in-progress indicator does not establish that
+   review finished. If the workflow fails, times out, or reports an incomplete
+   review, dispatch `review.yml` once with the PR number and wait again. If it
+   fails again, leave the PR unmerged and report the blocker.
+5. **Address every review finding.** Reproduce or trace reported bugs, fix all
+   confirmed issues, and add relevant regression coverage where useful. Reply
+   on each finding's own thread with the fix or a reasoned explanation when it
+   is incorrect or cannot be confirmed. Resolve threads after addressing them;
+   never silently ignore a comment or change code merely to satisfy a claim
+   the evidence does not support.
+6. **Validate fixes and squash-merge.** Push the fixes together after rerunning
+   the affected local checks. Wait for required CI and smoke checks to pass on
+   the exact commit being merged, with review findings handled. No second
+   review round is required for those fixes unless explicitly requested or
+   required by repository protection. Squash-merge using the PR title as the
+   commit title; no additional user confirmation is needed.
+7. **Deploy.** Follow the existing release process and confirm the deployment
+   completed. A merge, queued workflow, or built image alone does not establish
+   that the intended version reached production. Investigate failed or skipped
+   deployment rather than leaving the change unshipped.
+8. **Check production when practical.** Use the lightweight verification in
+   Shipping below. If a check exposes a regression, investigate and fix it
+   through this workflow before reporting the task complete. If a useful check
+   is unavailable without substantial setup, report that limitation clearly.
 
-Versions are not chosen by hand: `major.minor` live in `version.lua`, the patch
+The required reviewer is `.github/workflows/review.yml`, running Claude Code on
+Nick's subscription and posting as `github-actions[bot]`. An 👀 reaction means
+review is in progress; its absence does not replace the completed summary.
+Greptile is optional: address its findings when it posts, but do not wait for
+it. If its credits are exhausted, ignore it until they return.
+
+### Git ground rules
+
+- Never merge with failing required checks or bypass them to ship a change.
+- One PR per completed chunk of work, rather than one per commit.
+- If `main` advances, rebase onto current `origin/main`, preserve others' work,
+  rerun the affected checks, and wait for CI on the resulting commit.
+- Merged branches do not need cleanup; do not spend time deleting them.
+
+### Documentation-only changes
+
+Every change goes through a PR unless the user explicitly requests a direct
+commit. For changes that neither execute nor ship, such as docs and text
+outside `plugin/`, use a title such as
+`skip ci docs: clarify repository guidelines`. The leading `skip ci` control
+prefix skips CI, smoke, Review, and Pages publication for the PR and its merge.
+For this exception, check the diff and affected references, then squash-merge
+without waiting for runtime checks or an automated review. Use the PR title
+as the squash commit title so the prefix remains effective.
+
+Do not use this exception for source, executable configuration, workflows,
+packaging, or Markdown used as executable reviewer prompts. Documentation
+accompanying code belongs in the code PR and follows its full checks. A leading
+`skip ci` is case-insensitive; anywhere else it has no effect.
+
+Versions are not chosen by hand: `major.minor` live in `version.lua`; the patch
 is the branch's commit count, so each squash-merged PR is one patch release.
+
+## Shipping
+
+For verification, choose the smallest useful check that existing access makes
+straightforward: exercise the changed endpoint with a request, use an existing
+smoke test, inspect relevant production logs for the operation, or check the
+published version and release artifact. A health response establishes
+availability; check the changed behavior too when that is easy. Avoid building
+new infrastructure, arranging complicated access, or running expensive end-to-end
+work merely to obtain a production check. If verification is impractical,
+state what was verified and what remains unverified.
+
+After a plugin release, check the stable Pages manifest and package version.
+The existing live-repository install/KOReader verification is useful evidence;
+verify its result when available. Installing on the physical Kindle requires
+the owner's device, so report that limit without blocking publication on
+unavailable device access. Documentation-only PRs do not publish a package.
 
 ## The layering rule
 
@@ -88,9 +150,10 @@ that is the layering telling you it is on the wrong side.
 make check      # luacheck + busted + package install/upgrade/uninstall
 ```
 
-Run it, every time, before opening the PR and before every push to it. The
-merge is a release: once a broken package is on Pages, the next `;kpm upgrade`
-puts it on the Kindle. CI is the second opinion, never the first.
+For runtime changes, run it before opening the PR and before every push to it.
+Documentation-only changes follow their exception above. The merge is a release:
+once a broken package is on Pages, the next `;kpm upgrade` puts it on the Kindle.
+CI is the second opinion, never the first.
 
 `make check` covers what runs in a container. Two things it does not:
 
@@ -129,12 +192,3 @@ tell history ("used to", "since 0.2.70"), repeat the README or this file, or
 leave commented-out code or banner comments. When a change makes a comment
 wrong or pointless, fix or delete it in the same change. The `Review`
 workflow flags added comments that break these rules.
-
-## Owner's standing workflow preference
-
-For requested implementation work, the owner expects the complete workflow:
-push the relevant changes to this repository's existing GitHub `origin`, open
-the pull request, address its review, and merge and release after the required
-checks pass. Do not ask the owner to repeat this preference at each step.
-Platform approval requirements still apply; repository instructions do not
-change those controls.
