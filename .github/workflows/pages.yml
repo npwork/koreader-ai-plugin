@@ -21,7 +21,7 @@ jobs:
     if: ${{ !startsWith(github.event.pull_request.title || github.event.head_commit.message, 'skip ci') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Every commit of both branches: the build counts commits for the version.
           fetch-depth: 0
@@ -42,11 +42,11 @@ jobs:
           echo "key: never packaged — set it on the device (Settings > API key)"
           ./scripts/build-site.sh
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
         with:
           enablement: true
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:
           path: site
 
@@ -60,14 +60,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
 
   verify:
     name: install from the live repository
     needs: deploy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Install what KPM needs to build, Lua to check what it installs, and a display for KOReader
         run: |
@@ -167,7 +167,7 @@ jobs:
 
           echo "the published package loads in KOReader"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: koreader-log-published
