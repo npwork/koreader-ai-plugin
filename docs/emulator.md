@@ -5,9 +5,21 @@ point of the `aidict/` split), but `main.lua` — the buttons, the menu, the
 widgets — is only exercised by running the real thing. On Linux that means
 KOReader's SDL build, driven headlessly under `Xvfb`.
 
-`scripts/emulator.sh` does the whole dance. **It does not work in the cloud
-environment as configured today**, for one reason that is a settings change
-away; the rest of this page is that reason, measured rather than guessed.
+`scripts/emulator.sh` drives the full application. A prebuilt GitHub release
+also supports a smaller headless popup check with SDL's dummy driver, without
+Xvfb. Verified in the cloud on 2026-10-26 against v2026.07.1: download and unpack
+the x86_64 AppImage, change into its `usr/lib/koreader` directory, then run:
+
+```bash
+SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+  AIDICT_PLUGIN_DIR=/absolute/path/to/koreader-ai-plugin/plugin/aidict.koplugin \
+  ./luajit /absolute/path/to/koreader-ai-plugin/scripts/test-heading-popup.lua
+```
+
+This opens a real dictionary popup using a supplied answer, checks the English /
+Russian word toggle, and writes both screenshots under `/tmp` (override with
+`AIDICT_SCREENSHOT_DIR`). The older source-build and download restrictions below
+are historical; they do not apply when the GitHub release assets are accessible.
 
 ## What was tried, 2026-09-20
 

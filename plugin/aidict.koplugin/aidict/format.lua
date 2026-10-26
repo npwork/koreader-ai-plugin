@@ -211,7 +211,7 @@ function Format.result(result, opts)
         )
     end
 
-    -- `result.translation` is cached but deliberately not shown: where it belongs is undecided.
+    -- The popup heading toggles `result.translation`; it does not belong in the definition.
 
     if result.definition and result.definition ~= "" then
         out[#out + 1] = string.format(

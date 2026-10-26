@@ -31,6 +31,7 @@ function koreader.install(opts)
 
     local recorder = {
         shown = {},          -- every widget handed to UIManager:show
+        dirty = {},          -- display regions requested for refresh
         store = helpers.store(opts.settings),
         transport = helpers.transport(opts.responses or {}),
         deferred = nil,      -- the callback NetworkMgr kept for later
@@ -77,6 +78,9 @@ function koreader.install(opts)
             this.definition = (this.definition or "") .. "(query : " .. tostring(this.word) .. ")"
         end,
     }
+    package.loaded["ui/geometry"] = {
+        new = function(_, rect) return rect end,
+    }
     local InputDialog = recording_widget("InputDialog")
     function InputDialog:onShowKeyboard() self.keyboard_shown = true end
     function InputDialog:getInputText() return self.input end
@@ -100,6 +104,9 @@ function koreader.install(opts)
             widget.closed = true
         end,
         forceRePaint = function() end,
+        setDirty = function(_, widget, mode, area)
+            recorder.dirty[#recorder.dirty + 1] = { widget = widget, mode = mode, area = area }
+        end,
         isWidgetShown = function(_, widget)
             return widget ~= nil and not widget.closed
         end,
@@ -434,7 +441,7 @@ function koreader.uninstall()
     for _, module in ipairs({
         "ui/widget/container/widgetcontainer", "ui/widget/infomessage", "ui/widget/textviewer",
         "ui/widget/inputdialog", "ui/widget/confirmbox", "ui/uimanager", "ui/trapper",
-        "ui/network/manager", "ui/event",
+        "ui/network/manager", "ui/event", "ui/geometry",
         "luasettings", "datastorage", "device", "logger", "gettext", "ffi/util", "util", "ui/time",
         "libs/libkoreader-lfs", "lua-ljsqlite3/init", "dispatcher",
         "docsettings", "readhistory", "readcollection", "ui/widget/booklist",
@@ -474,9 +481,25 @@ function koreader.reader(opts)
                     results = results,
                     dict_index = 1,
                     redraws = 0,
+                    ordinary_taps = 0,
+                    lookup_word_text = {
+                        text = results[1] and results[1].word or word,
+                        setText = function(widget, text) widget.text = text end,
+                        getSize = function(widget) return { w = math.min(200, #widget.text * 10), h = 24 } end,
+                        paintTo = function() end,
+                    },
+                    onTap = function(popup)
+                        popup.ordinary_taps = popup.ordinary_taps + 1
+                        return "ordinary tap"
+                    end,
+                    update = function(popup)
+                        popup.lookup_word_text:setText(popup.results[popup.dict_index].word)
+                        popup.lookup_word_text.lang = popup.lang_in
+                    end,
                     changeDictionary = function(popup, index)
                         popup.dict_index = index
                         popup.redraws = popup.redraws + 1
+                        popup:update()
                     end,
                 }
             end,

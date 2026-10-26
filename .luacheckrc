@@ -6,6 +6,10 @@ files["plugin/aidict.koplugin/main.lua"] = {
     globals = { "G_reader_settings" },
 }
 
+files["scripts/test-heading-popup.lua"] = {
+    globals = { "G_defaults", "G_reader_settings" },
+}
+
 files["spec/"] = {
     std = "+busted",
 }

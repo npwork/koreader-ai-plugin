@@ -124,9 +124,12 @@ is required — a 200 without a non-empty one is treated as a broken answer. `ex
 field the device is designed around: three short ones render well on a 600×800
 screen; entries that are not non-empty strings are dropped.
 
-`translation` is the Russian rendering. The plugin parses and caches it but
-**does not show it yet** — how it should sit next to an English explanation is
-still open. Everything else is optional and simply not shown when missing.
+`translation` is the Russian rendering. Tapping the lookup word directly below
+the **AI** bar switches that word to Russian; tapping it again restores the
+English headword. Only the label changes: definition, examples, lookup/edit word
+and cached answer stay intact. No network request is made, and a new popup or
+dictionary change starts in English. Without a translation the label is unchanged.
+Everything else is optional and simply not shown when missing.
 
 `lemma` is the headword a dictionary would file the answer under — the
 infinitive for a verb, the singular for a noun. The reader taps an inflected
