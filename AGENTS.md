@@ -6,6 +6,21 @@ plugin that ships to one Kindle.
 
 ## Git
 
+### Commit messages and merges
+
+- Use Conventional Commits for commit subjects and PR titles:
+  `type(scope): summary`, with an optional scope. Use `feat`, `fix`, `docs`,
+  `refactor`, `test`, `chore`, `build`, `ci`, `perf`, or `revert` as appropriate.
+  Examples: `feat(sync): upload diagnostics` and `fix(sync): retry failed uploads`.
+- Mark breaking changes with `!` after the type/scope or a `BREAKING CHANGE:` footer.
+- Always squash-merge pull requests into `main`, using the PR title as the
+  squash commit title. Keep that title in Conventional Commits format so each
+  PR produces one clear commit in the main history.
+- The existing required leading `skip ci` control prefix is the only formatting
+  exception: follow it with the conventional subject, for example
+  `skip ci docs: clarify repository guidelines`. Use it only for the non-shipping
+  changes allowed below.
+
 Every change lands on `main` through a reviewed pull request, the same loop as
 `ai-small-projects`. **A merge to `main` is a stable release**: Pages publishes
 it and the Kindle picks it up on the next `;kpm upgrade`. The `dev` branch
