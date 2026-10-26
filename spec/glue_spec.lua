@@ -122,6 +122,20 @@ describe("the KOReader layer", function()
         end)
     end)
 
+    describe("accented example words", function()
+        it("formats the actual example in the answer window and dictionary popup", function()
+            local answer = {
+                word = "passé", lemma = "passé", definition = "No longer fashionable; out of date.",
+                examples = { "The fashion for neon colours is completely passé." },
+            }
+            build({ responses = { { status = 200, body = helpers.body(answer) } } })
+            ask("passé", "The fashion is passé.")
+            assert.is_truthy(last_shown().text:find("completely <b>passé</b>.", 1, true))
+            local entry = plugin:dictionaryEntry("passé", { kind = "answer", result = answer })
+            assert.is_truthy(entry.definition:find("completely <b>passé</b>.", 1, true))
+        end)
+    end)
+
     describe("registration", function()
         it("adds an entry to the highlight dialog, sorted after the built-ins", function()
             build()

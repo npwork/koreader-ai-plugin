@@ -319,6 +319,26 @@ describe("format", function()
     end)
 
     describe("highlight", function()
+        it("marks the complete accented word from the Kindle examples", function()
+            local unicode = require("support.unicode").options
+            assert.are.equal("The fashion for neon colours is completely <b>passé</b>.",
+                Format.highlight("The fashion for neon colours is completely passé.", { "passé" }, unicode))
+        end)
+
+        it("folds Unicode case and combining accents while preserving the original text", function()
+            local unicode = require("support.unicode").options
+            assert.are.equal("“<b>PASSÉ</b>”—<b>passe\204\129</b> 🤖 <b>naïve</b>.",
+                Format.highlight("“PASSÉ”—passe\204\129 🤖 naïve.", { "passé", "NAÏVE" }, unicode))
+            assert.are.equal("passée <b>passé</b>", Format.highlight("passée passé", { "passé" }, unicode))
+        end)
+
+        it("preserves malformed UTF-8 bytes without treating them as letters", function()
+            local unicode = require("support.unicode").options
+            local malformed = "\128\192\193\245\255 é\128\128\128 "
+            assert.are.equal(malformed .. "<b>passé</b>",
+                Format.highlight(malformed .. "passé", { "passé" }, unicode))
+        end)
+
         it("marks the word itself", function()
             assert.are.equal("They died for <b>want</b> of bread.",
                 Format.highlight("They died for want of bread.", { "want" }))

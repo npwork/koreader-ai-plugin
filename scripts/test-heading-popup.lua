@@ -10,9 +10,8 @@ local Event = require("ui/event")
 local DictQuickLookup = require("ui/widget/dictquicklookup")
 local plugin_dir = assert(os.getenv("AIDICT_PLUGIN_DIR"), "AIDICT_PLUGIN_DIR is required")
 package.path = plugin_dir .. "/?.lua;" .. package.path
-local Page = require("aidict.page")
 local AiDict = dofile(plugin_dir .. "/main.lua")
-local entry = Page.entry("swagger", { kind = "answer", result = {
+local entry = AiDict:dictionaryEntry("swagger", { kind = "answer", result = {
     word = "swagger", lemma = "swagger", pronunciation = "/ˈswæɡ.ə/", part_of_speech = "verb",
     definition = "To behave (especially to walk or carry oneself) in a pompous, superior manner.",
     translation = "важничать",
@@ -71,3 +70,30 @@ popup:changeDictionary(1)
 assert(heading.text == "swagger")
 print("PASS: real popup switches swagger to Russian and back; lookup and definition widget unchanged")
 UIManager:close(popup)
+
+entry = AiDict:dictionaryEntry("passé", { kind = "answer", result = {
+    word = "passé", lemma = "passé", pronunciation = "/ˈpæseɪ/", part_of_speech = "adjective",
+    definition = "No longer fashionable; out of date.",
+    examples = {
+        "The fashion for neon colours is completely passé.",
+        "“PASSÉ”—that style looked passe\204\129; naïve enthusiasm kept it alive.",
+        "Her once-popular catchphrase now sounded rather passé.",
+    },
+} })
+assert(entry.definition:find("completely <b>passé</b>.", 1, true))
+assert(entry.definition:find("“<b>PASSÉ</b>”—that style looked <b>passe\204\129</b>", 1, true))
+local malformed = "\128\192\193\245\255 é\128\128\128 "
+local damaged = AiDict:dictionaryEntry("passé", { kind = "answer", result = {
+    word = "passé", examples = { malformed .. "passé" },
+} })
+assert(damaged.definition:find(malformed .. "<b>passé</b>", 1, true))
+local invalid_word = "passé\128"
+local ignored = AiDict:dictionaryEntry(invalid_word, { kind = "answer", result = {
+    word = invalid_word, examples = { "passé" },
+} })
+assert(not ignored.definition:find("<b>", 1, true))
+ui.dictionary:showDict("passé", {})
+UIManager:forceRePaint()
+Device.screen.bb:writePNG(screenshots .. "/kindle-word-example-bold.png")
+UIManager:close(ui.dictionary.dict_window)
+print("PASS: accented example words are bold with Unicode case folding and combining marks")

@@ -143,7 +143,9 @@ each example, and rules about endings reach "strapped" from "strap" but never
 "went" from "go". On the dictionary path these are the dictionary's own —
 Wiktionary spells them out on its headword line — and on the model path the
 model says which spellings it used. It may be empty, and the device then marks
-what it can work out on its own.
+what it can work out on its own. Matching uses Unicode letters and combining
+marks, with normalized case folding, so accented words such as “passé” are
+bolded as a whole while the example retains its original spelling.
 
 `pronunciation` is IPA for the **lemma**, not for the form in the passage, and
 sits on the headword's line the way a dictionary prints it. `etymology` is one
