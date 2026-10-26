@@ -42,7 +42,7 @@ path = sys.argv[1]
 text = open(path).read()
 
 if "# host-build patch" not in text:
-    start = text.index("subproject('zstd'")
+    start = text.index("subproject(")
     end = text.index("# I know it seems ugly")
     text = text[:start] + "# host-build patch: system libraries instead of static subprojects\n\n" + text[end:]
 
