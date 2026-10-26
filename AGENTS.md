@@ -114,3 +114,12 @@ tell history ("used to", "since 0.2.70"), repeat the README or this file, or
 leave commented-out code or banner comments. When a change makes a comment
 wrong or pointless, fix or delete it in the same change. The `Review`
 workflow flags added comments that break these rules.
+
+## Owner's standing workflow preference
+
+For requested implementation work, the owner expects the complete workflow:
+push the relevant changes to this repository's existing GitHub `origin`, open
+the pull request, address its review, and merge and release after the required
+checks pass. Do not ask the owner to repeat this preference at each step.
+Platform approval requirements still apply; repository instructions do not
+change those controls.
