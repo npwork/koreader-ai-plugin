@@ -1,6 +1,38 @@
 -- Only the heading changes. The lookup word, cached answer and definition stay English.
 local Header = {}
 
+function Header.available(popup)
+    local entry = popup.results and popup.results[popup.dict_index]
+    return entry ~= nil and entry.aidict == true and type(entry.aidict_translation) == "string"
+        and entry.aidict_translation ~= ""
+end
+
+function Header.insertButton(rows, button)
+    for _, row in ipairs(rows) do
+        for _, existing in ipairs(row) do
+            if existing.id == button.id then return false end
+        end
+    end
+    local function insert(row, at)
+        for _, existing in ipairs(row) do
+            if existing.width then
+                existing.width = math.max(1, math.floor(existing.width * #row / (#row + 1)))
+            end
+        end
+        table.insert(row, at, button)
+        return true
+    end
+    for _, anchor in ipairs({ "close", "next_dict" }) do
+        for _, row in ipairs(rows) do
+            for at, existing in ipairs(row) do
+                if existing.id == anchor then return insert(row, anchor == "close" and at or at + 1) end
+            end
+        end
+    end
+    if #rows == 0 then rows[1] = {} end
+    return insert(rows[#rows], #rows[#rows] + 1)
+end
+
 function Header.install(popup, invalidate)
     if popup.aidict_header_hook then return false end
     local text = popup.lookup_word_text
@@ -20,39 +52,47 @@ function Header.install(popup, invalidate)
         return paint(this, bb, x, y, ...)
     end
 
-    -- KOReader's update restores the English heading on dictionary changes and font
-    -- changes. Keep our display state in step, without changing that behaviour.
+    local function update_button(this)
+        local button = this.button_table and this.button_table:getButtonById("aidict_translate")
+        if button then button:enableDisable(Header.available(this)) end
+    end
+
+    -- KOReader's update restores the English heading on dictionary and font changes.
     local update = popup.update
     if type(update) == "function" then
         popup.update = function(this, ...)
             russian = false
-            return update(this, ...)
+            local result = update(this, ...)
+            update_button(this)
+            return result
         end
     end
 
-    local function toggle(this, gesture)
-        local entry = this.results and this.results[this.dict_index]
-        local translation = entry and entry.aidict_translation
+    popup.onAidictTranslate = function(this)
+        if not Header.available(this) then return false end
+        local entry = this.results[this.dict_index]
+        russian = not russian
+        text.lang = russian and "ru" or this.lang_in
+        text:setText(russian and entry.aidict_translation or entry.word)
+        local size = text:getSize()
+        -- Clear the old text too without rebuilding the HTML widget or resetting its scroll.
+        invalidate(this, area and { x = area.x, y = area.y,
+            w = math.max(area.w, size.w), h = math.max(area.h, size.h) } or nil)
+        return true
+    end
+
+    local function toggle_tap(this, gesture)
         local pos = gesture and gesture.pos
-        if entry and entry.aidict and type(translation) == "string" and translation ~= ""
-            and area and pos and pos.x >= area.x and pos.x < area.x + area.w
+        if area and pos and pos.x >= area.x and pos.x < area.x + area.w
             and pos.y >= area.y and pos.y < area.y + area.h then
-            russian = not russian
-            text.lang = russian and "ru" or this.lang_in
-            text:setText(russian and translation or entry.word)
-            local size = text:getSize()
-            -- Clear the old text too when the replacement is shorter. This refresh
-            -- does not rebuild the HTML widget or reset its scroll position.
-            invalidate(this, { x = area.x, y = area.y,
-                w = math.max(area.w, size.w), h = math.max(area.h, size.h) })
-            return true
+            return this:onAidictTranslate()
         end
         return false
     end
 
     local tap = popup.onTap
     popup.onTap = function(this, arg, gesture)
-        if toggle(this, gesture) then return true end
+        if toggle_tap(this, gesture) then return true end
         return tap(this, arg, gesture)
     end
 
@@ -61,12 +101,15 @@ function Header.install(popup, invalidate)
     local handle = popup.handleEvent
     if type(handle) == "function" then
         popup.handleEvent = function(this, event)
+            if event.handler == "onGotoViewRel" and event.args and event.args[1] == -1
+                and this:onAidictTranslate() then return true end
             local gesture = event.handler == "onGesture" and event.args and event.args[1]
-            if gesture and gesture.ges == "tap" and toggle(this, gesture) then return true end
+            if gesture and gesture.ges == "tap" and toggle_tap(this, gesture) then return true end
             return handle(this, event)
         end
     end
     -- showDict normally hasn't painted yet; also handle builds that paint immediately.
+    update_button(popup)
     invalidate(popup)
     return true
 end

@@ -2,7 +2,9 @@
 
 Page-turn mappings verified on the physical Kindle on 2026-10-24; lookup-closing
 patch installed on 2026-10-25, pending a physical-button test. This setup is separate from
-`aidict.koplugin`; the AI dictionary plugin did not need changes.
+`aidict.koplugin`. The plugin now consumes the small button’s existing Previous
+Page event to toggle a translation inside an available AI result. This new
+behavior is verified with real KOReader events; a physical-button test is pending.
 
 ## Working configuration
 
@@ -20,7 +22,7 @@ patch installed on 2026-10-25, pending a physical-button test. This setup is sep
 | Physical button | Action |
 | --- | --- |
 | Large center button | Next page in the book; dismiss the top menu or dictionary/AI lookup without turning the page (patches below) |
-| Separate small button | Previous page |
+| Separate small button | Toggle the heading translation in an available AI result; otherwise Previous page |
 | Four arrows | No action |
 | Other keyboard/media events from this remote | Discarded |
 
@@ -36,7 +38,8 @@ handles the center button's `GotoViewRel(1)` event while a normal dictionary
 or AI definition popup is open. Both use `DictQuickLookup`. The patch calls
 `onHoldClose()` to close the lookup stack and consumes the event, so the book
 stays on the same page. The next center-button press turns the page normally.
-Wikipedia popups and the previous-page event retain their existing behavior.
+The patch leaves Wikipedia popups and the previous-page event unchanged. The
+AI plugin handles the previous-page event separately for translation.
 
 Restart **KOReader only** after installing the patch; no Kindle reboot is
 needed. The patch loads automatically on subsequent KOReader starts. It is
@@ -51,8 +54,9 @@ have not yet been confirmed by the user.
 The patch is not included in this repository's package.
 
 **Deferred:** reopening the last vocabulary word with the small button was
-discussed but not implemented. The small button remains Previous Page; no
-double-click action was added.
+discussed but not implemented. No double-click action was added. Translation
+in an open AI result uses a single small-button press through the plugin; the
+device adapter still sends `GotoViewRel(-1)` and needs no new mapping.
 
 ## Closing the top menu
 

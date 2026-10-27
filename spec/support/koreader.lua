@@ -76,6 +76,9 @@ function koreader.install(opts)
     package.loaded["ui/widget/textviewer"] = recording_widget("TextViewer")
     package.loaded["ui/widget/confirmbox"] = recording_widget("ConfirmBox")
     package.loaded["ui/widget/dictquicklookup"] = {
+        buildButtonLayout = function()
+            return { { { id = "prev_dict" }, { id = "next_dict" }, { id = "close" } } }
+        end,
         addQueryWordToResult = function(this)
             this.definition = (this.definition or "") .. "(query : " .. tostring(this.word) .. ")"
         end,
@@ -520,6 +523,16 @@ function koreader.reader(opts)
                         popup:update()
                     end,
                 }
+                local popup = this.dict_window
+                local rows = package.loaded["ui/widget/dictquicklookup"].buildButtonLayout(popup)
+                local buttons = {}
+                for _, row in ipairs(rows) do
+                    for _, button in ipairs(row) do
+                        buttons[button.id] = button
+                        button.enableDisable = function(widget, enabled) widget.enabled = enabled end
+                    end
+                end
+                popup.button_table = { buttons = rows, getButtonById = function(_, id) return buttons[id] end }
             end,
         },
         highlight = {

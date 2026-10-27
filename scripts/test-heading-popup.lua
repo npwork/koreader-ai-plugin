@@ -45,10 +45,19 @@ heading.paintTo = function(this, bb, x, y, ...)
     area = { x = x, y = y, w = this:getSize().w, h = this:getSize().h }
     return paint(this, bb, x, y, ...)
 end
+local translate = assert(popup.button_table:getButtonById("aidict_translate"))
+local button_paint, button_area = translate.paintTo
+translate.paintTo = function(this, bb, x, y, ...)
+    button_area = { x = x, y = y, w = this:getSize().w, h = this:getSize().h }
+    return button_paint(this, bb, x, y, ...)
+end
 UIManager:forceRePaint()
 assert(area, "The real heading was not painted")
+assert(button_area, "The translation button was not painted")
 assert(heading.text == "swagger")
 local body = popup.text_widget
+local row = popup.button_table.buttons[1]
+assert(#row == 4 and row[2].id == "next_dict" and row[3].id == "aidict_translate" and row[4].id == "close")
 local screenshots = os.getenv("AIDICT_SCREENSHOT_DIR") or "/tmp"
 Device.screen.bb:writePNG(screenshots .. "/kindle-word-english.png")
 local function tap_word()
@@ -64,11 +73,21 @@ UIManager:forceRePaint()
 Device.screen.bb:writePNG(screenshots .. "/kindle-word-russian.png")
 assert(tap_word())
 assert(heading.text == "swagger")
+assert(popup:handleEvent(Event:new("Gesture", {
+    ges = "tap", pos = Geom:new{ x = button_area.x + button_area.w/2, y = button_area.y + button_area.h/2 },
+})))
+assert(heading.text == "важничать")
+assert(popup:handleEvent(Event:new("GotoViewRel", -1)))
+assert(heading.text == "swagger")
+assert(popup.text_widget == body, "Translation rebuilt the definition")
 popup:changeDictionary(2)
 assert(heading.text == "swagger")
+assert(not translate.enabled)
 popup:changeDictionary(1)
 assert(heading.text == "swagger")
+assert(translate.enabled)
 print("PASS: real popup switches swagger to Russian and back; lookup and definition widget unchanged")
+print("PASS: fourth translation button and remote small-button event share the heading toggle")
 UIManager:close(popup)
 
 entry = AiDict:dictionaryEntry("passé", { kind = "answer", result = {
