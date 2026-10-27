@@ -407,10 +407,30 @@ local function keepQueryLineOffAiPage()
     end
 end
 
+-- The plugin button API appends rows; insert into the assembled layout to stay beside Close.
+local function addTranslationButton()
+    local build = DictQuickLookup.buildButtonLayout
+    if type(build) ~= "function" or DictQuickLookup.aidict_translation_button then return end
+    DictQuickLookup.aidict_translation_button = build
+    DictQuickLookup.buildButtonLayout = function(popup, ...)
+        local rows = build(popup, ...)
+        if not popup.is_wiki and Page.index_in(popup.results) then
+            Header.insertButton(rows, {
+                id = "aidict_translate", text = "A↔Я", enabled = Header.available(popup),
+                callback = function()
+                    if popup.onAidictTranslate then return popup:onAidictTranslate() end
+                end,
+            })
+        end
+        return rows
+    end
+end
+
 -- KOReader has no hook for adding a result, so wrap this reader's showDict (not the class:
 -- Wikipedia shares it). The plugin's part is guarded so a changed KOReader costs only the AI page.
 function AiDict:joinDictionaryPopup()
     keepQueryLineOffAiPage()
+    addTranslationButton()
     local dictionary = self.ui.dictionary
     local show = dictionary.showDict
     if type(show) ~= "function" then

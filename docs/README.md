@@ -6,8 +6,10 @@ paragraph around it sent to a remote gateway. The answer is a dictionary entry f
 headword, IPA, part of speech, a definition, three examples in that same sense
 with the word marked in each, and a line of etymology. A Russian translation
 is fetched and cached: tap the word directly below the **AI** bar to replace it
-with Russian, and tap it again to return to English. The definition and examples
-stay English, and the toggle makes no request. Everything is cached on the device
+with Russian, and tap it again to return to English. The **A↔Я** button between
+Next and Close does the same. In an AI popup, the remote’s small Previous Page
+button also toggles the translation. The definition and examples stay English,
+and the toggle makes no request. Everything is cached on the device
 for thirty days.
 
 The request goes out the moment KOReader announces the lookup, before it has

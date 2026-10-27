@@ -508,6 +508,39 @@ describe("the KOReader layer", function()
             return reader.ui.dictionary.dict_window
         end
 
+        it("places a fourth translation button before Close and shares the heading state", function()
+            build()
+            local popup = look_up("fox")
+            local row = popup.button_table.buttons[1]
+            assert.are.equal(4, #row)
+            assert.are.equal("next_dict", row[2].id)
+            local button = popup.button_table:getButtonById("aidict_translate")
+            assert.are.equal(button, row[3])
+            assert.are.equal("close", row[4].id)
+            assert.is_true(button.enabled)
+            local calls = kor.transport.calls
+            button.callback()
+            assert.are.equal("лиса", popup.lookup_word_text.text)
+            popup.lookup_word_text:paintTo(nil, 20, 80)
+            popup:onTap(nil, { pos = { x = 25, y = 85 } })
+            assert.are.equal("fox", popup.lookup_word_text.text)
+            assert.are.equal(calls, kor.transport.calls)
+            popup:changeDictionary(2)
+            assert.is_false(button.enabled)
+        end)
+
+        it("enables the same button when an asynchronous answer arrives", function()
+            build()
+            kor.defer_scheduled = true
+            local popup = look_up("fox")
+            local button = popup.button_table:getButtonById("aidict_translate")
+            assert.is_false(button.enabled)
+            kor.run_scheduled()
+            assert.is_true(button.enabled)
+            button.callback()
+            assert.are.equal("лиса", popup.lookup_word_text.text)
+        end)
+
         it("toggles the word below AI to Russian and back without asking again", function()
             build()
             local popup = look_up("fox")

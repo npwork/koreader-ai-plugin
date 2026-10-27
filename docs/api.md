@@ -126,7 +126,9 @@ screen; entries that are not non-empty strings are dropped.
 
 `translation` is the Russian rendering. Tapping the lookup word directly below
 the **AI** bar switches that word to Russian; tapping it again restores the
-English headword. Only the label changes: definition, examples, lookup/edit word
+English headword. The **A↔Я** button between Next and Close and the remote’s
+Previous Page (`GotoViewRel(-1)`) event use that same toggle. The button is
+disabled on non-AI results or while a translation is unavailable. Only the label changes: definition, examples, lookup/edit word
 and cached answer stay intact. No network request is made, and a new popup or
 dictionary change starts in English. Without a translation the label is unchanged.
 Everything else is optional and simply not shown when missing.
