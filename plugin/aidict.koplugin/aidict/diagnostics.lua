@@ -76,7 +76,7 @@ function Diagnostics.read(path, cursor, cutoff)
     end
 end
 
-function Diagnostics.send(request)
+function Diagnostics.send(request, wait)
     local reason
     for attempt = 1, 3 do
         local answer, err = request()
@@ -87,6 +87,7 @@ function Diagnostics.send(request)
         local retry = code == "network" or code == "timeout" or
             code == "http_error" and status and (status == 408 or status == 429 or status >= 500)
         if not retry or attempt == 3 then break end
+        wait(2 ^ (attempt - 1))
     end
     return false, reason
 end

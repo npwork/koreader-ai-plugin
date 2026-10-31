@@ -102,13 +102,14 @@ describe("diagnostics", function()
     end)
 
     it("bounds retries for temporary failures and returns the failure reason", function()
-        local attempts = 0
+        local attempts, delays = 0, {}
         local ok, reason = Diagnostics.send(function()
             attempts = attempts + 1
             return nil, { code = "timeout", message = "timed out" }
-        end)
+        end, function(seconds) delays[#delays + 1] = seconds end)
         assert.is_false(ok)
         assert.are.equal(3, attempts)
+        assert.are.same({ 1, 2 }, delays)
         assert.are.equal("timed out", reason)
     end)
 
@@ -119,7 +120,7 @@ describe("diagnostics", function()
             local ok = Diagnostics.send(function()
                 attempts = attempts + 1
                 return {}, err
-            end)
+            end, function() error("permanent errors must not wait") end)
             assert.is_false(ok)
             assert.are.equal(1, attempts)
         end

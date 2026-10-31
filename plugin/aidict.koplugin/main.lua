@@ -1308,7 +1308,7 @@ function AiDict:sync()
                             logger.warn("aidict: diagnostics upload was not acknowledged")
                         end
                         return answer, err
-                    end)
+                    end, require("socket").sleep)
                     return json.encode({ accepted = accepted, reason = reason })
                 end, _("Sending diagnostics…"), true)
                 if not completed then return nil end
