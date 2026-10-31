@@ -76,6 +76,21 @@ function Diagnostics.read(path, cursor, cutoff)
     end
 end
 
+function Diagnostics.send(request)
+    local reason
+    for attempt = 1, 3 do
+        local answer, err = request()
+        if type(answer) == "table" and answer.accepted == true then return true end
+        reason = type(err) == "table" and err.message or "the server did not acknowledge the diagnostic upload"
+        local code = type(err) == "table" and err.code
+        local status = type(err) == "table" and tonumber(err.status)
+        local retry = code == "network" or code == "timeout" or
+            code == "http_error" and status and (status == 408 or status == 429 or status >= 500)
+        if not retry or attempt == 3 then break end
+    end
+    return false, reason
+end
+
 function Diagnostics.redact(text, secrets)
     for _, secret in ipairs(secrets or {}) do
         if type(secret) == "string" and secret ~= "" then
