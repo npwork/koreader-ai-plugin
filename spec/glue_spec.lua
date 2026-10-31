@@ -113,6 +113,16 @@ describe("the KOReader layer", function()
             assert.are.equal(15, plugin.store:readSetting(Diagnostics.KEY).offset)
         end)
 
+        it("saves progress past old diagnostics without making an upload request", function()
+            Diagnostics.read = function()
+                return nil, { offset = 9000, remaining = 0, eligible = false }
+            end
+            build({ responses = { synced() } })
+            plugin:sync()
+            assert.are.equal(9000, plugin.store:readSetting(Diagnostics.KEY).offset)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[1].url)
+        end)
+
         it("keeps the cursor on upload failure and still syncs the library", function()
             build({ responses = { { status = 502, body = "unavailable" }, synced() } })
             plugin:sync()

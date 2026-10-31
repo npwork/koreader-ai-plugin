@@ -3,7 +3,7 @@ local Diagnostics = {}
 Diagnostics.MAX = 64 * 1024
 Diagnostics.KEY = "diagnostics_cursor"
 
-function Diagnostics.read(path, cursor)
+local function read_chunk(path, cursor)
     local file = io.open(path, "rb")
     if not file then return nil end
     local size = file:seek("end")
@@ -47,6 +47,33 @@ function Diagnostics.read(path, cursor)
     file:close()
     return { source = "crash.log", lines = lines },
         { offset = position, prefix = prefix, anchor = anchor, remaining = size - position, skipping = skipping }
+end
+
+Diagnostics.CUTOFF = "2026-10-01"
+
+function Diagnostics.read(path, cursor, cutoff)
+    cutoff = cutoff or Diagnostics.CUTOFF
+    local eligible = cutoff == "" or type(cursor) == "table" and cursor.eligible == true
+    while true do
+        local upload, next_cursor = read_chunk(path, cursor)
+        if not upload then return nil, cursor end
+        if not cursor or upload.lines[1].offset == 0 then eligible = cutoff == "" end
+        local lines = {}
+        for _, line in ipairs(upload.lines) do
+            local month, day, year = line.text:match("^(%d%d)/(%d%d)/(%d%d)%-")
+            if not year then month, day, year = line.text:match("Current time: (%d%d)/(%d%d)/(%d%d)%-") end
+            if year then
+                eligible = ("20" .. year .. "-" .. month .. "-" .. day) >= cutoff
+            end
+            if eligible then lines[#lines + 1] = line end
+        end
+        next_cursor.eligible = eligible
+        cursor = next_cursor
+        if #lines > 0 then
+            upload.lines = lines
+            return upload, cursor
+        end
+    end
 end
 
 function Diagnostics.redact(text, secrets)
