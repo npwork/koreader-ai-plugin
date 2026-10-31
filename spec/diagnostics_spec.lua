@@ -101,6 +101,31 @@ describe("diagnostics", function()
         assert.are.equal("new detail", upload.lines[2].text)
     end)
 
+    it("bounds retries for temporary failures and returns the failure reason", function()
+        local attempts, delays = 0, {}
+        local ok, reason = Diagnostics.send(function()
+            attempts = attempts + 1
+            return nil, { code = "timeout", message = "timed out" }
+        end, function(seconds) delays[#delays + 1] = seconds end)
+        assert.is_false(ok)
+        assert.are.equal(3, attempts)
+        assert.are.same({ 1, 2 }, delays)
+        assert.are.equal("timed out", reason)
+    end)
+
+    it("does not retry permanent errors or unacknowledged responses", function()
+        for _, err in ipairs({ { code = "unauthorized", message = "key rejected" },
+            { code = "http_error", status = 413, message = "too large" }, {} }) do
+            local attempts = 0
+            local ok = Diagnostics.send(function()
+                attempts = attempts + 1
+                return {}, err
+            end, function() error("permanent errors must not wait") end)
+            assert.is_false(ok)
+            assert.are.equal(1, attempts)
+        end
+    end)
+
     it("redacts credentials from other plugins and earlier key rotations", function()
         for _, text in ipairs({
             'request {"userkey":"private-value","ok":true}',

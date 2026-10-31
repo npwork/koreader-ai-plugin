@@ -113,6 +113,49 @@ describe("the KOReader layer", function()
             assert.are.equal(15, plugin.store:readSetting(Diagnostics.KEY).offset)
         end)
 
+        it("sends every diagnostic batch in one Sync before syncing the library", function()
+            Diagnostics.read = function(_, cursor)
+                local offset = cursor and cursor.offset or 0
+                return { source = "crash.log", lines = { { offset = offset, text = "failure" } } },
+                    { offset = offset + 10, remaining = offset < 20 and 10 or 0 }
+            end
+            local accepted = { status = 200, body = helpers.body({ accepted = true }) }
+            build({ responses = { accepted, accepted, accepted, synced() } })
+            plugin:sync()
+            assert.are.equal(30, plugin.store:readSetting(Diagnostics.KEY).offset)
+            for i = 1, 3 do
+                assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/diagnostics", kor.transport.requests[i].url)
+            end
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[4].url)
+        end)
+
+        it("keeps acknowledged progress when a later batch exhausts its retries", function()
+            Diagnostics.read = function(_, cursor)
+                local offset = cursor and cursor.offset or 0
+                return { source = "crash.log", lines = { { offset = offset, text = "failure" } } },
+                    { offset = offset + 10, remaining = 10 }
+            end
+            local failed = { status = 502, body = "unavailable" }
+            build({ responses = {
+                { status = 200, body = helpers.body({ accepted = true }) }, failed, failed, failed, synced(),
+            } })
+            plugin:sync()
+            assert.are.equal(10, plugin.store:readSetting(Diagnostics.KEY).offset)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[5].url)
+            assert.is_truthy(last_shown().text:find("HTTP 502", 1, true))
+        end)
+
+        it("retries temporary diagnostic failures within the same Sync", function()
+            build({ responses = {
+                { status = 502, body = "unavailable" },
+                { status = 200, body = helpers.body({ accepted = true }) }, synced(),
+            } })
+            plugin:sync()
+            assert.are.equal(15, plugin.store:readSetting(Diagnostics.KEY).offset)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/diagnostics", kor.transport.requests[2].url)
+            assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[3].url)
+        end)
+
         it("saves progress past old diagnostics without making an upload request", function()
             Diagnostics.read = function()
                 return nil, { offset = 9000, remaining = 0, eligible = false }
@@ -124,11 +167,11 @@ describe("the KOReader layer", function()
         end)
 
         it("keeps the cursor on upload failure and still syncs the library", function()
-            build({ responses = { { status = 502, body = "unavailable" }, synced() } })
+            build({ responses = { { status = 401, body = "unauthorized" }, synced() } })
             plugin:sync()
             assert.is_nil(plugin.store:readSetting(Diagnostics.KEY))
             assert.are.equal(helpers.LIBRARY_ENDPOINT .. "/sync", kor.transport.requests[2].url)
-            assert.is_truthy(last_shown().text:find("retried", 1, true))
+            assert.is_truthy(last_shown().text:find("not fully synced", 1, true))
         end)
     end)
 

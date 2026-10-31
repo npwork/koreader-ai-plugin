@@ -1276,36 +1276,54 @@ function AiDict:sync()
     local steps = {}
     if endpoint then
         steps[#steps + 1] = { title = _("Diagnostics"), run = function()
-            local upload, cursor = Diagnostics.read("crash.log", self.store:readSetting(Diagnostics.KEY))
-            if not upload then
-                if cursor then
-                    self.store:saveSetting(Diagnostics.KEY, cursor)
-                    self.store:flush()
-                end
-                return false
-            end
-            for _, line in ipairs(upload.lines) do
-                line.text = Diagnostics.redact(line.text, { self.settings:get("api_key") })
-            end
-            upload.plugin_version = Version.string
             local remote = RemoteSettings.new({
                 endpoint = endpoint, api_key = self.settings:get("api_key"),
                 transport = http_transport, json = json,
             })
-            local completed, raw = Trapper:dismissableRunInSubprocess(function()
-                local answer, err = remote:request("POST", json.encode(upload), "/diagnostics")
-                return json.encode({ answer = answer, err = err })
-            end, _("Sending diagnostics…"), true)
-            if not completed then return nil end
-            local decoded, result = pcall(json.decode, raw)
-            if not decoded or type(result) ~= "table" or type(result.answer) ~= "table"
-                or result.answer.accepted ~= true then
-                return _("Diagnostics could not be sent; they will be retried on the next Sync.")
+            while true do
+                local upload, cursor = Diagnostics.read("crash.log", self.store:readSetting(Diagnostics.KEY))
+                if not upload then
+                    if cursor then
+                        self.store:saveSetting(Diagnostics.KEY, cursor)
+                        self.store:flush()
+                    end
+                    return false
+                end
+                for _, line in ipairs(upload.lines) do
+                    line.text = Diagnostics.redact(line.text, { self.settings:get("api_key") })
+                end
+                upload.plugin_version = Version.string
+                local completed, raw = Trapper:dismissableRunInSubprocess(function()
+                    local attempt = 0
+                    local body = json.encode(upload)
+                    local accepted, reason = Diagnostics.send(function()
+                        attempt = attempt + 1
+                        logger.info(string.format("aidict: diagnostics upload — attempt %d, %d lines, %d bytes, offset %d, %d bytes remaining",
+                            attempt, #upload.lines, #body, upload.lines[1].offset, cursor.remaining))
+                        local answer, err = remote:request("POST", body, "/diagnostics")
+                        if err then
+                            logger.warn("aidict: diagnostics upload failed:", tostring(err.code),
+                                Diagnostics.redact(tostring(err.message), { self.settings:get("api_key") }))
+                        elseif type(answer) ~= "table" or answer.accepted ~= true then
+                            logger.warn("aidict: diagnostics upload was not acknowledged")
+                        end
+                        return answer, err
+                    end, require("socket").sleep)
+                    return json.encode({ accepted = accepted, reason = reason })
+                end, _("Sending diagnostics…"), true)
+                if not completed then return nil end
+                local decoded, result = pcall(json.decode, raw)
+                if not decoded or type(result) ~= "table" or result.accepted ~= true then
+                    local reason = decoded and type(result) == "table" and result.reason or _("invalid upload response")
+                    return T(_("Diagnostics are not fully synced: %1. Run Sync to retry the unsent data."),
+                        Diagnostics.redact(tostring(reason), { self.settings:get("api_key") }))
+                end
+                self.store:saveSetting(Diagnostics.KEY, cursor)
+                self.store:flush()
+                logger.info(string.format("aidict: diagnostics acknowledged through byte %d, %d bytes remaining",
+                    cursor.offset, cursor.remaining))
+                if cursor.remaining == 0 then return false end
             end
-            self.store:saveSetting(Diagnostics.KEY, cursor)
-            self.store:flush()
-            if cursor.remaining > 0 then return _("More diagnostics will be sent on the next Sync.") end
-            return false
         end }
         steps[#steps + 1] = { title = _("Library"), run = function()
             exchanged = self:exchange(endpoint)
